@@ -1,0 +1,16 @@
+info:
+  name: Seed Dev Data
+  type: http
+  seq: 32
+
+http:
+  method: POST
+  url: "{{hostname}}/api/v1/dev/seed"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+

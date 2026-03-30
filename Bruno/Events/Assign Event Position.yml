@@ -1,0 +1,25 @@
+info:
+  name: Assign Event Position
+  type: http
+  seq: 19
+
+http:
+  method: PATCH
+  url: "{{hostname}}/api/v1/events/{{event_id}}/positions/{{position_id}}"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "user_id": "{{event_user_id}}",
+        "assigned_slot": 1
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,48 @@
+opencollection: 1.0.0
+
+info:
+  name: vZDC Osmium
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ""
+      port: ""
+      auth:
+        username: ""
+        password: ""
+      bypassProxy: ""
+
+request:
+  variables:
+    - name: hostname
+      value: http://localhost:3000
+    - name: cid
+      value: "10000010"
+    - name: oauth_code
+      value: replace-with-oauth-code
+    - name: oauth_state
+      value: replace-with-oauth-state
+    - name: event_id
+      value: replace-with-event-id
+    - name: position_id
+      value: replace-with-position-id
+    - name: event_user_id
+      value: replace-with-user-id
+    - name: training_student_id
+      value: replace-with-student-user-id
+    - name: training_trainer_id
+      value: replace-with-trainer-user-id
+    - name: training_other_trainer_id
+      value: replace-with-other-trainer-user-id
+    - name: training_request_id
+      value: replace-with-request-id
+    - name: user_limit
+      value: "25"
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

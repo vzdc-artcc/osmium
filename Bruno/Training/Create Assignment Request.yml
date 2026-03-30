@@ -1,0 +1,22 @@
+info:
+  name: Create Assignment Request
+  type: http
+  seq: 25
+
+http:
+  method: POST
+  url: "{{hostname}}/api/v1/training/assignment-requests"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{}'
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+

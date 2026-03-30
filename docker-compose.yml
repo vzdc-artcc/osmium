@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: osmium-postgres
+    environment:
+      POSTGRES_DB: osmium
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - osmium-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d osmium"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osmium-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BIND_ADDR: 0.0.0.0:3000
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/osmium
+      RUST_LOG: info,tower_http=debug
+      RUN_MIGRATIONS_ON_STARTUP: "true"
+
+    ports:
+      - "3000:3000"
+
+volumes:
+  osmium-postgres-data:

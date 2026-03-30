@@ -1,0 +1,26 @@
+info:
+  name: Create Assignment
+  type: http
+  seq: 23
+
+http:
+  method: POST
+  url: "{{hostname}}/api/v1/training/assignments"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "student_id": "{{training_student_id}}",
+        "primary_trainer_id": "{{training_trainer_id}}",
+        "other_trainer_ids": ["{{training_other_trainer_id}}"]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

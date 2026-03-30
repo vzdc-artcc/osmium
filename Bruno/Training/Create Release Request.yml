@@ -1,0 +1,22 @@
+info:
+  name: Create Release Request
+  type: http
+  seq: 28
+
+http:
+  method: POST
+  url: "{{hostname}}/api/v1/training/trainer-release-requests"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

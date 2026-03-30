@@ -1,0 +1,107 @@
+use axum::{
+    Router, middleware,
+    routing::{get, post, patch},
+};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
+
+use crate::{
+    auth::middleware::{require_staff, resolve_current_user},
+    handlers::{admin, auth, dev, events, health, training, users},
+    state::AppState,
+};
+
+pub fn build_router(state: AppState) -> Router {
+    let admin_routes = Router::new()
+        .route("/acl", get(admin::acl_debug))
+        .route("/access/catalog", get(admin::get_access_catalog))
+        .route(
+            "/users/{cid}/access",
+            get(admin::get_user_access).post(admin::update_user_access),
+        )
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_staff));
+
+    let user_routes = Router::new()
+        .route("/", get(users::list_users))
+        .route("/{cid}", get(users::get_user));
+
+    let event_routes = Router::new()
+        .route("/", get(events::list_events).post(events::create_event))
+        .route("/{event_id}", get(events::get_event).patch(events::update_event).delete(events::delete_event))
+        .route("/{event_id}/positions", get(events::list_event_positions).post(events::create_event_position))
+        .route("/{event_id}/positions/{position_id}", patch(events::assign_event_position).delete(events::delete_event_position))
+        .route("/{event_id}/positions/publish", post(events::publish_event_positions));
+
+    let training_routes = Router::new()
+        .route(
+            "/assignments",
+            get(training::list_assignments).post(training::create_assignment),
+        )
+        .route(
+            "/assignment-requests",
+            get(training::list_assignment_requests).post(training::create_assignment_request),
+        )
+        .route(
+            "/assignment-requests/{request_id}",
+            patch(training::decide_assignment_request),
+        )
+        .route(
+            "/assignment-requests/{request_id}/interest",
+            post(training::add_assignment_request_interest)
+                .delete(training::remove_assignment_request_interest),
+        )
+        .route(
+            "/trainer-release-requests",
+            get(training::list_release_requests).post(training::create_release_request),
+        )
+        .route(
+            "/trainer-release-requests/{request_id}",
+            patch(training::decide_release_request),
+        );
+
+    let mut api = Router::new()
+        .route("/me", get(auth::me))
+        .route("/auth/vatsim/login", get(auth::vatsim_login))
+        .route("/auth/vatsim/callback", get(auth::vatsim_callback))
+        .route("/auth/logout", post(auth::logout))
+        .nest("/admin", admin_routes)
+        .nest("/events", event_routes)
+        .nest("/training", training_routes)
+        .nest("/user", user_routes);
+
+    if api_dev_mode_enabled() {
+        api = api
+            .route("/auth/login/as/{cid}", get(auth::login_as_cid))
+            .route("/dev/seed", post(dev::seed_data));
+    }
+
+    Router::new()
+        .route("/health", get(health::health))
+        .route("/ready", get(health::ready))
+        .nest("/api/v1", api)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            resolve_current_user,
+        ))
+        .layer(TraceLayer::new_for_http())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .with_state(state)
+}
+
+fn api_dev_mode_enabled() -> bool {
+    env_flag_enabled("API_DEV_MODE") || env_flag_enabled("VATSIM_DEV_MODE")
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+

@@ -1,0 +1,21 @@
+info:
+  name: Access
+  type: http
+  seq: 11
+
+http:
+  method: POST
+  url: "{{hostname}}/api/v1/admin/users/{{cid}}/access"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{"roles":["STAFF"],"permissions":[{"name":"manage_users","granted":true},{"name":"dev_login_as_cid","granted":true}]}'
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
