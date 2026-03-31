@@ -123,6 +123,17 @@ cargo fmt -- --check
 cargo test
 ```
 
+## GitHub Actions Docker publish
+
+A workflow at `.github/workflows/docker-publish.yml` builds the API image and publishes it to GitHub Container Registry:
+
+- Image: `ghcr.io/<owner>/osmium`
+- Push to `main`: publishes `main`, `sha-<commit>`, and `latest`
+- Push tag `v*`: publishes matching version tags plus `sha-<commit>`
+- Pull requests to `main`: build only (no push)
+
+No extra secret is required for the default setup; publishing uses `GITHUB_TOKEN` with `packages: write` permission.
+
 ## Next implementation slice
 
 - Implement full VATSIM OAuth callback and session creation
