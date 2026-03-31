@@ -20,6 +20,7 @@ pub enum Permission {
     ViewAllUsers,
     ManageUsers,
     ManageTraining,
+    ManageFeedback,
     DevLoginAsCid,
 }
 
@@ -42,6 +43,7 @@ impl Permission {
             "view_all_users" => Some(Self::ViewAllUsers),
             "manage_users" => Some(Self::ManageUsers),
             "manage_training" => Some(Self::ManageTraining),
+            "manage_feedback" => Some(Self::ManageFeedback),
             "dev_login_as_cid" => Some(Self::DevLoginAsCid),
             _ => None,
         }
@@ -55,6 +57,7 @@ impl Permission {
             Self::ViewAllUsers => "view_all_users",
             Self::ManageUsers => "manage_users",
             Self::ManageTraining => "manage_training",
+            Self::ManageFeedback => "manage_feedback",
             Self::DevLoginAsCid => "dev_login_as_cid",
         }
     }
@@ -72,6 +75,7 @@ pub fn default_permission_names() -> Vec<String> {
         Permission::ViewAllUsers.as_db_value().to_string(),
         Permission::ManageUsers.as_db_value().to_string(),
         Permission::ManageTraining.as_db_value().to_string(),
+        Permission::ManageFeedback.as_db_value().to_string(),
         Permission::DevLoginAsCid.as_db_value().to_string(),
     ]
 }
@@ -91,6 +95,7 @@ pub fn role_has_permission(role: &str, permission: Permission) -> bool {
                 | Permission::ViewAllUsers
                 | Permission::ManageUsers
                 | Permission::ManageTraining
+                | Permission::ManageFeedback
                 | Permission::DevLoginAsCid
         ),
     }
@@ -104,6 +109,7 @@ pub fn permissions_for_role(role: &str) -> Vec<Permission> {
         Permission::ViewAllUsers,
         Permission::ManageUsers,
         Permission::ManageTraining,
+        Permission::ManageFeedback,
         Permission::DevLoginAsCid,
     ];
 
@@ -261,6 +267,7 @@ mod tests {
         assert!(!role_has_permission("USER", Permission::ManageUsers));
         assert!(!role_has_permission("USER", Permission::ViewAllUsers));
         assert!(!role_has_permission("USER", Permission::ManageTraining));
+        assert!(!role_has_permission("USER", Permission::ManageFeedback));
         assert!(!role_has_permission("USER", Permission::DevLoginAsCid));
     }
 
@@ -270,6 +277,7 @@ mod tests {
         assert!(role_has_permission("STAFF", Permission::ViewAllUsers));
         assert!(role_has_permission("STAFF", Permission::ManageUsers));
         assert!(role_has_permission("STAFF", Permission::ManageTraining));
+        assert!(role_has_permission("STAFF", Permission::ManageFeedback));
         assert!(role_has_permission("STAFF", Permission::DevLoginAsCid));
     }
 

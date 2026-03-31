@@ -40,6 +40,30 @@ request:
       value: replace-with-request-id
     - name: user_limit
       value: "25"
+    - name: visit_artcc
+      value: "ZDC"
+    - name: controller_status
+      value: "VISITOR"
+    - name: stats_month
+      value: "3"
+    - name: stats_year
+      value: "2026"
+    - name: stats_all_time
+      value: "false"
+    - name: stats_top
+      value: "3"
+    - name: stats_limit
+      value: "100"
+    - name: feedback_id
+      value: replace-with-feedback-id
+    - name: feedback_target_cid
+      value: "10000010"
+    - name: feedback_limit
+      value: "25"
+    - name: feedback_offset
+      value: "0"
+    - name: feedback_status
+      value: ""
 bundled: false
 extensions:
   bruno:

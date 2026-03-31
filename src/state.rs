@@ -1,8 +1,29 @@
+use std::sync::{Arc, RwLock};
+
+use chrono::{DateTime, Utc};
 use sqlx::{PgPool, postgres::PgPoolOptions};
+
+#[derive(Clone, Default)]
+pub struct JobHealth {
+    pub stats_sync: StatsSyncHealth,
+}
+
+#[derive(Clone, Default)]
+pub struct StatsSyncHealth {
+    pub enabled: bool,
+    pub last_started_at: Option<DateTime<Utc>>,
+    pub last_finished_at: Option<DateTime<Utc>>,
+    pub last_success_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub last_result_ok: Option<bool>,
+    pub processed: Option<usize>,
+    pub online: Option<usize>,
+}
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
+    pub job_health: Arc<RwLock<JobHealth>>,
 }
 
 impl AppState {
@@ -12,13 +33,22 @@ impl AppState {
                 .max_connections(10)
                 .connect(&database_url)
                 .await?;
-            return Ok(Self { db: Some(pool) });
+            return Ok(Self {
+                db: Some(pool),
+                job_health: Arc::new(RwLock::new(JobHealth::default())),
+            });
         }
 
-        Ok(Self { db: None })
+        Ok(Self {
+            db: None,
+            job_health: Arc::new(RwLock::new(JobHealth::default())),
+        })
     }
 
     pub fn without_db() -> Self {
-        Self { db: None }
+        Self {
+            db: None,
+            job_health: Arc::new(RwLock::new(JobHealth::default())),
+        }
     }
 }

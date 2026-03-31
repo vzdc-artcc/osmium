@@ -9,7 +9,7 @@ use tower_http::{
 
 use crate::{
     auth::middleware::{require_staff, resolve_current_user},
-    handlers::{admin, auth, dev, events, health, training, users},
+    handlers::{admin, auth, dev, events, feedback, health, stats, training, users},
     state::AppState,
 };
 
@@ -21,10 +21,16 @@ pub fn build_router(state: AppState) -> Router {
             "/users/{cid}/access",
             get(admin::get_user_access).post(admin::update_user_access),
         )
+        .route(
+            "/users/{cid}/controller-status",
+            patch(admin::set_user_controller_status),
+        )
         .route_layer(middleware::from_fn_with_state(state.clone(), require_staff));
 
     let user_routes = Router::new()
+        .route("/visit-artcc", post(users::visit_artcc))
         .route("/", get(users::list_users))
+        .route("/{cid}/feedback", get(users::get_user_feedback))
         .route("/{cid}", get(users::get_user));
 
     let event_routes = Router::new()
@@ -61,13 +67,27 @@ pub fn build_router(state: AppState) -> Router {
             patch(training::decide_release_request),
         );
 
+    let feedback_routes = Router::new()
+        .route("/", get(feedback::list_feedback).post(feedback::create_feedback))
+        .route("/{feedback_id}", patch(feedback::decide_feedback));
+
     let mut api = Router::new()
         .route("/me", get(auth::me))
         .route("/auth/vatsim/login", get(auth::vatsim_login))
         .route("/auth/vatsim/callback", get(auth::vatsim_callback))
         .route("/auth/logout", post(auth::logout))
+        .route("/stats/artcc", get(stats::get_artcc_stats))
+        .route(
+            "/stats/controller/{cid}/history",
+            get(stats::get_controller_history),
+        )
+        .route(
+            "/stats/controller/{cid}/totals",
+            get(stats::get_controller_totals),
+        )
         .nest("/admin", admin_routes)
         .nest("/events", event_routes)
+        .nest("/feedback", feedback_routes)
         .nest("/training", training_routes)
         .nest("/user", user_routes);
 

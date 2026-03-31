@@ -1,0 +1,16 @@
+info:
+  name: Get User Feedback
+  type: http
+  seq: 46
+
+http:
+  method: GET
+  url: "{{hostname}}/api/v1/user/{{cid}}/feedback?limit={{feedback_limit}}&offset={{feedback_offset}}&status={{feedback_status}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+

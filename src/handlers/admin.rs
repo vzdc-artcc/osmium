@@ -50,6 +50,19 @@ pub struct AccessCatalogBody {
 }
 
 #[derive(Deserialize)]
+pub struct SetControllerStatusRequest {
+    controller_status: String,
+    artcc: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SetControllerStatusBody {
+    cid: i64,
+    controller_status: String,
+    artcc: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct ListUsersQuery {
     limit: Option<i64>,
     offset: Option<i64>,
@@ -160,6 +173,58 @@ pub async fn get_access_catalog(
 
     let (roles, permissions) = fetch_access_catalog(state.db.as_ref()).await?;
     Ok(Json(AccessCatalogBody { roles, permissions }))
+}
+
+pub async fn set_user_controller_status(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(cid): Path<i64>,
+    Json(payload): Json<SetControllerStatusRequest>,
+) -> Result<Json<SetControllerStatusBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(&state, Some(user), Permission::ManageUsers).await?;
+
+    let Some(pool) = state.db.as_ref() else {
+        return Err(ApiError::ServiceUnavailable);
+    };
+
+    let normalized_status = match payload.controller_status.trim().to_ascii_uppercase().as_str() {
+        "HOME" => "HOME",
+        "VISITOR" => "VISITOR",
+        "NONE" => "NONE",
+        _ => return Err(ApiError::BadRequest),
+    };
+
+    let normalized_artcc = payload
+        .artcc
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase());
+
+    let updated = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        r#"
+        update users
+        set controller_status = $2,
+            artcc = coalesce($3, artcc),
+            updated_at = now()
+        where cid = $1
+        returning cid, controller_status, artcc
+        "#,
+    )
+    .bind(cid)
+    .bind(normalized_status)
+    .bind(normalized_artcc.as_deref())
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
+
+    Ok(Json(SetControllerStatusBody {
+        cid: updated.0,
+        controller_status: updated.1,
+        artcc: updated.2,
+    }))
 }
 
 pub async fn list_users(

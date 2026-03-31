@@ -1,11 +1,11 @@
 info:
-  name: Get User (Includes Stats When Authorized)
+  name: Get Controller History
   type: http
-  seq: 34
+  seq: 39
 
 http:
   method: GET
-  url: "{{hostname}}/api/v1/user/{{cid}}"
+  url: "{{hostname}}/api/v1/stats/controller/{{cid}}/history?year={{stats_year}}"
   auth: inherit
 
 settings:
