@@ -1,5 +1,5 @@
 info:
-  name: Ready
+  name: Ready (DB + Job Health)
   type: http
   seq: 2
 

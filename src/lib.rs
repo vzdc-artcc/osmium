@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod errors;
 pub mod handlers;
+pub mod jobs;
 pub mod models;
 pub mod router;
 pub mod state;
@@ -15,6 +16,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = state::AppState::from_env().await?;
     run_startup_migrations(&state).await?;
+    jobs::stats_sync::start_stats_sync_worker(state.clone());
 
     let app = router::build_router(state);
 
@@ -125,6 +127,28 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body_text = std::str::from_utf8(&body).unwrap();
         assert!(body_text.contains("ok"));
+    }
+
+    #[tokio::test]
+    async fn ready_endpoint_includes_job_health() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_text = std::str::from_utf8(&body).unwrap();
+        assert!(body_text.contains("stats_sync"));
     }
 
     #[tokio::test]
@@ -313,6 +337,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_set_controller_status_endpoint_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/admin/users/10000010/controller-status")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{\"controller_status\":\"VISITOR\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn admin_access_catalog_endpoint_requires_staff_session() {
         let state = crate::state::AppState::without_db();
         let app = crate::router::build_router(state);
@@ -364,6 +408,98 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn user_visit_artcc_endpoint_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/user/visit-artcc")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{\"artcc\":\"ZDC\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn user_feedback_endpoint_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/user/10000010/feedback?limit=10")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn artcc_stats_endpoint_is_public_but_requires_db() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/stats/artcc?month=3&year=2026")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn controller_history_stats_endpoint_is_public_but_requires_db() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/stats/controller/10000010/history?year=2026")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn controller_totals_stats_endpoint_is_public_but_requires_db() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/stats/controller/10000010/totals")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]
@@ -422,4 +558,66 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
+
+    #[tokio::test]
+    async fn feedback_create_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/feedback")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"target_cid\":10000010,\"pilot_callsign\":\"N123AB\",\"controller_position\":\"DCA_TWR\",\"rating\":4}",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn feedback_list_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/feedback")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn feedback_decide_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/feedback/fb-1")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{\"status\":\"RELEASED\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
 }

@@ -10,6 +10,7 @@ use crate::{
         middleware::CurrentUser,
     },
     errors::ApiError,
+    models::FeedbackItem,
     state::AppState,
 };
 
@@ -32,6 +33,7 @@ struct UserRow {
     rating: Option<String>,
     division: Option<String>,
     status: Option<String>,
+    controller_status: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -52,6 +54,7 @@ pub struct UserPrivateInfo {
     artcc: Option<String>,
     division: Option<String>,
     status: Option<String>,
+    controller_status: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -86,6 +89,28 @@ pub struct UserStats {
     trainer_release_requests: i64,
 }
 
+#[derive(Deserialize)]
+pub struct VisitArtccRequest {
+    artcc: String,
+    rating: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct VisitArtccResponse {
+    cid: i64,
+    artcc: String,
+    rating: Option<String>,
+    status: String,
+    roster_added: bool,
+}
+
+#[derive(Deserialize)]
+pub struct UserFeedbackQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    status: Option<String>,
+}
+
 pub async fn list_users(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -111,7 +136,8 @@ pub async fn list_users(
             artcc,
             rating,
             division,
-            status
+            status,
+            controller_status
         from users
         order by cid asc
         limit $1 offset $2
@@ -161,7 +187,8 @@ pub async fn get_user(
             artcc,
             rating,
             division,
-            status
+            status,
+            controller_status
         from users
         where cid = $1
         "#,
@@ -192,6 +219,139 @@ pub async fn get_user(
             stats,
         }),
     }))
+}
+
+pub async fn visit_artcc(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Json(payload): Json<VisitArtccRequest>,
+) -> Result<Json<VisitArtccResponse>, ApiError> {
+    let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let artcc = payload.artcc.trim().to_ascii_uppercase();
+    if artcc.is_empty() || artcc.len() > 8 {
+        return Err(ApiError::BadRequest);
+    }
+
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+
+    sqlx::query(
+        r#"
+        update users
+        set artcc = $1,
+            rating = coalesce($2, rating),
+            status = 'ACTIVE',
+            updated_at = now()
+        where id = $3
+        "#,
+    )
+    .bind(&artcc)
+    .bind(payload.rating.as_deref())
+    .bind(&viewer.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    sqlx::query(
+        r#"
+        insert into user_roles (user_id, role_name)
+        values ($1, 'USER')
+        on conflict (user_id, role_name) do nothing
+        "#,
+    )
+    .bind(&viewer.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let updated = sqlx::query_as::<_, (i64, Option<String>, Option<String>)>(
+        "select cid, artcc, rating from users where id = $1",
+    )
+    .bind(&viewer.id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(Json(VisitArtccResponse {
+        cid: updated.0,
+        artcc: updated.1.unwrap_or(artcc),
+        rating: updated.2,
+        status: "ACTIVE".to_string(),
+        roster_added: true,
+    }))
+}
+
+pub async fn get_user_feedback(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(cid): Path<i64>,
+    Query(query): Query<UserFeedbackQuery>,
+) -> Result<Json<Vec<FeedbackItem>>, ApiError> {
+    let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let target = sqlx::query_as::<_, (String, i64)>("select id, cid from users where cid = $1")
+        .bind(cid)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+        .ok_or(ApiError::BadRequest)?;
+
+    let can_view_all = can_view_all_users(&state, viewer).await?;
+    if !can_view_all && target.1 != viewer.cid {
+        return Err(ApiError::Unauthorized);
+    }
+
+    let limit = query.limit.unwrap_or(50).clamp(1, 500);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let normalized_status = query
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase())
+        .map_or(Ok(None), |normalized| {
+            if normalized != "PENDING" && normalized != "RELEASED" && normalized != "STASHED" {
+                Err(ApiError::BadRequest)
+            } else {
+                Ok(Some(normalized))
+            }
+        })?;
+
+    let items = sqlx::query_as::<_, FeedbackItem>(
+        r#"
+        select
+            id,
+            submitter_user_id,
+            target_user_id,
+            pilot_callsign,
+            controller_position,
+            rating,
+            comments,
+            staff_comments,
+            status,
+            submitted_at,
+            decided_at,
+            decided_by
+        from feedback_items
+        where target_user_id = $1
+          and ($2::text is null or status = $2)
+        order by submitted_at desc
+        limit $3 offset $4
+        "#,
+    )
+    .bind(&target.0)
+    .bind(normalized_status.as_deref())
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(Json(items))
 }
 
 async fn can_view_all_users(state: &AppState, user: &CurrentUser) -> Result<bool, ApiError> {
@@ -242,6 +402,7 @@ fn private_info_from_row(row: &UserRow) -> UserPrivateInfo {
         artcc: row.artcc.clone(),
         division: row.division.clone(),
         status: row.status.clone(),
+        controller_status: row.controller_status.clone(),
     }
 }
 

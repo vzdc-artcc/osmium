@@ -1,0 +1,22 @@
+info:
+  name: Visit ARTCC
+  type: http
+  seq: 41
+
+http:
+  method: POST
+  url: "{{hostname}}/api/v1/user/visit-artcc"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{"artcc":"{{visit_artcc}}"}'
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
