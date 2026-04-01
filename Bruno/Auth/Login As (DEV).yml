@@ -8,7 +8,7 @@ http:
   url: "{{hostname}}/api/v1/auth/login/as/:cid"
   params:
     - name: cid
-      value: "10000010"
+      value: "10000001"
       type: path
   auth: inherit
 

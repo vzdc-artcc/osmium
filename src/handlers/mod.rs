@@ -1,8 +1,10 @@
 pub mod admin;
 pub mod dev;
 pub mod auth;
+pub mod docs;
 pub mod events;
 pub mod feedback;
+pub mod files;
 pub mod health;
 pub mod stats;
 pub mod training;

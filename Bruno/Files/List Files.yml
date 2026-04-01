@@ -1,0 +1,16 @@
+info:
+  name: List Files
+  type: http
+  seq: 47
+
+http:
+  method: GET
+  url: "{{hostname}}/api/v1/files?limit={{file_limit}}&offset={{file_offset}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+

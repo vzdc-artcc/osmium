@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Osmium API Documentation</title>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700,400italic|Roboto+Mono:400,700|Material+Icons">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #fafafa;
+            color: #333;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .intro {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .intro h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+
+        .intro p {
+            line-height: 1.6;
+            margin-bottom: 10px;
+            font-size: 1.05em;
+        }
+
+        .endpoints-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .endpoint-card {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            border-left: 4px solid #667eea;
+        }
+
+        .endpoint-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+        }
+
+        .endpoint-card h3 {
+            color: #667eea;
+            margin-bottom: 12px;
+            font-size: 1.3em;
+        }
+
+        .endpoint-card p {
+            color: #666;
+            line-height: 1.5;
+            font-size: 0.95em;
+        }
+
+        .method {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.85em;
+            margin-bottom: 10px;
+        }
+
+        .method.get {
+            background-color: #61affe;
+            color: white;
+        }
+
+        .method.post {
+            background-color: #49cc90;
+            color: white;
+        }
+
+        .method.put {
+            background-color: #49cc90;
+            color: white;
+        }
+
+        .method.patch {
+            background-color: #fca130;
+            color: white;
+        }
+
+        .method.delete {
+            background-color: #f93e3e;
+            color: white;
+        }
+
+        .base-url {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.95em;
+            margin-bottom: 20px;
+            word-break: break-all;
+        }
+
+        .section {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .auth-info {
+            background: #e3f2fd;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .auth-info h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .auth-info p {
+            color: #555;
+            line-height: 1.6;
+        }
+
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.9em;
+        }
+
+        .example-request {
+            background: #f5f5f5;
+            border-left: 3px solid #667eea;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        .example-request pre {
+            margin: 0;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.9em;
+            color: #333;
+        }
+
+        .footer {
+            background: white;
+            padding: 30px 20px;
+            text-align: center;
+            color: #999;
+            font-size: 0.9em;
+            border-top: 1px solid #eee;
+            margin-top: 40px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .status-beta {
+            background-color: #ffc107;
+            color: white;
+        }
+
+        .status-stable {
+            background-color: #4caf50;
+            color: white;
+        }
+
+        .error-responses {
+            margin-top: 15px;
+        }
+
+        .error-responses h4 {
+            color: #f93e3e;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+        }
+
+        .error-item {
+            background: #ffebee;
+            border-left: 3px solid #f93e3e;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+
+        .quick-links {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+            justify-content: center;
+        }
+
+        .quick-links a {
+            display: inline-block;
+            padding: 12px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background 0.2s;
+            font-weight: 500;
+        }
+
+        .quick-links a:hover {
+            background: #764ba2;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .endpoint-card {
+                grid-column: 1 / -1;
+            }
+
+            .quick-links {
+                flex-direction: column;
+            }
+
+            .quick-links a {
+                width: 100%;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌍 Osmium API Documentation</h1>
+        <p>ARTCC Management & Training Platform</p>
+    </div>
+
+    <div class="container">
+        <div class="intro">
+            <h2>Welcome to the Osmium API</h2>
+            <p>
+                Osmium is a comprehensive backend API for managing ARTCC (Air Route Traffic Control Center) operations,
+                training programs, events, and controller statistics.
+            </p>
+            <p>
+                This documentation provides complete information about all available endpoints, authentication methods,
+                and response formats.
+            </p>
+
+            <div class="quick-links">
+                <a href="#authentication">Authentication</a>
+                <a href="#endpoints">Endpoints</a>
+                <a href="#errors">Error Handling</a>
+                <a href="#rate-limits">Rate Limits</a>
+            </div>
+        </div>
+
+        <div class="base-url">
+            <strong>Base URL:</strong> /api/v1
+        </div>
+
+        <div class="section" id="authentication">
+            <h2>🔐 Authentication</h2>
+
+            <div class="auth-info">
+                <h3>Session-Based Authentication</h3>
+                <p>
+                    The Osmium API uses session-based authentication. Users authenticate via VATSIM OAuth2
+                    and receive a session cookie that must be included in subsequent requests.
+                </p>
+            </div>
+
+            <h3 style="margin-bottom: 15px; color: #333;">Getting Your Session</h3>
+            <p style="margin-bottom: 15px;">
+                1. Redirect to <code>/api/v1/auth/vatsim/login</code><br>
+                2. User completes VATSIM OAuth flow<br>
+                3. Redirect back to your application with session established<br>
+                4. Include cookies in all subsequent API requests
+            </p>
+
+            <h3 style="margin-bottom: 15px; color: #333;">User Information</h3>
+            <p style="margin-bottom: 15px;">
+                To get current user info and permissions, use: <code>GET /api/v1/me</code>
+            </p>
+
+            <div class="example-request">
+                <pre>curl -X GET http://localhost:3000/api/v1/me \
+  -H "Cookie: session=..."</pre>
+            </div>
+        </div>
+
+        <div class="section" id="endpoints">
+            <h2>📍 API Endpoints</h2>
+
+            <h3 style="margin-bottom: 20px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Auth</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/auth/vatsim/login</h3>
+                    <p>Initiate VATSIM OAuth2 login flow</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/auth/vatsim/callback</h3>
+                    <p>VATSIM OAuth2 callback endpoint</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/auth/logout</h3>
+                    <p>Logout current user session</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/me</h3>
+                    <p>Get current user profile and permissions</p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; margin-top: 30px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Users</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/user</h3>
+                    <p>List all users with pagination</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/user/{cid}</h3>
+                    <p>Get user profile by CID</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/user/visit-artcc</h3>
+                    <p>Register user as visitor to ARTCC</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/user/{cid}/feedback</h3>
+                    <p>Get feedback for a specific user</p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; margin-top: 30px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Admin</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/admin/access/catalog</h3>
+                    <p>Get access control catalog</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/admin/users/{cid}/access</h3>
+                    <p>Get user access control settings</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/admin/users/{cid}/access</h3>
+                    <p>Update user access control settings</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method patch">PATCH</div>
+                    <h3>/admin/users/{cid}/controller-status</h3>
+                    <p>Set user controller status (HOME/VISITOR/NONE)</p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; margin-top: 30px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Events</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/events</h3>
+                    <p>List all events</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/events</h3>
+                    <p>Create new event</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/events/{event_id}</h3>
+                    <p>Get event details</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method patch">PATCH</div>
+                    <h3>/events/{event_id}</h3>
+                    <p>Update event</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method delete">DELETE</div>
+                    <h3>/events/{event_id}</h3>
+                    <p>Delete event</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/events/{event_id}/positions</h3>
+                    <p>List event positions</p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; margin-top: 30px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Training</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/training/assignments</h3>
+                    <p>List training assignments</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/training/assignments</h3>
+                    <p>Create training assignment</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/training/assignment-requests</h3>
+                    <p>List assignment requests</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/training/assignment-requests</h3>
+                    <p>Create assignment request</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method patch">PATCH</div>
+                    <h3>/training/assignment-requests/{request_id}</h3>
+                    <p>Decide on assignment request</p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; margin-top: 30px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Feedback</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/feedback</h3>
+                    <p>List feedback with filters</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/feedback</h3>
+                    <p>Submit feedback</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method patch">PATCH</div>
+                    <h3>/feedback/{feedback_id}</h3>
+                    <p>Update feedback status</p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; margin-top: 30px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Statistics</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/stats/artcc</h3>
+                    <p>Get ARTCC-wide statistics</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/stats/controller/{cid}/history</h3>
+                    <p>Get controller monthly history</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/stats/controller/{cid}/totals</h3>
+                    <p>Get controller total statistics</p>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 20px; margin-top: 30px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px;">Files / CDN</h3>
+            <div class="endpoints-grid">
+                <div class="endpoint-card">
+                    <div class="method post">POST</div>
+                    <h3>/files?filename=...</h3>
+                    <p>Upload a file from raw request body</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/files/{file_id}</h3>
+                    <p>Fetch file metadata</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/files/{file_id}/content</h3>
+                    <p>Download/serve file bytes</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/files/{file_id}/signed-url</h3>
+                    <p>Create a tokenized CDN link for private file delivery</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method get">GET</div>
+                    <h3>/cdn/{file_id}?expires=...&sig=...</h3>
+                    <p>Public/signed CDN delivery endpoint with Range support</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method patch">PATCH</div>
+                    <h3>/files/{file_id}</h3>
+                    <p>Update filename/content type/public flag</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method put">PUT</div>
+                    <h3>/files/{file_id}/content</h3>
+                    <p>Replace the stored file bytes</p>
+                </div>
+                <div class="endpoint-card">
+                    <div class="method delete">DELETE</div>
+                    <h3>/files/{file_id}</h3>
+                    <p>Delete file metadata and blob</p>
+                </div>
+            </div>
+         </div>
+
+        <div class="section" id="errors">
+            <h2>⚠️ Error Handling</h2>
+
+            <p style="margin-bottom: 20px;">
+                The API returns standard HTTP status codes and JSON error responses.
+            </p>
+
+            <h3 style="margin-bottom: 15px; color: #333;">Common Status Codes</h3>
+
+            <div class="error-item" style="border-left-color: #4caf50;">
+                <strong>200 OK</strong> - Request successful
+            </div>
+            <div class="error-item" style="border-left-color: #4caf50;">
+                <strong>201 Created</strong> - Resource created successfully
+            </div>
+            <div class="error-item" style="border-left-color: #ff9800;">
+                <strong>400 Bad Request</strong> - Invalid request format or parameters
+            </div>
+            <div class="error-item" style="border-left-color: #ff9800;">
+                <strong>401 Unauthorized</strong> - Missing or invalid authentication
+            </div>
+            <div class="error-item" style="border-left-color: #ff9800;">
+                <strong>403 Forbidden</strong> - Insufficient permissions
+            </div>
+            <div class="error-item" style="border-left-color: #ff9800;">
+                <strong>404 Not Found</strong> - Resource not found
+            </div>
+            <div class="error-item" style="border-left-color: #f93e3e;">
+                <strong>500 Internal Server Error</strong> - Server error
+            </div>
+
+            <h3 style="margin-top: 20px; margin-bottom: 15px; color: #333;">Error Response Format</h3>
+
+            <div class="example-request">
+                <pre>{
+  "error": "unauthorized",
+  "message": "User must be authenticated to access this resource"
+}</pre>
+            </div>
+        </div>
+
+        <div class="section" id="rate-limits">
+            <h2>⏱️ Rate Limiting</h2>
+
+            <p>
+                The API currently does not implement rate limiting, but may in the future.
+                Clients should implement reasonable backoff strategies when receiving
+                5xx errors.
+            </p>
+        </div>
+
+        <div class="section">
+            <h2>🔗 API Schema</h2>
+            <p style="margin-bottom: 20px;">
+                For full OpenAPI/Swagger specifications, visit:
+            </p>
+            <div class="example-request">
+                <pre><a href="/docs/api/v1/openapi.json" style="color: #667eea; text-decoration: none;">/docs/api/v1/openapi.json</a></pre>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Osmium API v1.0.0 | Last Updated: March 31, 2026</p>
+            <p style="margin-top: 10px;">For questions or issues, please contact the development team.</p>
+        </div>
+    </div>
+</body>
+</html>
+
