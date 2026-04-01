@@ -11,7 +11,22 @@ http:
       value: application/json
   body:
     type: json
-    data: '{"roles":["STAFF"],"permissions":[{"name":"manage_users","granted":true},{"name":"dev_login_as_cid","granted":true}]}'
+    data: |-
+      {
+        "roles": [
+          "STAFF"
+        ],
+        "permissions": [
+          {
+            "name": "manage_users",
+            "granted": true
+          },
+          {
+            "name": "dev_login_as_cid",
+            "granted": true
+          }
+        ]
+      }
   auth: inherit
 
 settings:

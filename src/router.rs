@@ -1,6 +1,6 @@
 use axum::{
     Router, middleware,
-    routing::{get, post, patch},
+    routing::{get, patch, post},
 };
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -9,7 +9,7 @@ use tower_http::{
 
 use crate::{
     auth::middleware::{require_staff, resolve_current_user},
-    handlers::{admin, auth, dev, events, feedback, health, stats, training, users},
+    handlers::{admin, auth, dev, docs, events, feedback, files, health, stats, training, users},
     state::AppState,
 };
 
@@ -71,6 +71,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(feedback::list_feedback).post(feedback::create_feedback))
         .route("/{feedback_id}", patch(feedback::decide_feedback));
 
+    let file_routes = Router::new()
+        .route("/", get(files::list_files).post(files::upload_file))
+        .route("/{file_id}", get(files::get_file_metadata).patch(files::update_file_metadata).delete(files::delete_file))
+        .route("/{file_id}/content", get(files::download_file_content).put(files::replace_file_content))
+        .route("/{file_id}/signed-url", get(files::get_signed_download_url));
+
     let mut api = Router::new()
         .route("/me", get(auth::me))
         .route("/auth/vatsim/login", get(auth::vatsim_login))
@@ -88,6 +94,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/admin", admin_routes)
         .nest("/events", event_routes)
         .nest("/feedback", feedback_routes)
+        .nest("/files", file_routes)
         .nest("/training", training_routes)
         .nest("/user", user_routes);
 
@@ -100,6 +107,10 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::health))
         .route("/ready", get(health::ready))
+        .route("/cdn/{file_id}", get(files::cdn_download_file))
+        .route("/docs/api/v1", get(docs::get_docs_html))
+        .route("/docs/api/v1/openapi.json", get(docs::get_openapi_schema))
+        .route("/docs/health", get(docs::docs_health))
         .nest("/api/v1", api)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -124,4 +135,3 @@ fn env_flag_enabled(name: &str) -> bool {
         .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(false)
 }
-

@@ -13,6 +13,7 @@ pub struct HealthBody {
 pub struct ReadyBody {
     status: &'static str,
     database: &'static str,
+    docs: &'static str,
     jobs: JobsHealthBody,
 }
 
@@ -101,6 +102,7 @@ pub async fn ready(State(state): State<AppState>) -> Json<ReadyBody> {
             "degraded"
         },
         database: if database_ready { "ready" } else { "degraded" },
+        docs: "ready",
         jobs: JobsHealthBody { stats_sync },
     })
 }

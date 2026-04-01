@@ -21,6 +21,8 @@ pub enum Permission {
     ManageUsers,
     ManageTraining,
     ManageFeedback,
+    UploadFiles,
+    ManageFiles,
     DevLoginAsCid,
 }
 
@@ -44,6 +46,8 @@ impl Permission {
             "manage_users" => Some(Self::ManageUsers),
             "manage_training" => Some(Self::ManageTraining),
             "manage_feedback" => Some(Self::ManageFeedback),
+            "upload_files" => Some(Self::UploadFiles),
+            "manage_files" => Some(Self::ManageFiles),
             "dev_login_as_cid" => Some(Self::DevLoginAsCid),
             _ => None,
         }
@@ -58,6 +62,8 @@ impl Permission {
             Self::ManageUsers => "manage_users",
             Self::ManageTraining => "manage_training",
             Self::ManageFeedback => "manage_feedback",
+            Self::UploadFiles => "upload_files",
+            Self::ManageFiles => "manage_files",
             Self::DevLoginAsCid => "dev_login_as_cid",
         }
     }
@@ -76,6 +82,8 @@ pub fn default_permission_names() -> Vec<String> {
         Permission::ManageUsers.as_db_value().to_string(),
         Permission::ManageTraining.as_db_value().to_string(),
         Permission::ManageFeedback.as_db_value().to_string(),
+        Permission::UploadFiles.as_db_value().to_string(),
+        Permission::ManageFiles.as_db_value().to_string(),
         Permission::DevLoginAsCid.as_db_value().to_string(),
     ]
 }
@@ -96,6 +104,7 @@ pub fn role_has_permission(role: &str, permission: Permission) -> bool {
                 | Permission::ManageUsers
                 | Permission::ManageTraining
                 | Permission::ManageFeedback
+                | Permission::ManageFiles
                 | Permission::DevLoginAsCid
         ),
     }
@@ -110,6 +119,8 @@ pub fn permissions_for_role(role: &str) -> Vec<Permission> {
         Permission::ManageUsers,
         Permission::ManageTraining,
         Permission::ManageFeedback,
+        Permission::UploadFiles,
+        Permission::ManageFiles,
         Permission::DevLoginAsCid,
     ];
 
@@ -268,6 +279,8 @@ mod tests {
         assert!(!role_has_permission("USER", Permission::ViewAllUsers));
         assert!(!role_has_permission("USER", Permission::ManageTraining));
         assert!(!role_has_permission("USER", Permission::ManageFeedback));
+        assert!(!role_has_permission("USER", Permission::UploadFiles));
+        assert!(!role_has_permission("USER", Permission::ManageFiles));
         assert!(!role_has_permission("USER", Permission::DevLoginAsCid));
     }
 
@@ -278,6 +291,8 @@ mod tests {
         assert!(role_has_permission("STAFF", Permission::ManageUsers));
         assert!(role_has_permission("STAFF", Permission::ManageTraining));
         assert!(role_has_permission("STAFF", Permission::ManageFeedback));
+        assert!(!role_has_permission("STAFF", Permission::UploadFiles));
+        assert!(role_has_permission("STAFF", Permission::ManageFiles));
         assert!(role_has_permission("STAFF", Permission::DevLoginAsCid));
     }
 
@@ -303,4 +318,3 @@ mod tests {
         assert!(!default_permission_names().is_empty());
     }
 }
-

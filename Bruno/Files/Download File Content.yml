@@ -1,0 +1,16 @@
+info:
+  name: Download File Content
+  type: http
+  seq: 50
+
+http:
+  method: GET
+  url: "{{hostname}}/api/v1/files/{{file_id}}/content"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+

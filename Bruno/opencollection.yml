@@ -19,7 +19,7 @@ request:
     - name: hostname
       value: http://localhost:3000
     - name: cid
-      value: "10000010"
+      value: "1652726"
     - name: oauth_code
       value: replace-with-oauth-code
     - name: oauth_state
@@ -41,9 +41,9 @@ request:
     - name: user_limit
       value: "25"
     - name: visit_artcc
-      value: "ZDC"
+      value: ZDC
     - name: controller_status
-      value: "VISITOR"
+      value: VISITOR
     - name: stats_month
       value: "3"
     - name: stats_year
@@ -64,6 +64,26 @@ request:
       value: "0"
     - name: feedback_status
       value: ""
+    - name: file_id
+      value: b2978789-1057-4cac-b61e-f01ac71f2b56
+    - name: file_name
+      value: intro to inst flight.pdf
+    - name: file_public
+      value: "true"
+    - name: file_limit
+      value: "25"
+    - name: file_offset
+      value: "0"
+    - name: file_signed_expires_in
+      value: "0"
+    - name: file_signed_never_expire
+      value: "false"
+    - name: file_signed_expires
+      value: "0"
+    - name: file_signed_sig
+      value: replace-with-signed-token
+    - name: file_path
+      value: /Users/vainnor/Downloads/test.txt
 bundled: false
 extensions:
   bruno:

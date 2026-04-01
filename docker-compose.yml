@@ -31,9 +31,12 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/osmium
       RUST_LOG: info,tower_http=debug
       RUN_MIGRATIONS_ON_STARTUP: "true"
-
+      FILE_STORAGE_ROOT: /app/storage/files
     ports:
       - "3000:3000"
+    volumes:
+      - osmium-files-data:/app/storage/files
 
 volumes:
   osmium-postgres-data:
+  osmium-files-data:

@@ -159,7 +159,27 @@ VATSIM_CLIENT_AUTH_METHOD=basic
 COOKIE_SECURE=false
 ```
 
-`VATSIM_DEV_MODE=true` switches default OAuth endpoints to `auth-dev.vatsim.net` when `VATSIM_AUTHORIZE_URL`, `VATSIM_TOKEN_URL`, and `VATSIM_USERINFO_URL` are not explicitly set. If these vars are set to the standard production defaults (`https://auth.vatsim.net/...`), they are also remapped to `auth-dev.vatsim.net` in dev mode.
++## File CDN env setup
++
++Set these values in `.env` for file upload/download, signed links, and CDN URL generation:
++
++```bash
++FILE_STORAGE_ROOT=./storage/files
++FILE_MAX_UPLOAD_BYTES=26214400
++FILE_SIGNING_SECRET=change-me-in-production
++FILE_ENCRYPTION_KEY_HEX=
++CDN_BASE_URL=http://127.0.0.1:3000
++```
++
++Notes:
++
++- `FILE_STORAGE_ROOT`: filesystem location for stored blobs.
++- `FILE_MAX_UPLOAD_BYTES`: max raw upload size in bytes (default 25 MB).
++- `FILE_SIGNING_SECRET`: required to mint/validate signed CDN tokens (`/api/v1/files/{file_id}/signed-url`, `/cdn/{file_id}`); use a long random secret in production.
++- `FILE_ENCRYPTION_KEY_HEX`: optional 64-char hex key enabling AES-256-GCM encryption for blobs at rest (including Docker volumes). If unset, files are stored plaintext.
++- `CDN_BASE_URL`: base URL embedded in generated signed links.
++
+ `VATSIM_DEV_MODE=true` switches default OAuth endpoints to `auth-dev.vatsim.net` when `VATSIM_AUTHORIZE_URL`, `VATSIM_TOKEN_URL`, and `VATSIM_USERINFO_URL` are not explicitly set. If these vars are set to the standard production defaults (`https://auth.vatsim.net/...`), they are also remapped to `auth-dev.vatsim.net` in dev mode.
 
 `API_DEV_MODE=true` enables a local shortcut route `GET /api/v1/auth/login/as/{cid}` that creates/reuses a user by CID and issues `osmium_session` without VATSIM OAuth.
 

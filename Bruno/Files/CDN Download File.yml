@@ -1,0 +1,16 @@
+info:
+  name: CDN Download File
+  type: http
+  seq: 55
+
+http:
+  method: GET
+  url: "{{hostname}}/cdn/{{file_id}}?expires={{file_signed_expires}}&sig={{file_signed_sig}}"
+  auth: none
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
