@@ -1,0 +1,112 @@
+info:
+  name: cdn_download_file
+  type: http
+  seq: 10
+  tags:
+    - files
+
+http:
+  method: GET
+  url: "{{baseUrl}}/cdn/:file_id"
+  params:
+    - name: file_id
+      value: ""
+      type: path
+      description: File ID
+    - name: expires
+      value: ""
+      type: query
+      description: Signed URL expiry timestamp
+      disabled: true
+    - name: sig
+      value: ""
+      type: query
+      description: Signed URL signature
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: CDN file download
+    request:
+      url: "{{baseUrl}}/cdn/:file_id"
+      method: GET
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+        - name: expires
+          value: ""
+          type: query
+          description: Signed URL expiry timestamp
+          disabled: true
+        - name: sig
+          value: ""
+          type: query
+          description: Signed URL signature
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      body:
+        type: text
+        data: ""
+  - name: 206 Response
+    description: Partial CDN file download
+    request:
+      url: "{{baseUrl}}/cdn/:file_id"
+      method: GET
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+        - name: expires
+          value: ""
+          type: query
+          description: Signed URL expiry timestamp
+          disabled: true
+        - name: sig
+          value: ""
+          type: query
+          description: Signed URL signature
+          disabled: true
+    response:
+      status: 206
+      statusText: Partial Content
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/cdn/:file_id"
+      method: GET
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+        - name: expires
+          value: ""
+          type: query
+          description: Signed URL expiry timestamp
+          disabled: true
+        - name: sig
+          value: ""
+          type: query
+          description: Signed URL signature
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

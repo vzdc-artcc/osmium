@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -15,6 +15,7 @@ use crate::{
     },
     errors::ApiError,
     models::{CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem},
+    repos::audit as audit_repo,
     state::AppState,
 };
 
@@ -39,6 +40,7 @@ pub struct FeedbackListQuery {
 pub async fn create_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    headers: HeaderMap,
     Json(payload): Json<CreateFeedbackRequest>,
 ) -> Result<(StatusCode, Json<FeedbackItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -105,6 +107,23 @@ pub async fn create_feedback(
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
+
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "CREATE".to_string(),
+            resource_type: "FEEDBACK".to_string(),
+            resource_id: Some(item.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(target_user_id),
+            before_state: None,
+            after_state: Some(audit_repo::sanitized_snapshot(&item)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, Json(item)))
 }
@@ -234,6 +253,7 @@ pub async fn decide_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(feedback_id): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<DecideFeedbackRequest>,
 ) -> Result<Json<FeedbackItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -255,6 +275,30 @@ pub async fn decide_feedback(
     }
 
     let now = chrono::Utc::now();
+    let before = sqlx::query_as::<_, FeedbackItem>(
+        r#"
+        select
+            id,
+            submitter_user_id,
+            target_user_id,
+            pilot_callsign,
+            controller_position,
+            rating,
+            comments,
+            staff_comments,
+            status,
+            submitted_at,
+            decided_at,
+            decided_by
+        from feedback.feedback_items
+        where id = $1
+        "#,
+    )
+    .bind(&feedback_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
 
     let item = sqlx::query_as::<_, FeedbackItem>(
         r#"
@@ -288,6 +332,23 @@ pub async fn decide_feedback(
     .await
     .map_err(|_| ApiError::Internal)?
     .ok_or(ApiError::BadRequest)?;
+
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "DECIDE".to_string(),
+            resource_type: "FEEDBACK".to_string(),
+            resource_id: Some(item.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(item.target_user_id.clone()),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&item)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
 
     Ok(Json(item))
 }

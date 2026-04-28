@@ -1,0 +1,184 @@
+info:
+  name: upload_file
+  type: http
+  seq: 3
+  tags:
+    - files
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/files"
+  params:
+    - name: filename
+      value: ""
+      type: query
+      description: Upload filename
+      disabled: true
+    - name: public
+      value: ""
+      type: query
+      description: Whether the file is public
+      disabled: true
+    - name: owner_cid
+      value: ""
+      type: query
+      description: Optional owner CID
+      disabled: true
+    - name: viewer_cids
+      value: ""
+      type: query
+      description: Comma-separated viewer CIDs
+      disabled: true
+    - name: viewer_roles
+      value: ""
+      type: query
+      description: Comma-separated viewer roles
+      disabled: true
+  body:
+    type: text
+    data: ""
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: File uploaded
+    request:
+      url: "{{baseUrl}}/api/v1/files"
+      method: POST
+      params:
+        - name: filename
+          value: ""
+          type: query
+          description: Upload filename
+          disabled: true
+        - name: public
+          value: ""
+          type: query
+          description: Whether the file is public
+          disabled: true
+        - name: owner_cid
+          value: ""
+          type: query
+          description: Optional owner CID
+          disabled: true
+        - name: viewer_cids
+          value: ""
+          type: query
+          description: Comma-separated viewer CIDs
+          disabled: true
+        - name: viewer_roles
+          value: ""
+          type: query
+          description: Comma-separated viewer roles
+          disabled: true
+      body:
+        type: text
+        data: ""
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "content_type": "",
+            "created_at": "",
+            "etag": "",
+            "filename": "",
+            "id": "",
+            "is_public": false,
+            "owner_user_id": "",
+            "size_bytes": 0,
+            "updated_at": "",
+            "uploaded_by": "",
+            "viewer_roles": []
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/files"
+      method: POST
+      params:
+        - name: filename
+          value: ""
+          type: query
+          description: Upload filename
+          disabled: true
+        - name: public
+          value: ""
+          type: query
+          description: Whether the file is public
+          disabled: true
+        - name: owner_cid
+          value: ""
+          type: query
+          description: Optional owner CID
+          disabled: true
+        - name: viewer_cids
+          value: ""
+          type: query
+          description: Comma-separated viewer CIDs
+          disabled: true
+        - name: viewer_roles
+          value: ""
+          type: query
+          description: Comma-separated viewer roles
+          disabled: true
+      body:
+        type: text
+        data: ""
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/files"
+      method: POST
+      params:
+        - name: filename
+          value: ""
+          type: query
+          description: Upload filename
+          disabled: true
+        - name: public
+          value: ""
+          type: query
+          description: Whether the file is public
+          disabled: true
+        - name: owner_cid
+          value: ""
+          type: query
+          description: Optional owner CID
+          disabled: true
+        - name: viewer_cids
+          value: ""
+          type: query
+          description: Comma-separated viewer CIDs
+          disabled: true
+        - name: viewer_roles
+          value: ""
+          type: query
+          description: Comma-separated viewer roles
+          disabled: true
+      body:
+        type: text
+        data: ""
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

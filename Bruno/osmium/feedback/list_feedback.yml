@@ -1,0 +1,108 @@
+info:
+  name: list_feedback
+  type: http
+  seq: 1
+  tags:
+    - feedback
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/feedback"
+  params:
+    - name: limit
+      value: ""
+      type: query
+      description: Maximum rows
+      disabled: true
+    - name: offset
+      value: ""
+      type: query
+      description: Pagination offset
+      disabled: true
+    - name: status
+      value: ""
+      type: query
+      description: Optional feedback status
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Feedback list
+    request:
+      url: "{{baseUrl}}/api/v1/feedback"
+      method: GET
+      params:
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+        - name: status
+          value: ""
+          type: query
+          description: Optional feedback status
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "comments": "",
+              "controller_position": "",
+              "decided_at": "",
+              "decided_by": "",
+              "id": "",
+              "pilot_callsign": "",
+              "rating": 0,
+              "staff_comments": "",
+              "status": "",
+              "submitted_at": "",
+              "submitter_user_id": "",
+              "target_user_id": ""
+            }
+          ]
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/feedback"
+      method: GET
+      params:
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+        - name: status
+          value: ""
+          type: query
+          description: Optional feedback status
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

@@ -1,0 +1,181 @@
+info:
+  name: get_artcc_stats
+  type: http
+  seq: 1
+  tags:
+    - stats
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/stats/artcc"
+  params:
+    - name: environment
+      value: ""
+      type: query
+      description: "Environment: live, sweatbox1, or sweatbox2"
+      disabled: true
+    - name: all_time
+      value: ""
+      type: query
+      description: Return all-time totals
+      disabled: true
+    - name: month
+      value: ""
+      type: query
+      description: Month 1-12
+      disabled: true
+    - name: year
+      value: ""
+      type: query
+      description: Calendar year
+      disabled: true
+    - name: top
+      value: ""
+      type: query
+      description: Leader count
+      disabled: true
+    - name: limit
+      value: ""
+      type: query
+      description: Controller row count
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: ARTCC statistics summary
+    request:
+      url: "{{baseUrl}}/api/v1/stats/artcc"
+      method: GET
+      params:
+        - name: environment
+          value: ""
+          type: query
+          description: "Environment: live, sweatbox1, or sweatbox2"
+          disabled: true
+        - name: all_time
+          value: ""
+          type: query
+          description: Return all-time totals
+          disabled: true
+        - name: month
+          value: ""
+          type: query
+          description: Month 1-12
+          disabled: true
+        - name: year
+          value: ""
+          type: query
+          description: Calendar year
+          disabled: true
+        - name: top
+          value: ""
+          type: query
+          description: Leader count
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          description: Controller row count
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "all_time": false,
+            "controller_count": 0,
+            "controllers": [
+              {
+                "active_hours": 0,
+                "center_hours": 0,
+                "cid": 0,
+                "delivery_hours": 0,
+                "ground_hours": 0,
+                "name": "",
+                "online_hours": 0,
+                "rating": "",
+                "total_hours": 0,
+                "tower_hours": 0,
+                "tracon_hours": 0
+              }
+            ],
+            "environment": "",
+            "label": "",
+            "leaders": [
+              {
+                "active_hours": 0,
+                "cid": 0,
+                "name": "",
+                "online_hours": 0,
+                "rank": 0,
+                "rating": ""
+              }
+            ],
+            "month": "",
+            "summary": {
+              "active_hours": 0,
+              "center_hours": 0,
+              "delivery_hours": 0,
+              "ground_hours": 0,
+              "online_hours": 0,
+              "total_hours": 0,
+              "tower_hours": 0,
+              "tracon_hours": 0
+            },
+            "updated_at": "",
+            "year": ""
+          }
+  - name: 400 Response
+    description: Invalid query
+    request:
+      url: "{{baseUrl}}/api/v1/stats/artcc"
+      method: GET
+      params:
+        - name: environment
+          value: ""
+          type: query
+          description: "Environment: live, sweatbox1, or sweatbox2"
+          disabled: true
+        - name: all_time
+          value: ""
+          type: query
+          description: Return all-time totals
+          disabled: true
+        - name: month
+          value: ""
+          type: query
+          description: Month 1-12
+          disabled: true
+        - name: year
+          value: ""
+          type: query
+          description: Calendar year
+          disabled: true
+        - name: top
+          value: ""
+          type: query
+          description: Leader count
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          description: Controller row count
+          disabled: true
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""

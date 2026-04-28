@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::Extension,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
 };
 use uuid::Uuid;
 
@@ -17,6 +17,7 @@ use crate::{
         AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
         EventPosition, UpdateEventRequest,
     },
+    repos::audit as audit_repo,
     state::AppState,
 };
 
@@ -87,6 +88,7 @@ pub async fn get_event(
 pub async fn create_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    headers: HeaderMap,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<(StatusCode, Json<Event>), ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -123,6 +125,23 @@ pub async fn create_event(
     .await
     .map_err(|_| ApiError::Internal)?;
 
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "CREATE".to_string(),
+            resource_type: "EVENT".to_string(),
+            resource_id: Some(event.id.clone()),
+            scope_type: "event".to_string(),
+            scope_key: Some(event.id.clone()),
+            before_state: None,
+            after_state: Some(audit_repo::sanitized_snapshot(&event)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
     Ok((StatusCode::CREATED, Json(event)))
 }
 
@@ -145,6 +164,7 @@ pub async fn update_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
+    headers: HeaderMap,
     Json(req): Json<UpdateEventRequest>,
 ) -> Result<Json<Event>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -157,6 +177,14 @@ pub async fn update_event(
     )
     .await?;
     let now = chrono::Utc::now();
+    let before = sqlx::query_as::<_, Event>(
+        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events WHERE id = $1"
+    )
+    .bind(&event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
 
     let event = sqlx::query_as::<_, Event>(
         "UPDATE events.events SET
@@ -187,6 +215,23 @@ pub async fn update_event(
     .map_err(|_| ApiError::Internal)?
     .ok_or(ApiError::BadRequest)?;
 
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "EVENT".to_string(),
+            resource_id: Some(event.id.clone()),
+            scope_type: "event".to_string(),
+            scope_key: Some(event.id.clone()),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&event)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
     Ok(Json(event))
 }
 
@@ -208,6 +253,7 @@ pub async fn delete_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -219,6 +265,15 @@ pub async fn delete_event(
     )
     .await?;
 
+    let before = sqlx::query_as::<_, Event>(
+        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events WHERE id = $1"
+    )
+    .bind(&event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
+
     let result = sqlx::query("DELETE FROM events.events WHERE id = $1")
         .bind(&event_id)
         .execute(db)
@@ -228,6 +283,23 @@ pub async fn delete_event(
     if result.rows_affected() == 0 {
         return Err(ApiError::BadRequest);
     }
+
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "DELETE".to_string(),
+            resource_type: "EVENT".to_string(),
+            resource_id: Some(before.id.clone()),
+            scope_type: "event".to_string(),
+            scope_key: Some(before.id.clone()),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: None,
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -279,6 +351,7 @@ pub async fn list_event_positions(
 pub async fn create_event_position(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
+    headers: HeaderMap,
     Json(req): Json<CreateEventPositionRequest>,
 ) -> Result<(StatusCode, Json<EventPosition>), ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -303,6 +376,22 @@ pub async fn create_event_position(
     .await
     .map_err(|_| ApiError::Internal)?;
 
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: None,
+            action: "CREATE".to_string(),
+            resource_type: "EVENT_POSITION".to_string(),
+            resource_id: Some(position.id.clone()),
+            scope_type: "event".to_string(),
+            scope_key: Some(event_id),
+            before_state: None,
+            after_state: Some(audit_repo::sanitized_snapshot(&position)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
     Ok((StatusCode::CREATED, Json(position)))
 }
 
@@ -326,6 +415,7 @@ pub async fn assign_event_position(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path((event_id, position_id)): Path<(String, String)>,
+    headers: HeaderMap,
     Json(req): Json<AssignEventPositionRequest>,
 ) -> Result<Json<EventPosition>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -338,6 +428,15 @@ pub async fn assign_event_position(
     )
     .await?;
     let now = chrono::Utc::now();
+    let before = sqlx::query_as::<_, EventPosition>(
+        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE id = $1 AND event_id = $2"
+    )
+    .bind(&position_id)
+    .bind(&event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
 
     let position = sqlx::query_as::<_, EventPosition>(
         "UPDATE events.event_positions
@@ -354,6 +453,23 @@ pub async fn assign_event_position(
     .await
     .map_err(|_| ApiError::Internal)?
     .ok_or(ApiError::BadRequest)?;
+
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "ASSIGN".to_string(),
+            resource_type: "EVENT_POSITION".to_string(),
+            resource_id: Some(position.id.clone()),
+            scope_type: "event".to_string(),
+            scope_key: Some(event_id),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&position)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
 
     Ok(Json(position))
 }
@@ -377,6 +493,7 @@ pub async fn delete_event_position(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path((event_id, position_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -388,6 +505,16 @@ pub async fn delete_event_position(
     )
     .await?;
 
+    let before = sqlx::query_as::<_, EventPosition>(
+        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE id = $1 AND event_id = $2"
+    )
+    .bind(&position_id)
+    .bind(&event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
+
     let result = sqlx::query("DELETE FROM events.event_positions WHERE id = $1 AND event_id = $2")
         .bind(&position_id)
         .bind(&event_id)
@@ -398,6 +525,23 @@ pub async fn delete_event_position(
     if result.rows_affected() == 0 {
         return Err(ApiError::BadRequest);
     }
+
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "DELETE".to_string(),
+            resource_type: "EVENT_POSITION".to_string(),
+            resource_id: Some(before.id.clone()),
+            scope_type: "event".to_string(),
+            scope_key: Some(event_id),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: None,
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -419,6 +563,7 @@ pub async fn publish_event_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -430,11 +575,44 @@ pub async fn publish_event_positions(
     )
     .await?;
 
+    let before = sqlx::query_as::<_, EventPosition>(
+        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST"
+    )
+    .bind(&event_id)
+    .fetch_all(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
     sqlx::query("UPDATE events.event_positions SET published = true WHERE event_id = $1")
         .bind(&event_id)
         .execute(db)
         .await
         .map_err(|_| ApiError::Internal)?;
+
+    let after = sqlx::query_as::<_, EventPosition>(
+        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST"
+    )
+    .bind(&event_id)
+    .fetch_all(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "PUBLISH".to_string(),
+            resource_type: "EVENT_POSITION_BATCH".to_string(),
+            resource_id: None,
+            scope_type: "event".to_string(),
+            scope_key: Some(event_id),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&after)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
 
     Ok(StatusCode::OK)
 }

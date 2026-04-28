@@ -1,0 +1,74 @@
+info:
+  name: vatsim_callback
+  type: http
+  seq: 3
+  tags:
+    - auth
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/auth/vatsim/callback"
+  params:
+    - name: code
+      value: ""
+      type: query
+      description: OAuth authorization code
+      disabled: true
+    - name: state
+      value: ""
+      type: query
+      description: OAuth state token
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 302 Response
+    description: Completes login and redirects to /api/v1/me
+    request:
+      url: "{{baseUrl}}/api/v1/auth/vatsim/callback"
+      method: GET
+      params:
+        - name: code
+          value: ""
+          type: query
+          description: OAuth authorization code
+          disabled: true
+        - name: state
+          value: ""
+          type: query
+          description: OAuth state token
+          disabled: true
+    response:
+      status: 302
+      statusText: Found
+      body:
+        type: text
+        data: ""
+  - name: 400 Response
+    description: Invalid callback state or code
+    request:
+      url: "{{baseUrl}}/api/v1/auth/vatsim/callback"
+      method: GET
+      params:
+        - name: code
+          value: ""
+          type: query
+          description: OAuth authorization code
+          disabled: true
+        - name: state
+          value: ""
+          type: query
+          description: OAuth state token
+          disabled: true
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""

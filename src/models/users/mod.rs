@@ -9,7 +9,7 @@ pub struct ListUsersQuery {
     pub offset: Option<i64>,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct RosterUserRow {
     pub id: String,
     pub cid: i64,

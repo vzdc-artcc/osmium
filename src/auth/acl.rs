@@ -10,6 +10,7 @@ use crate::{errors::ApiError, repos::access as access_repo};
 #[serde(rename_all = "snake_case")]
 pub enum PermissionResource {
     Auth,
+    Audit,
     System,
     Users,
     Training,
@@ -25,6 +26,7 @@ impl PermissionResource {
     pub fn from_value(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "auth" => Some(Self::Auth),
+            "audit" => Some(Self::Audit),
             "system" => Some(Self::System),
             "users" => Some(Self::Users),
             "training" => Some(Self::Training),
@@ -41,6 +43,7 @@ impl PermissionResource {
     pub fn as_value(&self) -> &'static str {
         match self {
             Self::Auth => "auth",
+            Self::Audit => "audit",
             Self::System => "system",
             Self::Users => "users",
             Self::Training => "training",
@@ -196,6 +199,7 @@ fn default_permission_names() -> Vec<String> {
         PermissionKey::new(PermissionResource::Auth, PermissionAction::Read).as_db_value(),
         PermissionKey::new(PermissionResource::Auth, PermissionAction::Delete).as_db_value(),
         PermissionKey::new(PermissionResource::Auth, PermissionAction::Manage).as_db_value(),
+        PermissionKey::new(PermissionResource::Audit, PermissionAction::Read).as_db_value(),
         PermissionKey::new(PermissionResource::System, PermissionAction::Read).as_db_value(),
         PermissionKey::new(PermissionResource::Users, PermissionAction::Read).as_db_value(),
         PermissionKey::new(PermissionResource::Users, PermissionAction::Update).as_db_value(),
@@ -368,8 +372,9 @@ mod tests {
 
     use super::{
         PermissionAction, PermissionKey, PermissionOverrideGroups, PermissionResource,
-        default_permission_names, default_roles, group_permission_keys, normalize_grouped_permissions,
-        normalize_legacy_permission_name, normalize_permission_override_groups,
+        default_permission_names, default_roles, group_permission_keys,
+        normalize_grouped_permissions, normalize_legacy_permission_name,
+        normalize_permission_override_groups,
     };
 
     #[test]
@@ -419,7 +424,10 @@ mod tests {
     #[test]
     fn normalizes_grouped_permissions() {
         let grouped = BTreeMap::from([
-            ("events".to_string(), vec!["update".to_string(), "read".to_string()]),
+            (
+                "events".to_string(),
+                vec!["update".to_string(), "read".to_string()],
+            ),
             ("files".to_string(), vec!["create".to_string()]),
         ]);
 

@@ -1,0 +1,61 @@
+info:
+  name: create_release_request
+  type: http
+  seq: 18
+  tags:
+    - training
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/training/trainer-release-requests"
+  body:
+    type: json
+    data: "{}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Trainer release request created
+    request:
+      url: "{{baseUrl}}/api/v1/training/trainer-release-requests"
+      method: POST
+      body:
+        type: json
+        data: "{}"
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "decided_at": "",
+            "decided_by": "",
+            "id": "",
+            "status": "",
+            "student_id": "",
+            "submitted_at": ""
+          }
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/training/trainer-release-requests"
+      method: POST
+      body:
+        type: json
+        data: "{}"
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

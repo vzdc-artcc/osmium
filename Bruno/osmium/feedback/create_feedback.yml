@@ -1,0 +1,109 @@
+info:
+  name: create_feedback
+  type: http
+  seq: 2
+  tags:
+    - feedback
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/feedback"
+  body:
+    type: json
+    data: |
+      {
+        "comments": "Hellooooo",
+        "controller_position": "IAD_GND",
+        "pilot_callsign": "AVL126",
+        "rating": 2,
+        "target_cid": 10000010
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Feedback created
+    request:
+      url: "{{baseUrl}}/api/v1/feedback"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "comments": "",
+            "controller_position": "",
+            "pilot_callsign": "",
+            "rating": 0,
+            "target_cid": 0
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "comments": "",
+            "controller_position": "",
+            "decided_at": "",
+            "decided_by": "",
+            "id": "",
+            "pilot_callsign": "",
+            "rating": 0,
+            "staff_comments": "",
+            "status": "",
+            "submitted_at": "",
+            "submitter_user_id": "",
+            "target_user_id": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/feedback"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "comments": "",
+            "controller_position": "",
+            "pilot_callsign": "",
+            "rating": 0,
+            "target_cid": 0
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/feedback"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "comments": "",
+            "controller_position": "",
+            "pilot_callsign": "",
+            "rating": 0,
+            "target_cid": 0
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

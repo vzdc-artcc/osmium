@@ -1,0 +1,118 @@
+info:
+  name: update_user_access
+  type: http
+  seq: 5
+  tags:
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+  params:
+    - name: cid
+      value: ""
+      type: path
+      description: VATSIM CID
+  body:
+    type: json
+    data: |-
+      {
+        "permission_overrides": "",
+        "permissions": "",
+        "role": "",
+        "roles": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Updated user access
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+      method: POST
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+      body:
+        type: json
+        data: |-
+          {
+            "permission_overrides": "",
+            "permissions": "",
+            "role": "",
+            "roles": ""
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "cid": 0,
+            "id": "",
+            "permissions": {},
+            "role": "",
+            "roles": []
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+      method: POST
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+      body:
+        type: json
+        data: |-
+          {
+            "permission_overrides": "",
+            "permissions": "",
+            "role": "",
+            "roles": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+      method: POST
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+      body:
+        type: json
+        data: |-
+          {
+            "permission_overrides": "",
+            "permissions": "",
+            "role": "",
+            "roles": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

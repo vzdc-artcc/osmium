@@ -1,0 +1,91 @@
+info:
+  name: create_event
+  type: http
+  seq: 2
+  tags:
+    - events
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/events"
+  body:
+    type: json
+    data: |-
+      {
+        "description": "",
+        "ends_at": "",
+        "event_type": "",
+        "host": "",
+        "starts_at": "",
+        "title": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Event created
+    request:
+      url: "{{baseUrl}}/api/v1/events"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "ends_at": "",
+            "event_type": "",
+            "host": "",
+            "starts_at": "",
+            "title": ""
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "created_at": "",
+            "created_by": "",
+            "description": "",
+            "ends_at": "",
+            "event_type": "",
+            "host": "",
+            "id": "",
+            "published": false,
+            "starts_at": "",
+            "status": "",
+            "title": "",
+            "updated_at": ""
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/events"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "ends_at": "",
+            "event_type": "",
+            "host": "",
+            "starts_at": "",
+            "title": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

@@ -1,0 +1,151 @@
+info:
+  name: get_user_feedback
+  type: http
+  seq: 4
+  tags:
+    - users
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+  params:
+    - name: cid
+      value: ""
+      type: path
+      description: VATSIM CID
+    - name: limit
+      value: ""
+      type: query
+      description: Maximum rows
+      disabled: true
+    - name: offset
+      value: ""
+      type: query
+      description: Pagination offset
+      disabled: true
+    - name: status
+      value: ""
+      type: query
+      description: Optional feedback status filter
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Feedback for a user
+    request:
+      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+        - name: status
+          value: ""
+          type: query
+          description: Optional feedback status filter
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "comments": "",
+              "controller_position": "",
+              "decided_at": "",
+              "decided_by": "",
+              "id": "",
+              "pilot_callsign": "",
+              "rating": 0,
+              "staff_comments": "",
+              "status": "",
+              "submitted_at": "",
+              "submitter_user_id": "",
+              "target_user_id": ""
+            }
+          ]
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+        - name: status
+          value: ""
+          type: query
+          description: Optional feedback status filter
+          disabled: true
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+        - name: status
+          value: ""
+          type: query
+          description: Optional feedback status filter
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

@@ -1,0 +1,216 @@
+info:
+  name: update_training_session
+  type: http
+  seq: 16
+  tags:
+    - training
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+  params:
+    - name: session_id
+      value: ""
+      type: path
+      description: Training session ID
+  body:
+    type: json
+    data: |-
+      {
+        "additional_comments": "",
+        "enable_markdown": "",
+        "end": "",
+        "performance_indicator": "",
+        "start": "",
+        "student_id": "",
+        "tickets": [
+          {
+            "lesson_id": "",
+            "passed": false,
+            "scores": [
+              {
+                "cell_id": "",
+                "criteria_id": "",
+                "passed": false
+              }
+            ]
+          }
+        ],
+        "trainer_comments": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Training session updated
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: PATCH
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+      body:
+        type: json
+        data: |-
+          {
+            "additional_comments": "",
+            "enable_markdown": "",
+            "end": "",
+            "performance_indicator": "",
+            "start": "",
+            "student_id": "",
+            "tickets": [
+              {
+                "lesson_id": "",
+                "passed": false,
+                "scores": [
+                  {
+                    "cell_id": "",
+                    "criteria_id": "",
+                    "passed": false
+                  }
+                ]
+              }
+            ],
+            "trainer_comments": ""
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "errors": [
+              {
+                "message": ""
+              }
+            ],
+            "ots_recommendation": "",
+            "release": "",
+            "roster_updates": [
+              {
+                "certification_option": "",
+                "certification_type_id": "",
+                "dossier_text": "",
+                "id": "",
+                "lesson_id": ""
+              }
+            ],
+            "session": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: PATCH
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+      body:
+        type: json
+        data: |-
+          {
+            "additional_comments": "",
+            "enable_markdown": "",
+            "end": "",
+            "performance_indicator": "",
+            "start": "",
+            "student_id": "",
+            "tickets": [
+              {
+                "lesson_id": "",
+                "passed": false,
+                "scores": [
+                  {
+                    "cell_id": "",
+                    "criteria_id": "",
+                    "passed": false
+                  }
+                ]
+              }
+            ],
+            "trainer_comments": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "errors": [
+              {
+                "message": ""
+              }
+            ],
+            "ots_recommendation": "",
+            "release": "",
+            "roster_updates": [
+              {
+                "certification_option": "",
+                "certification_type_id": "",
+                "dossier_text": "",
+                "id": "",
+                "lesson_id": ""
+              }
+            ],
+            "session": ""
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: PATCH
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+      body:
+        type: json
+        data: |-
+          {
+            "additional_comments": "",
+            "enable_markdown": "",
+            "end": "",
+            "performance_indicator": "",
+            "start": "",
+            "student_id": "",
+            "tickets": [
+              {
+                "lesson_id": "",
+                "passed": false,
+                "scores": [
+                  {
+                    "cell_id": "",
+                    "criteria_id": "",
+                    "passed": false
+                  }
+                ]
+              }
+            ],
+            "trainer_comments": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

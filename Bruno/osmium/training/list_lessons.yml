@@ -1,0 +1,64 @@
+info:
+  name: list_lessons
+  type: http
+  seq: 8
+  tags:
+    - training
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/training/lessons"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List training lessons
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "created_at": "",
+              "description": "",
+              "duration": 0,
+              "facility": "",
+              "id": "",
+              "identifier": "",
+              "instructor_only": false,
+              "location": 0,
+              "name": "",
+              "notify_instructor_on_pass": false,
+              "performance_indicator_template_id": "",
+              "position": "",
+              "release_request_on_pass": false,
+              "rubric_id": "",
+              "trainee_preparation": "",
+              "updated_at": ""
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

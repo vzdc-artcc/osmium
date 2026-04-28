@@ -1,0 +1,175 @@
+info:
+  name: list_training_sessions
+  type: http
+  seq: 12
+  tags:
+    - training
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/training/sessions"
+  params:
+    - name: limit
+      value: ""
+      type: query
+      disabled: true
+    - name: offset
+      value: ""
+      type: query
+      disabled: true
+    - name: sort_field
+      value: ""
+      type: query
+      disabled: true
+    - name: sort_order
+      value: ""
+      type: query
+      disabled: true
+    - name: filter_field
+      value: ""
+      type: query
+      disabled: true
+    - name: filter_operator
+      value: ""
+      type: query
+      disabled: true
+    - name: filter_value
+      value: ""
+      type: query
+      disabled: true
+    - name: student_id
+      value: ""
+      type: query
+      disabled: true
+    - name: instructor_id
+      value: ""
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List training sessions
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions"
+      method: GET
+      params:
+        - name: limit
+          value: ""
+          type: query
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          disabled: true
+        - name: sort_field
+          value: ""
+          type: query
+          disabled: true
+        - name: sort_order
+          value: ""
+          type: query
+          disabled: true
+        - name: filter_field
+          value: ""
+          type: query
+          disabled: true
+        - name: filter_operator
+          value: ""
+          type: query
+          disabled: true
+        - name: filter_value
+          value: ""
+          type: query
+          disabled: true
+        - name: student_id
+          value: ""
+          type: query
+          disabled: true
+        - name: instructor_id
+          value: ""
+          type: query
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "additional_comments": "",
+              "created_at": "",
+              "enable_markdown": false,
+              "end": "",
+              "id": "",
+              "instructor_cid": 0,
+              "instructor_id": "",
+              "instructor_name": "",
+              "start": "",
+              "student_cid": 0,
+              "student_id": "",
+              "student_name": "",
+              "ticket_count": 0,
+              "trainer_comments": "",
+              "updated_at": "",
+              "vatusa_id": ""
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions"
+      method: GET
+      params:
+        - name: limit
+          value: ""
+          type: query
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          disabled: true
+        - name: sort_field
+          value: ""
+          type: query
+          disabled: true
+        - name: sort_order
+          value: ""
+          type: query
+          disabled: true
+        - name: filter_field
+          value: ""
+          type: query
+          disabled: true
+        - name: filter_operator
+          value: ""
+          type: query
+          disabled: true
+        - name: filter_value
+          value: ""
+          type: query
+          disabled: true
+        - name: student_id
+          value: ""
+          type: query
+          disabled: true
+        - name: instructor_id
+          value: ""
+          type: query
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

@@ -1,0 +1,54 @@
+info:
+  name: list_release_requests
+  type: http
+  seq: 17
+  tags:
+    - training
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/training/trainer-release-requests"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List trainer release requests
+    request:
+      url: "{{baseUrl}}/api/v1/training/trainer-release-requests"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "decided_at": "",
+              "decided_by": "",
+              "id": "",
+              "status": "",
+              "student_id": "",
+              "submitted_at": ""
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/trainer-release-requests"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""
