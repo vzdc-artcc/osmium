@@ -186,43 +186,90 @@ pub async fn list_files(
     Query(query): Query<ListFilesQuery>,
 ) -> Result<Json<Vec<FileAsset>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionKey::new(PermissionResource::Files, PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+
+    let can_manage_files = permissions.contains(&PermissionKey::new(
+        PermissionResource::Files,
+        PermissionAction::Update,
+    ));
+    let can_read_files = permissions.contains(&PermissionKey::new(
+        PermissionResource::Files,
+        PermissionAction::Read,
+    ));
+
+    if !can_manage_files && !can_read_files {
+        return Err(ApiError::Unauthorized);
+    }
 
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let offset = query.offset.unwrap_or(0).max(0);
 
-    let rows = sqlx::query_as::<_, FileAssetRow>(
-        r#"
-        select
-            id,
-            filename,
-            content_type,
-            size_bytes,
-            etag,
-            storage_key,
-            is_public,
-            uploaded_by,
-            owner_user_id,
-            viewer_roles,
-            created_at,
-            updated_at
-        from media.file_assets
-        order by created_at desc
-        limit $1 offset $2
-        "#,
-    )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let rows = if can_manage_files {
+        sqlx::query_as::<_, FileAssetRow>(
+            r#"
+            select
+                id,
+                filename,
+                content_type,
+                size_bytes,
+                etag,
+                storage_key,
+                is_public,
+                uploaded_by,
+                owner_user_id,
+                viewer_roles,
+                created_at,
+                updated_at
+            from media.file_assets
+            order by created_at desc
+            limit $1 offset $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+    } else {
+        sqlx::query_as::<_, FileAssetRow>(
+            r#"
+            select
+                fa.id,
+                fa.filename,
+                fa.content_type,
+                fa.size_bytes,
+                fa.etag,
+                fa.storage_key,
+                fa.is_public,
+                fa.uploaded_by,
+                fa.owner_user_id,
+                fa.viewer_roles,
+                fa.created_at,
+                fa.updated_at
+            from media.file_assets fa
+            where fa.is_public
+               or fa.uploaded_by = $1
+               or fa.owner_user_id = $1
+               or fa.viewer_roles && $2::text[]
+               or exists (
+                    select 1
+                    from media.file_asset_allowed_users au
+                    where au.file_id = fa.id
+                      and au.user_id = $1
+               )
+            order by fa.created_at desc
+            limit $3 offset $4
+            "#,
+        )
+        .bind(&user.id)
+        .bind(&roles)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+    };
 
     Ok(Json(rows.into_iter().map(FileAsset::from).collect()))
 }
@@ -1166,16 +1213,25 @@ async fn user_can_read_file(
     user: &CurrentUser,
     row: &FileAssetRow,
 ) -> Result<bool, ApiError> {
-    if row.is_public || user.id == row.uploaded_by || row.owner_user_id.as_deref() == Some(&user.id)
-    {
+    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+    let can_manage_files = permissions.contains(&PermissionKey::new(
+        PermissionResource::Files,
+        PermissionAction::Update,
+    ));
+    if can_manage_files {
         return Ok(true);
     }
 
-    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    if permissions.contains(&PermissionKey::new(
+    let can_read_files = permissions.contains(&PermissionKey::new(
         PermissionResource::Files,
-        PermissionAction::Update,
-    )) {
+        PermissionAction::Read,
+    ));
+    if !can_read_files {
+        return Ok(false);
+    }
+
+    if row.is_public || user.id == row.uploaded_by || row.owner_user_id.as_deref() == Some(&user.id)
+    {
         return Ok(true);
     }
 

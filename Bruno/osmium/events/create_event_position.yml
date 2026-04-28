@@ -90,3 +90,26 @@ examples:
       body:
         type: text
         data: ""
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id/positions"
+      method: POST
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+      body:
+        type: json
+        data: |-
+          {
+            "callsign": "",
+            "requested_slot": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""
