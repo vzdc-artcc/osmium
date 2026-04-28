@@ -53,14 +53,29 @@ GET /api/v1/auth/service-account/me
 
 - `auth.read`
 - `auth.delete`
+- `files.read`
 - `users.read`
 - `users.update`
 - `training.update`
   This currently gates assignment management, release-request moderation, and all training-session CRUD routes.
 - `feedback.update`
 - `files.create`
+  This is no longer part of the default `USER` role. Uploads require elevated access.
 - `files.update`
 - `events.update`
+
+## Default Human Access
+
+Newly logged-in users receive the baseline `USER` role.
+
+- `USER` is read-mostly by default
+- `USER` can read its own auth/session info
+- `USER` can browse public files and files explicitly visible to that user
+- `USER` can submit feedback and view their own feedback surfaces
+- `USER` can sign up for event positions as themselves
+- `USER` cannot upload files by default
+
+Future VATUSA integration should sync external role data into Osmium roles. Osmium remains responsible for mapping roles to effective permissions.
 
 ## Human-Only vs Machine-Ready
 

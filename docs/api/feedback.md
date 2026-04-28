@@ -13,4 +13,6 @@ Submit and review controller feedback.
 ## Access
 
 - authenticated users can submit feedback
+- authenticated users can list their own submitted feedback and view their own received feedback
 - managers with `manage_feedback` can review and decide feedback state
+- feedback submission remains an intentional self-service exception to the otherwise read-mostly default user access

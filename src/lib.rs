@@ -924,6 +924,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn event_position_create_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/events/event-1/positions")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"callsign\":\"DCA_DEL\",\"requested_slot\":1}",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn files_list_requires_session() {
         let state = crate::state::AppState::without_db();
         let app = crate::router::build_router(state);

@@ -16,3 +16,5 @@ Create, update, delete, and staff events.
 
 - list and get are public to the API consumer side
 - mutation currently requires `events.update`
+- event position signup requires an authenticated user session
+- event position signup is self-service and stores the requesting user on the position record

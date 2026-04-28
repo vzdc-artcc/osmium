@@ -345,28 +345,32 @@ pub async fn list_event_positions(
     request_body = CreateEventPositionRequest,
     responses(
         (status = 201, description = "Position request created", body = EventPosition),
-        (status = 400, description = "Invalid request")
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated")
     )
 )]
 pub async fn create_event_position(
     State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
     Json(req): Json<CreateEventPositionRequest>,
 ) -> Result<(StatusCode, Json<EventPosition>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let position_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
     let position = sqlx::query_as::<_, EventPosition>(
-        "INSERT INTO events.event_positions (id, event_id, callsign, requested_slot, status, published, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "INSERT INTO events.event_positions (id, event_id, callsign, user_id, requested_slot, status, published, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at"
     )
     .bind(&position_id)
     .bind(&event_id)
     .bind(&req.callsign)
+    .bind(&user.id)
     .bind(&req.requested_slot)
     .bind("REQUESTED")
     .bind(false)
@@ -374,12 +378,16 @@ pub async fn create_event_position(
     .bind(&now)
     .fetch_one(db)
     .await
-    .map_err(|_| ApiError::Internal)?;
+    .map_err(|error| match error {
+        sqlx::Error::Database(db_error) if db_error.is_unique_violation() => ApiError::BadRequest,
+        _ => ApiError::Internal,
+    })?;
 
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
         db,
         audit_repo::AuditEntryInput {
-            actor_id: None,
+            actor_id: actor.actor_id,
             action: "CREATE".to_string(),
             resource_type: "EVENT_POSITION".to_string(),
             resource_id: Some(position.id.clone()),
