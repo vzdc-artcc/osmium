@@ -18,10 +18,20 @@ pub use feedback::{CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem};
 pub use media::{FileAsset, ListFilesQuery, UpdateFileMetadataRequest, UploadFileQuery};
 
 pub use training::{
+    ApiMessage, CreateOrUpdateTrainingSessionResult, CreateRubricScoreRequest,
     CreateTrainerReleaseRequestRequest, CreateTrainingAssignmentRequest,
     CreateTrainingAssignmentRequestRequest, DecideTrainerReleaseRequestRequest,
-    DecideTrainingAssignmentRequestRequest, TrainerReleaseRequest, TrainingAssignment,
-    TrainingAssignmentRequest,
+    DecideTrainingAssignmentRequestRequest, LessonRosterChangeSummary,
+    ListTrainingSessionsQuery, OtsRecommendationSummary, TrainerReleaseRequest,
+    TrainingAssignment, TrainingAssignmentRequest, TrainingLesson, TrainingSessionDetail,
+    TrainingSessionListItem, TrainingSessionPerformanceIndicatorCategoryDetail,
+    TrainingSessionPerformanceIndicatorCriteriaDetail,
+    TrainingSessionPerformanceIndicatorDetail, TrainingTicketDetail,
+    CreateTrainingLessonRequest, UpdateTrainingLessonRequest,
+    CreateTrainingSessionPerformanceIndicatorCategoryRequest,
+    CreateTrainingSessionPerformanceIndicatorCriteriaRequest,
+    CreateTrainingSessionPerformanceIndicatorRequest, CreateTrainingSessionRequest,
+    CreateTrainingTicketRequest, RubricScoreDetail, UpdateTrainingSessionRequest,
 };
 
 pub use users::{

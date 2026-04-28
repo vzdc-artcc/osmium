@@ -18,6 +18,27 @@ Osmium uses one Postgres database with multiple schemas.
 - `training.v_active_assignments`
 - `events.v_event_staffing_summary`
 
+## Training Tables In Active Use
+
+The training API now actively reads and writes these training tables:
+
+- `training.training_sessions`
+- `training.training_tickets`
+- `training.rubric_scores`
+- `training.session_performance_indicators`
+- `training.session_performance_indicator_categories`
+- `training.session_performance_indicator_criteria`
+- `training.training_assignments`
+- `training.training_assignment_requests`
+- `training.trainer_release_requests`
+
+Training session side effects also touch:
+
+- `org.user_certifications`
+- `org.user_solo_certifications`
+- `feedback.dossier_entries`
+- `training.ots_recommendations`
+
 ## Why Schemas Instead of Many Databases
 
 This keeps:

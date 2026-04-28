@@ -240,6 +240,10 @@ mod tests {
             "/api/v1/user",
             "/api/v1/admin/acl",
             "/api/v1/training/assignments",
+            "/api/v1/training/lessons",
+            "/api/v1/training/lessons/{lesson_id}",
+            "/api/v1/training/sessions",
+            "/api/v1/training/sessions/{session_id}",
             "/api/v1/events",
             "/api/v1/feedback",
             "/api/v1/files",
@@ -630,6 +634,186 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/training/assignments")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_lessons_endpoint_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/training/lessons")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_lesson_create_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/training/lessons")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"identifier\":\"OBS1\",\"location\":0,\"name\":\"Intro\",\"description\":\"Desc\",\"position\":\"DCA_DEL\",\"facility\":\"DCA\",\"duration\":60,\"instructor_only\":false,\"notify_instructor_on_pass\":false,\"release_request_on_pass\":false}",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_lesson_update_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/training/lessons/lesson-1")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"identifier\":\"OBS1\",\"location\":0,\"name\":\"Intro\",\"description\":\"Desc\",\"position\":\"DCA_DEL\",\"facility\":\"DCA\",\"duration\":60,\"instructor_only\":false,\"notify_instructor_on_pass\":false,\"release_request_on_pass\":false}",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_lesson_delete_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/training/lessons/lesson-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_sessions_list_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/training/sessions")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_session_detail_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/training/sessions/session-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_session_create_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/training/sessions")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"student_id\":\"user-1\",\"start\":\"2026-04-28T12:00:00Z\",\"end\":\"2026-04-28T13:00:00Z\",\"tickets\":[]}",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_session_update_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/training/sessions/session-1")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"student_id\":\"user-1\",\"start\":\"2026-04-28T12:00:00Z\",\"end\":\"2026-04-28T13:00:00Z\",\"tickets\":[]}",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn training_session_delete_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/training/sessions/session-1")
                     .body(Body::empty())
                     .unwrap(),
             )

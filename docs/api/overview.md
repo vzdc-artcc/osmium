@@ -13,6 +13,19 @@ The generated API reference lives at `/docs/api/v1`. This page explains how to r
 - files
 - stats
 
+## Training Coverage
+
+The training group now includes:
+
+- assignment management
+- lesson lookup for session submission
+- lesson CRUD
+- assignment-request and trainer-interest workflows
+- trainer release requests
+- training session CRUD
+- nested ticket and rubric score submission
+- session performance-indicator snapshots
+
 ## Auth Patterns
 
 - session cookie auth for human clients

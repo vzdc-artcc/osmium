@@ -67,7 +67,12 @@ Do not mix `localhost` and `127.0.0.1` during the same login flow.
 
 | Variable | Required | Default | Notes |
 | --- | --- | --- | --- |
+| `STATS_SYNC_ENABLED` | No | `true` | Enables the controller stats collector worker. |
+| `STATS_SYNC_INTERVAL_SECS` | No | `5` | Poll interval for live and sweatbox controller feeds. |
 | `STATS_SYNC_STALE_SECS` | No | `300` | Controls readiness staleness threshold for stats sync. |
+| `VNAS_CONTROLLER_FEED_URL_LIVE` | No | live VNAS URL | Optional override for the live controller feed. |
+| `VNAS_CONTROLLER_FEED_URL_SWEATBOX1` | No | sweatbox1 VNAS URL | Optional override for the Sweatbox 1 controller feed. |
+| `VNAS_CONTROLLER_FEED_URL_SWEATBOX2` | No | sweatbox2 VNAS URL | Optional override for the Sweatbox 2 controller feed. |
 
 ## Docs Behavior
 

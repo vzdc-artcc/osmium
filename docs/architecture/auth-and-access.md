@@ -56,6 +56,7 @@ GET /api/v1/auth/service-account/me
 - `users.read`
 - `users.update`
 - `training.update`
+  This currently gates assignment management, release-request moderation, and all training-session CRUD routes.
 - `feedback.update`
 - `files.create`
 - `files.update`
