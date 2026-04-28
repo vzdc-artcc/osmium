@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: "{{hostname}}/api/v1/files?filename={{file_name}}&public={{file_public}}"
+  url: "{{hostname}}/api/v1/files?filename={{file_name}}&public={{file_public}}&owner_cid={{file_owner_cid}}&viewer_cids={{file_viewer_cids}}&viewer_roles={{file_viewer_roles}}"
   headers:
     - name: Content-Type
       value: application/octet-stream

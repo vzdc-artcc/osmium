@@ -1,15 +1,16 @@
 use axum::{
+    Json,
     extract::Extension,
     extract::{Path, State},
     http::StatusCode,
-    Json,
 };
 use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::Permission,
-        middleware::{CurrentUser, ensure_permission},
+        acl::{PermissionAction, PermissionKey, PermissionResource},
+        context::CurrentUser,
+        middleware::ensure_permission,
     },
     errors::ApiError,
     models::{
@@ -20,13 +21,19 @@ use crate::{
 };
 
 // List events
-pub async fn list_events(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<Event>>, ApiError> {
+#[utoipa::path(
+    get,
+    path = "/api/v1/events",
+    tag = "events",
+    responses(
+        (status = 200, description = "List events", body = [Event])
+    )
+)]
+pub async fn list_events(State(state): State<AppState>) -> Result<Json<Vec<Event>>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let events = sqlx::query_as::<_, Event>(
-        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events ORDER BY starts_at DESC"
+        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events ORDER BY starts_at DESC"
     )
     .fetch_all(db)
     .await
@@ -36,6 +43,18 @@ pub async fn list_events(
 }
 
 // Get single event
+#[utoipa::path(
+    get,
+    path = "/api/v1/events/{event_id}",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID")
+    ),
+    responses(
+        (status = 200, description = "Event details", body = Event),
+        (status = 400, description = "Invalid event ID")
+    )
+)]
 pub async fn get_event(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
@@ -43,7 +62,7 @@ pub async fn get_event(
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let event = sqlx::query_as::<_, Event>(
-        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events WHERE id = $1"
+        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events WHERE id = $1"
     )
     .bind(&event_id)
     .fetch_optional(db)
@@ -55,6 +74,16 @@ pub async fn get_event(
 }
 
 // Create event (staff only)
+#[utoipa::path(
+    post,
+    path = "/api/v1/events",
+    tag = "events",
+    request_body = CreateEventRequest,
+    responses(
+        (status = 201, description = "Event created", body = Event),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn create_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -62,13 +91,19 @@ pub async fn create_event(
 ) -> Result<(StatusCode, Json<Event>), ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageUsers).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    )
+    .await?;
 
     let event_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
     let event = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (id, title, type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at)
+        "INSERT INTO events.events (id, title, type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at)
          VALUES ($1, $2, COALESCE($3, 'STANDARD'), $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at"
     )
@@ -92,6 +127,20 @@ pub async fn create_event(
 }
 
 // Update event (staff only)
+#[utoipa::path(
+    patch,
+    path = "/api/v1/events/{event_id}",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID")
+    ),
+    request_body = UpdateEventRequest,
+    responses(
+        (status = 200, description = "Event updated", body = Event),
+        (status = 400, description = "Invalid event ID"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn update_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -100,11 +149,17 @@ pub async fn update_event(
 ) -> Result<Json<Event>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageUsers).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    )
+    .await?;
     let now = chrono::Utc::now();
 
     let event = sqlx::query_as::<_, Event>(
-        "UPDATE events SET
+        "UPDATE events.events SET
             title = COALESCE($1, title),
             type = COALESCE($2, type),
             host = COALESCE($3, host),
@@ -136,6 +191,19 @@ pub async fn update_event(
 }
 
 // Delete event (staff only)
+#[utoipa::path(
+    delete,
+    path = "/api/v1/events/{event_id}",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID")
+    ),
+    responses(
+        (status = 204, description = "Event deleted"),
+        (status = 400, description = "Invalid event ID"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn delete_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -143,9 +211,15 @@ pub async fn delete_event(
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageUsers).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    )
+    .await?;
 
-    let result = sqlx::query("DELETE FROM events WHERE id = $1")
+    let result = sqlx::query("DELETE FROM events.events WHERE id = $1")
         .bind(&event_id)
         .execute(db)
         .await
@@ -159,6 +233,18 @@ pub async fn delete_event(
 }
 
 // List event positions
+#[utoipa::path(
+    get,
+    path = "/api/v1/events/{event_id}/positions",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID")
+    ),
+    responses(
+        (status = 200, description = "List event positions", body = [EventPosition]),
+        (status = 400, description = "Invalid event ID")
+    )
+)]
 pub async fn list_event_positions(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
@@ -166,7 +252,7 @@ pub async fn list_event_positions(
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let positions = sqlx::query_as::<_, EventPosition>(
-        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST"
+        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST"
     )
     .bind(&event_id)
     .fetch_all(db)
@@ -177,6 +263,19 @@ pub async fn list_event_positions(
 }
 
 // Create event position (user signup)
+#[utoipa::path(
+    post,
+    path = "/api/v1/events/{event_id}/positions",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID")
+    ),
+    request_body = CreateEventPositionRequest,
+    responses(
+        (status = 201, description = "Position request created", body = EventPosition),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub async fn create_event_position(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
@@ -188,7 +287,7 @@ pub async fn create_event_position(
     let now = chrono::Utc::now();
 
     let position = sqlx::query_as::<_, EventPosition>(
-        "INSERT INTO event_positions (id, event_id, callsign, requested_slot, status, published, created_at, updated_at)
+        "INSERT INTO events.event_positions (id, event_id, callsign, requested_slot, status, published, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at"
     )
@@ -208,6 +307,21 @@ pub async fn create_event_position(
 }
 
 // Assign event position (staff only)
+#[utoipa::path(
+    patch,
+    path = "/api/v1/events/{event_id}/positions/{position_id}",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID"),
+        ("position_id" = String, Path, description = "Position ID")
+    ),
+    request_body = AssignEventPositionRequest,
+    responses(
+        (status = 200, description = "Position assigned", body = EventPosition),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn assign_event_position(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -216,11 +330,17 @@ pub async fn assign_event_position(
 ) -> Result<Json<EventPosition>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageUsers).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    )
+    .await?;
     let now = chrono::Utc::now();
 
     let position = sqlx::query_as::<_, EventPosition>(
-        "UPDATE event_positions
+        "UPDATE events.event_positions
          SET assigned_slot = $1, status = 'ASSIGNED', user_id = $2, updated_at = $3
          WHERE id = $4 AND event_id = $5
          RETURNING id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at"
@@ -239,6 +359,20 @@ pub async fn assign_event_position(
 }
 
 // Delete event position
+#[utoipa::path(
+    delete,
+    path = "/api/v1/events/{event_id}/positions/{position_id}",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID"),
+        ("position_id" = String, Path, description = "Position ID")
+    ),
+    responses(
+        (status = 204, description = "Position deleted"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn delete_event_position(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -246,9 +380,15 @@ pub async fn delete_event_position(
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageUsers).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    )
+    .await?;
 
-    let result = sqlx::query("DELETE FROM event_positions WHERE id = $1 AND event_id = $2")
+    let result = sqlx::query("DELETE FROM events.event_positions WHERE id = $1 AND event_id = $2")
         .bind(&position_id)
         .bind(&event_id)
         .execute(db)
@@ -263,6 +403,18 @@ pub async fn delete_event_position(
 }
 
 // Publish positions for event
+#[utoipa::path(
+    post,
+    path = "/api/v1/events/{event_id}/positions/publish",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID")
+    ),
+    responses(
+        (status = 200, description = "Positions published"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn publish_event_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -270,9 +422,15 @@ pub async fn publish_event_positions(
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageUsers).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    )
+    .await?;
 
-    sqlx::query("UPDATE event_positions SET published = true WHERE event_id = $1")
+    sqlx::query("UPDATE events.event_positions SET published = true WHERE event_id = $1")
         .bind(&event_id)
         .execute(db)
         .await
@@ -280,4 +438,3 @@ pub async fn publish_event_positions(
 
     Ok(StatusCode::OK)
 }
-

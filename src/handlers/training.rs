@@ -7,8 +7,9 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::Permission,
-        middleware::{CurrentUser, ensure_permission},
+        acl::{PermissionAction, PermissionKey, PermissionResource},
+        context::CurrentUser,
+        middleware::ensure_permission,
     },
     errors::ApiError,
     models::{
@@ -20,16 +21,31 @@ use crate::{
     state::AppState,
 };
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/training/assignments",
+    tag = "training",
+    responses(
+        (status = 200, description = "List assignments", body = [TrainingAssignment]),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn list_assignments(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingAssignment>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageTraining).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingAssignment>(
-        "select id, student_id, primary_trainer_id, created_at, updated_at from training_assignments order by created_at desc",
+        "select id, student_id, primary_trainer_id, created_at, updated_at from training.training_assignments order by created_at desc",
     )
     .fetch_all(db)
     .await
@@ -38,13 +54,30 @@ pub async fn list_assignments(
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/assignments",
+    tag = "training",
+    request_body = CreateTrainingAssignmentRequest,
+    responses(
+        (status = 201, description = "Assignment created", body = TrainingAssignment),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn create_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Json(payload): Json<CreateTrainingAssignmentRequest>,
 ) -> Result<(StatusCode, Json<TrainingAssignment>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageTraining).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
@@ -53,7 +86,7 @@ pub async fn create_assignment(
 
     let row = sqlx::query_as::<_, TrainingAssignment>(
         r#"
-        insert into training_assignments (id, student_id, primary_trainer_id, created_at, updated_at)
+        insert into training.training_assignments (id, student_id, primary_trainer_id, created_at, updated_at)
         values ($1, $2, $3, $4, $5)
         returning id, student_id, primary_trainer_id, created_at, updated_at
         "#,
@@ -75,7 +108,7 @@ pub async fn create_assignment(
 
             sqlx::query(
                 r#"
-                insert into training_assignment_other_trainers (assignment_id, trainer_id)
+                insert into training.training_assignment_other_trainers (assignment_id, trainer_id)
                 values ($1, $2)
                 on conflict (assignment_id, trainer_id) do nothing
                 "#,
@@ -93,16 +126,31 @@ pub async fn create_assignment(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/training/assignment-requests",
+    tag = "training",
+    responses(
+        (status = 200, description = "List assignment requests", body = [TrainingAssignmentRequest]),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn list_assignment_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingAssignmentRequest>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageTraining).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingAssignmentRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training_assignment_requests order by submitted_at desc",
+        "select id, student_id, submitted_at, status, decided_at, decided_by from training.training_assignment_requests order by submitted_at desc",
     )
     .fetch_all(db)
     .await
@@ -111,6 +159,16 @@ pub async fn list_assignment_requests(
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/assignment-requests",
+    tag = "training",
+    request_body = CreateTrainingAssignmentRequestRequest,
+    responses(
+        (status = 201, description = "Assignment request created", body = TrainingAssignmentRequest),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn create_assignment_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -124,7 +182,7 @@ pub async fn create_assignment_request(
 
     let row = sqlx::query_as::<_, TrainingAssignmentRequest>(
         r#"
-        insert into training_assignment_requests (id, student_id, submitted_at, status)
+        insert into training.training_assignment_requests (id, student_id, submitted_at, status)
         values ($1, $2, $3, 'PENDING')
         returning id, student_id, submitted_at, status, decided_at, decided_by
         "#,
@@ -139,6 +197,20 @@ pub async fn create_assignment_request(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/training/assignment-requests/{request_id}",
+    tag = "training",
+    params(
+        ("request_id" = String, Path, description = "Assignment request ID")
+    ),
+    request_body = DecideTrainingAssignmentRequestRequest,
+    responses(
+        (status = 200, description = "Assignment request updated", body = TrainingAssignmentRequest),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn decide_assignment_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -146,7 +218,13 @@ pub async fn decide_assignment_request(
     Json(payload): Json<DecideTrainingAssignmentRequestRequest>,
 ) -> Result<Json<TrainingAssignmentRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageTraining).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -158,7 +236,7 @@ pub async fn decide_assignment_request(
 
     let row = sqlx::query_as::<_, TrainingAssignmentRequest>(
         r#"
-        update training_assignment_requests
+        update training.training_assignment_requests
         set status = $1, decided_at = $2, decided_by = $3
         where id = $4
         returning id, student_id, submitted_at, status, decided_at, decided_by
@@ -176,16 +254,31 @@ pub async fn decide_assignment_request(
     Ok(Json(row))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/training/trainer-release-requests",
+    tag = "training",
+    responses(
+        (status = 200, description = "List trainer release requests", body = [TrainerReleaseRequest]),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn list_release_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainerReleaseRequest>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageTraining).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainerReleaseRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from trainer_release_requests order by submitted_at desc",
+        "select id, student_id, submitted_at, status, decided_at, decided_by from training.trainer_release_requests order by submitted_at desc",
     )
     .fetch_all(db)
     .await
@@ -194,6 +287,16 @@ pub async fn list_release_requests(
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/trainer-release-requests",
+    tag = "training",
+    request_body = CreateTrainerReleaseRequestRequest,
+    responses(
+        (status = 201, description = "Trainer release request created", body = TrainerReleaseRequest),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn create_release_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -207,7 +310,7 @@ pub async fn create_release_request(
 
     let row = sqlx::query_as::<_, TrainerReleaseRequest>(
         r#"
-        insert into trainer_release_requests (id, student_id, submitted_at, status)
+        insert into training.trainer_release_requests (id, student_id, submitted_at, status)
         values ($1, $2, $3, 'PENDING')
         returning id, student_id, submitted_at, status, decided_at, decided_by
         "#,
@@ -222,6 +325,20 @@ pub async fn create_release_request(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/training/trainer-release-requests/{request_id}",
+    tag = "training",
+    params(
+        ("request_id" = String, Path, description = "Trainer release request ID")
+    ),
+    request_body = DecideTrainerReleaseRequestRequest,
+    responses(
+        (status = 200, description = "Trainer release request updated", body = TrainerReleaseRequest),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn decide_release_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -229,7 +346,13 @@ pub async fn decide_release_request(
     Json(payload): Json<DecideTrainerReleaseRequestRequest>,
 ) -> Result<Json<TrainerReleaseRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageTraining).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -241,7 +364,7 @@ pub async fn decide_release_request(
 
     let row = sqlx::query_as::<_, TrainerReleaseRequest>(
         r#"
-        update trainer_release_requests
+        update training.trainer_release_requests
         set status = $1, decided_at = $2, decided_by = $3
         where id = $4
         returning id, student_id, submitted_at, status, decided_at, decided_by
@@ -259,6 +382,19 @@ pub async fn decide_release_request(
     Ok(Json(row))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/assignment-requests/{request_id}/interest",
+    tag = "training",
+    params(
+        ("request_id" = String, Path, description = "Assignment request ID")
+    ),
+    responses(
+        (status = 204, description = "Interest recorded"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn add_assignment_request_interest(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -268,7 +404,7 @@ pub async fn add_assignment_request_interest(
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let exists = sqlx::query_scalar::<_, String>(
-        "select id from training_assignment_requests where id = $1",
+        "select id from training.training_assignment_requests where id = $1",
     )
     .bind(&request_id)
     .fetch_optional(db)
@@ -281,7 +417,7 @@ pub async fn add_assignment_request_interest(
 
     sqlx::query(
         r#"
-        insert into training_assignment_request_interested_trainers (assignment_request_id, trainer_id)
+        insert into training.training_assignment_request_interested_trainers (assignment_request_id, trainer_id)
         values ($1, $2)
         on conflict (assignment_request_id, trainer_id) do nothing
         "#,
@@ -295,6 +431,18 @@ pub async fn add_assignment_request_interest(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/training/assignment-requests/{request_id}/interest",
+    tag = "training",
+    params(
+        ("request_id" = String, Path, description = "Assignment request ID")
+    ),
+    responses(
+        (status = 204, description = "Interest removed"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn remove_assignment_request_interest(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -304,7 +452,7 @@ pub async fn remove_assignment_request_interest(
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     sqlx::query(
-        "delete from training_assignment_request_interested_trainers where assignment_request_id = $1 and trainer_id = $2",
+        "delete from training.training_assignment_request_interested_trainers where assignment_request_id = $1 and trainer_id = $2",
     )
     .bind(&request_id)
     .bind(&user.id)
@@ -314,4 +462,3 @@ pub async fn remove_assignment_request_interest(
 
     Ok(StatusCode::NO_CONTENT)
 }
-

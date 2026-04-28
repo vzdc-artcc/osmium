@@ -16,16 +16,17 @@ http:
         "roles": [
           "STAFF"
         ],
-        "permissions": [
-          {
-            "name": "manage_users",
-            "granted": true
+        "permission_overrides": {
+          "grant": {
+            "users": [
+              "update"
+            ],
+            "auth": [
+              "manage"
+            ]
           },
-          {
-            "name": "dev_login_as_cid",
-            "granted": true
-          }
-        ]
+          "deny": {}
+        }
       }
   auth: inherit
 

@@ -4,25 +4,38 @@ use axum::{
     http::StatusCode,
 };
 use serde::Deserialize;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::Permission,
-        middleware::{CurrentUser, ensure_permission},
+        acl::{PermissionAction, PermissionKey, PermissionResource},
+        context::CurrentUser,
+        middleware::ensure_permission,
     },
     errors::ApiError,
     models::{CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem},
     state::AppState,
 };
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct FeedbackListQuery {
     limit: Option<i64>,
     offset: Option<i64>,
     status: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/feedback",
+    tag = "feedback",
+    request_body = CreateFeedbackRequest,
+    responses(
+        (status = 201, description = "Feedback created", body = FeedbackItem),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn create_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -41,19 +54,20 @@ pub async fn create_feedback(
         return Err(ApiError::BadRequest);
     }
 
-    let target_user_id = sqlx::query_scalar::<_, String>("select id from users where cid = $1")
-        .bind(payload.target_cid)
-        .fetch_optional(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
-        .ok_or(ApiError::BadRequest)?;
+    let target_user_id =
+        sqlx::query_scalar::<_, String>("select id from identity.users where cid = $1")
+            .bind(payload.target_cid)
+            .fetch_optional(pool)
+            .await
+            .map_err(|_| ApiError::Internal)?
+            .ok_or(ApiError::BadRequest)?;
 
     let feedback_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
     let item = sqlx::query_as::<_, FeedbackItem>(
         r#"
-        insert into feedback_items (
+        insert into feedback.feedback_items (
             id,
             submitter_user_id,
             target_user_id,
@@ -95,6 +109,20 @@ pub async fn create_feedback(
     Ok((StatusCode::CREATED, Json(item)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/feedback",
+    tag = "feedback",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum rows"),
+        ("offset" = Option<i64>, Query, description = "Pagination offset"),
+        ("status" = Option<String>, Query, description = "Optional feedback status")
+    ),
+    responses(
+        (status = 200, description = "Feedback list", body = [FeedbackItem]),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn list_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -103,9 +131,11 @@ pub async fn list_feedback(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let (_, permissions) =
-        crate::auth::acl::fetch_user_access(state.db.as_ref(), &user.id, &user.role).await?;
-    let can_manage = permissions.contains(&Permission::ManageFeedback);
+    let (_, permissions) = crate::auth::acl::fetch_user_access(state.db.as_ref(), &user.id).await?;
+    let can_manage = permissions.contains(&PermissionKey::new(
+        PermissionResource::Feedback,
+        PermissionAction::Update,
+    ));
 
     let limit = query.limit.unwrap_or(50).clamp(1, 500);
     let offset = query.offset.unwrap_or(0).max(0);
@@ -139,7 +169,7 @@ pub async fn list_feedback(
                 submitted_at,
                 decided_at,
                 decided_by
-            from feedback_items
+            from feedback.feedback_items
             where ($1::text is null or status = $1)
             order by submitted_at desc
             limit $2 offset $3
@@ -167,7 +197,7 @@ pub async fn list_feedback(
                 submitted_at,
                 decided_at,
                 decided_by
-            from feedback_items
+            from feedback.feedback_items
             where submitter_user_id = $1
               and ($2::text is null or status = $2)
             order by submitted_at desc
@@ -186,6 +216,20 @@ pub async fn list_feedback(
     Ok(Json(items))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/feedback/{feedback_id}",
+    tag = "feedback",
+    params(
+        ("feedback_id" = String, Path, description = "Feedback record ID")
+    ),
+    request_body = DecideFeedbackRequest,
+    responses(
+        (status = 200, description = "Feedback decision applied", body = FeedbackItem),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
 pub async fn decide_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -193,7 +237,13 @@ pub async fn decide_feedback(
     Json(payload): Json<DecideFeedbackRequest>,
 ) -> Result<Json<FeedbackItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ManageFeedback).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Feedback, PermissionAction::Update),
+    )
+    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -208,7 +258,7 @@ pub async fn decide_feedback(
 
     let item = sqlx::query_as::<_, FeedbackItem>(
         r#"
-        update feedback_items
+        update feedback.feedback_items
         set status = $1,
             staff_comments = $2,
             decided_at = $3,
@@ -241,4 +291,3 @@ pub async fn decide_feedback(
 
     Ok(Json(item))
 }
-

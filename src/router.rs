@@ -9,7 +9,11 @@ use tower_http::{
 
 use crate::{
     auth::middleware::{require_staff, resolve_current_user},
-    handlers::{admin, auth, dev, docs, events, feedback, files, health, stats, training, users},
+    docs,
+    handlers::{
+        admin, auth, dev, docs as docs_handlers, events, feedback, files, health, stats, training,
+        users,
+    },
     state::AppState,
 };
 
@@ -35,10 +39,24 @@ pub fn build_router(state: AppState) -> Router {
 
     let event_routes = Router::new()
         .route("/", get(events::list_events).post(events::create_event))
-        .route("/{event_id}", get(events::get_event).patch(events::update_event).delete(events::delete_event))
-        .route("/{event_id}/positions", get(events::list_event_positions).post(events::create_event_position))
-        .route("/{event_id}/positions/{position_id}", patch(events::assign_event_position).delete(events::delete_event_position))
-        .route("/{event_id}/positions/publish", post(events::publish_event_positions));
+        .route(
+            "/{event_id}",
+            get(events::get_event)
+                .patch(events::update_event)
+                .delete(events::delete_event),
+        )
+        .route(
+            "/{event_id}/positions",
+            get(events::list_event_positions).post(events::create_event_position),
+        )
+        .route(
+            "/{event_id}/positions/{position_id}",
+            patch(events::assign_event_position).delete(events::delete_event_position),
+        )
+        .route(
+            "/{event_id}/positions/publish",
+            post(events::publish_event_positions),
+        );
 
     let training_routes = Router::new()
         .route(
@@ -68,20 +86,33 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let feedback_routes = Router::new()
-        .route("/", get(feedback::list_feedback).post(feedback::create_feedback))
+        .route(
+            "/",
+            get(feedback::list_feedback).post(feedback::create_feedback),
+        )
         .route("/{feedback_id}", patch(feedback::decide_feedback));
 
     let file_routes = Router::new()
         .route("/", get(files::list_files).post(files::upload_file))
-        .route("/{file_id}", get(files::get_file_metadata).patch(files::update_file_metadata).delete(files::delete_file))
-        .route("/{file_id}/content", get(files::download_file_content).put(files::replace_file_content))
+        .route(
+            "/{file_id}",
+            get(files::get_file_metadata)
+                .patch(files::update_file_metadata)
+                .delete(files::delete_file),
+        )
+        .route(
+            "/{file_id}/content",
+            get(files::download_file_content).put(files::replace_file_content),
+        )
         .route("/{file_id}/signed-url", get(files::get_signed_download_url));
 
     let mut api = Router::new()
         .route("/me", get(auth::me))
+        .route("/auth/service-account/me", get(auth::service_account_me))
         .route("/auth/vatsim/login", get(auth::vatsim_login))
         .route("/auth/vatsim/callback", get(auth::vatsim_callback))
         .route("/auth/logout", post(auth::logout))
+        .route("/admin/files/audit", get(files::list_file_audit_logs))
         .route("/stats/artcc", get(stats::get_artcc_stats))
         .route(
             "/stats/controller/{cid}/history",
@@ -108,10 +139,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(health::health))
         .route("/ready", get(health::ready))
         .route("/cdn/{file_id}", get(files::cdn_download_file))
-        .route("/docs/api/v1", get(docs::get_docs_html))
-        .route("/docs/api/v1/openapi.json", get(docs::get_openapi_schema))
-        .route("/docs/health", get(docs::docs_health))
+        .route("/docs", get(docs_handlers::docs_index))
+        .route("/docs/{section}/{page}", get(docs_handlers::docs_page))
+        .route("/docs/health", get(docs_handlers::docs_health))
         .nest("/api/v1", api)
+        .merge(docs::build_docs_router())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             resolve_current_user,
@@ -132,6 +164,11 @@ fn api_dev_mode_enabled() -> bool {
 
 fn env_flag_enabled(name: &str) -> bool {
     std::env::var(name)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }

@@ -1,0 +1,16 @@
+info:
+  name: List File Audit Logs
+  type: http
+  seq: 56
+
+http:
+  method: GET
+  url: "{{hostname}}/api/v1/admin/files/audit?file_id={{file_id}}&limit={{file_audit_limit}}&offset={{file_audit_offset}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+

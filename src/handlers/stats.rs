@@ -4,10 +4,11 @@ use axum::{
 };
 use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::{errors::ApiError, state::AppState};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ArtccStatsQuery {
     pub all_time: Option<bool>,
     pub month: Option<i32>, // 1-12
@@ -16,7 +17,7 @@ pub struct ArtccStatsQuery {
     pub limit: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ArtccStatsResponse {
     pub label: String,
     pub all_time: bool,
@@ -29,12 +30,12 @@ pub struct ArtccStatsResponse {
     pub controllers: Vec<ControllerTotals>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ControllerHistoryQuery {
     pub year: Option<i32>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ControllerHistoryResponse {
     pub cid: i64,
     pub name: String,
@@ -43,7 +44,7 @@ pub struct ControllerHistoryResponse {
     pub months: Vec<MonthlyBucket>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ControllerTotalsResponse {
     pub cid: i64,
     pub name: String,
@@ -58,7 +59,7 @@ pub struct ControllerTotalsResponse {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, ToSchema)]
 pub struct MonthlyBucket {
     pub month: i32, // 1-12
     pub delivery_hours: f64,
@@ -69,7 +70,7 @@ pub struct MonthlyBucket {
     pub total_hours: f64,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, ToSchema)]
 pub struct ArtccSummary {
     pub delivery_hours: f64,
     pub ground_hours: f64,
@@ -79,7 +80,7 @@ pub struct ArtccSummary {
     pub total_hours: f64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ControllerLeader {
     pub rank: i32,
     pub cid: i64,
@@ -88,7 +89,7 @@ pub struct ControllerLeader {
     pub total_hours: f64,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, ToSchema)]
 pub struct ControllerTotals {
     pub cid: i64,
     pub name: String,
@@ -146,6 +147,22 @@ struct ControllerTotalsAggregateRow {
     total_hours: f64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/artcc",
+    tag = "stats",
+    params(
+        ("all_time" = Option<bool>, Query, description = "Return all-time totals"),
+        ("month" = Option<i32>, Query, description = "Month 1-12"),
+        ("year" = Option<i32>, Query, description = "Calendar year"),
+        ("top" = Option<i64>, Query, description = "Leader count"),
+        ("limit" = Option<i64>, Query, description = "Controller row count")
+    ),
+    responses(
+        (status = 200, description = "ARTCC statistics summary", body = ArtccStatsResponse),
+        (status = 400, description = "Invalid query")
+    )
+)]
 pub async fn get_artcc_stats(
     State(state): State<AppState>,
     Query(query): Query<ArtccStatsQuery>,
@@ -171,7 +188,7 @@ pub async fn get_artcc_stats(
     let query_limit = std::cmp::max(limit, top as i64);
 
     let updated_at = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
-        "select stats from sync_times where id = 'default'",
+        "select stats from stats.sync_times where id = 'default'",
     )
     .fetch_optional(pool)
     .await
@@ -181,7 +198,7 @@ pub async fn get_artcc_stats(
     let controller_count = sqlx::query_scalar::<_, i64>(
         r#"
         select count(distinct clm.log_id)::bigint
-        from controller_log_months clm
+        from stats.controller_log_months clm
         where ($1::boolean = true or clm.year = $2)
           and ($3::int is null or clm.month = $3)
         "#,
@@ -208,7 +225,7 @@ pub async fn get_artcc_stats(
                 coalesce(sum(clm.approach_hours), 0) +
                 coalesce(sum(clm.center_hours), 0)
             )::float8 as total_hours
-        from controller_log_months clm
+        from stats.controller_log_months clm
         where ($1::boolean = true or clm.year = $2)
           and ($3::int is null or clm.month = $3)
         "#,
@@ -240,9 +257,9 @@ pub async fn get_artcc_stats(
                 coalesce(sum(clm.approach_hours), 0) +
                 coalesce(sum(clm.center_hours), 0)
             )::float8 as total_hours
-        from controller_log_months clm
-        join controller_logs cl on cl.id = clm.log_id
-        join users u on u.id = cl.user_id
+        from stats.controller_log_months clm
+        join stats.controller_logs cl on cl.id = clm.log_id
+        join org.v_user_roster_profile u on u.id = cl.user_id
         where ($1::boolean = true or clm.year = $2)
           and ($3::int is null or clm.month = $3)
         group by u.cid, u.display_name, u.first_name, u.last_name, u.rating
@@ -269,7 +286,11 @@ pub async fn get_artcc_stats(
         .iter()
         .map(|row| ControllerTotals {
             cid: row.cid,
-            name: user_name(&row.display_name, row.first_name.as_deref(), row.last_name.as_deref()),
+            name: user_name(
+                &row.display_name,
+                row.first_name.as_deref(),
+                row.last_name.as_deref(),
+            ),
             rating: row.rating.clone(),
             delivery_hours: row.delivery_hours,
             ground_hours: row.ground_hours,
@@ -312,6 +333,19 @@ pub async fn get_artcc_stats(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/controller/{cid}/history",
+    tag = "stats",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID"),
+        ("year" = Option<i32>, Query, description = "Calendar year")
+    ),
+    responses(
+        (status = 200, description = "Controller monthly history", body = ControllerHistoryResponse),
+        (status = 400, description = "Invalid query")
+    )
+)]
 pub async fn get_controller_history(
     State(state): State<AppState>,
     Path(cid): Path<i64>,
@@ -328,7 +362,7 @@ pub async fn get_controller_history(
     let user = sqlx::query_as::<_, ControllerHistoryUserRow>(
         r#"
         select cid, display_name, first_name, last_name, rating
-        from users
+        from org.v_user_roster_profile
         where cid = $1
         "#,
     )
@@ -354,9 +388,9 @@ pub async fn get_controller_history(
                 coalesce(sum(clm.approach_hours), 0) +
                 coalesce(sum(clm.center_hours), 0)
             )::float8 as total_hours
-        from controller_log_months clm
-        join controller_logs cl on cl.id = clm.log_id
-        join users u on u.id = cl.user_id
+        from stats.controller_log_months clm
+        join stats.controller_logs cl on cl.id = clm.log_id
+        join org.v_user_roster_profile u on u.id = cl.user_id
         where u.cid = $1 and clm.year = $2
         group by clm.month
         order by clm.month asc
@@ -408,6 +442,18 @@ pub async fn get_controller_history(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/controller/{cid}/totals",
+    tag = "stats",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID")
+    ),
+    responses(
+        (status = 200, description = "Controller aggregate totals", body = ControllerTotalsResponse),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub async fn get_controller_totals(
     State(state): State<AppState>,
     Path(cid): Path<i64>,
@@ -417,7 +463,7 @@ pub async fn get_controller_totals(
     let user = sqlx::query_as::<_, ControllerHistoryUserRow>(
         r#"
         select cid, display_name, first_name, last_name, rating
-        from users
+        from org.v_user_roster_profile
         where cid = $1
         "#,
     )
@@ -442,9 +488,9 @@ pub async fn get_controller_totals(
                 coalesce(sum(clm.approach_hours), 0) +
                 coalesce(sum(clm.center_hours), 0)
             )::float8 as total_hours
-        from controller_log_months clm
-        join controller_logs cl on cl.id = clm.log_id
-        join users u on u.id = cl.user_id
+        from stats.controller_log_months clm
+        join stats.controller_logs cl on cl.id = clm.log_id
+        join org.v_user_roster_profile u on u.id = cl.user_id
         where u.cid = $1
         "#,
     )
@@ -456,9 +502,9 @@ pub async fn get_controller_totals(
     let last_activity_at = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
         r#"
         select max(coalesce(cp."end", cp.start))
-        from controller_positions cp
-        join controller_logs cl on cl.id = cp.log_id
-        join users u on u.id = cl.user_id
+        from stats.controller_positions cp
+        join stats.controller_logs cl on cl.id = cp.log_id
+        join org.v_user_roster_profile u on u.id = cl.user_id
         where u.cid = $1
         "#,
     )
@@ -468,7 +514,7 @@ pub async fn get_controller_totals(
     .map_err(|_| ApiError::Internal)?;
 
     let updated_at = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
-        "select stats from sync_times where id = 'default'",
+        "select stats from stats.sync_times where id = 'default'",
     )
     .fetch_optional(pool)
     .await
@@ -534,4 +580,3 @@ fn month_name(month: i32) -> &'static str {
         _ => "Unknown",
     }
 }
-

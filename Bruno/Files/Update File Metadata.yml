@@ -13,7 +13,10 @@ http:
       {
         "filename": "updated-{{file_name}}",
         "content_type": "application/octet-stream",
-        "is_public": true
+        "is_public": true,
+        "owner_cid": null,
+        "viewer_cids": [],
+        "viewer_roles": []
       }
 
 settings:
