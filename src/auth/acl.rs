@@ -1,250 +1,260 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use utoipa::ToSchema;
 
-use crate::errors::ApiError;
+use crate::{errors::ApiError, repos::access as access_repo};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum Role {
-    User,
-    Staff,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum Permission {
-    ReadOwnProfile,
-    Logout,
-    ReadSystemReadiness,
-    ViewAllUsers,
-    ManageUsers,
-    ManageTraining,
-    ManageFeedback,
-    UploadFiles,
-    ManageFiles,
-    DevLoginAsCid,
+pub enum PermissionResource {
+    Auth,
+    System,
+    Users,
+    Training,
+    Feedback,
+    Files,
+    Events,
+    Stats,
+    Integrations,
+    Web,
 }
 
-impl Role {
-    pub fn from_db_value(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_uppercase().as_str() {
-            "USER" => Some(Self::User),
-            "STAFF" => Some(Self::Staff),
-            _ => None,
-        }
-    }
-}
-
-impl Permission {
-    pub fn from_db_value(value: &str) -> Option<Self> {
+impl PermissionResource {
+    pub fn from_value(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "read_own_profile" => Some(Self::ReadOwnProfile),
-            "logout" => Some(Self::Logout),
-            "read_system_readiness" => Some(Self::ReadSystemReadiness),
-            "view_all_users" => Some(Self::ViewAllUsers),
-            "manage_users" => Some(Self::ManageUsers),
-            "manage_training" => Some(Self::ManageTraining),
-            "manage_feedback" => Some(Self::ManageFeedback),
-            "upload_files" => Some(Self::UploadFiles),
-            "manage_files" => Some(Self::ManageFiles),
-            "dev_login_as_cid" => Some(Self::DevLoginAsCid),
+            "auth" => Some(Self::Auth),
+            "system" => Some(Self::System),
+            "users" => Some(Self::Users),
+            "training" => Some(Self::Training),
+            "feedback" => Some(Self::Feedback),
+            "files" => Some(Self::Files),
+            "events" => Some(Self::Events),
+            "stats" => Some(Self::Stats),
+            "integrations" => Some(Self::Integrations),
+            "web" => Some(Self::Web),
             _ => None,
         }
     }
 
-    pub fn as_db_value(&self) -> &'static str {
+    pub fn as_value(&self) -> &'static str {
         match self {
-            Self::ReadOwnProfile => "read_own_profile",
-            Self::Logout => "logout",
-            Self::ReadSystemReadiness => "read_system_readiness",
-            Self::ViewAllUsers => "view_all_users",
-            Self::ManageUsers => "manage_users",
-            Self::ManageTraining => "manage_training",
-            Self::ManageFeedback => "manage_feedback",
-            Self::UploadFiles => "upload_files",
-            Self::ManageFiles => "manage_files",
-            Self::DevLoginAsCid => "dev_login_as_cid",
+            Self::Auth => "auth",
+            Self::System => "system",
+            Self::Users => "users",
+            Self::Training => "training",
+            Self::Feedback => "feedback",
+            Self::Files => "files",
+            Self::Events => "events",
+            Self::Stats => "stats",
+            Self::Integrations => "integrations",
+            Self::Web => "web",
         }
     }
 }
 
-pub fn default_roles() -> Vec<String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionAction {
+    Read,
+    Create,
+    Update,
+    Delete,
+    Manage,
+}
+
+impl PermissionAction {
+    pub fn from_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "read" => Some(Self::Read),
+            "create" => Some(Self::Create),
+            "update" => Some(Self::Update),
+            "delete" => Some(Self::Delete),
+            "manage" => Some(Self::Manage),
+            _ => None,
+        }
+    }
+
+    pub fn as_value(&self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Create => "create",
+            Self::Update => "update",
+            Self::Delete => "delete",
+            Self::Manage => "manage",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
+pub struct PermissionKey {
+    pub resource: PermissionResource,
+    pub action: PermissionAction,
+}
+
+impl PermissionKey {
+    pub const fn new(resource: PermissionResource, action: PermissionAction) -> Self {
+        Self { resource, action }
+    }
+
+    pub fn from_db_value(value: &str) -> Option<Self> {
+        let mut parts = value.trim().split('.');
+        let resource = PermissionResource::from_value(parts.next()?)?;
+        let action = PermissionAction::from_value(parts.next()?)?;
+        if parts.next().is_some() {
+            return None;
+        }
+
+        Some(Self { resource, action })
+    }
+
+    pub fn as_db_value(&self) -> String {
+        format!("{}.{}", self.resource.as_value(), self.action.as_value())
+    }
+}
+
+pub type GroupedPermissions = BTreeMap<String, Vec<String>>;
+
+#[derive(Debug, Clone, Default, Deserialize, ToSchema)]
+pub struct PermissionOverrideGroups {
+    #[serde(default)]
+    pub grant: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub deny: BTreeMap<String, Vec<String>>,
+}
+
+const LEGACY_PERMISSION_MAPPINGS: &[(&str, PermissionKey)] = &[
+    (
+        "read_own_profile",
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Read),
+    ),
+    (
+        "logout",
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Delete),
+    ),
+    (
+        "read_system_readiness",
+        PermissionKey::new(PermissionResource::System, PermissionAction::Read),
+    ),
+    (
+        "view_all_users",
+        PermissionKey::new(PermissionResource::Users, PermissionAction::Read),
+    ),
+    (
+        "manage_users",
+        PermissionKey::new(PermissionResource::Users, PermissionAction::Update),
+    ),
+    (
+        "manage_training",
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+    ),
+    (
+        "manage_feedback",
+        PermissionKey::new(PermissionResource::Feedback, PermissionAction::Update),
+    ),
+    (
+        "upload_files",
+        PermissionKey::new(PermissionResource::Files, PermissionAction::Create),
+    ),
+    (
+        "manage_files",
+        PermissionKey::new(PermissionResource::Files, PermissionAction::Update),
+    ),
+    (
+        "dev_login_as_cid",
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Manage),
+    ),
+    (
+        "manage_events",
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    ),
+    (
+        "publish_events",
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+    ),
+    (
+        "manage_stats",
+        PermissionKey::new(PermissionResource::Stats, PermissionAction::Manage),
+    ),
+    (
+        "manage_integrations",
+        PermissionKey::new(PermissionResource::Integrations, PermissionAction::Manage),
+    ),
+    (
+        "manage_web_content",
+        PermissionKey::new(PermissionResource::Web, PermissionAction::Update),
+    ),
+];
+
+fn default_roles() -> Vec<String> {
     vec!["USER".to_string(), "STAFF".to_string()]
 }
 
-pub fn default_permission_names() -> Vec<String> {
+fn default_permission_names() -> Vec<String> {
     vec![
-        Permission::ReadOwnProfile.as_db_value().to_string(),
-        Permission::Logout.as_db_value().to_string(),
-        Permission::ReadSystemReadiness.as_db_value().to_string(),
-        Permission::ViewAllUsers.as_db_value().to_string(),
-        Permission::ManageUsers.as_db_value().to_string(),
-        Permission::ManageTraining.as_db_value().to_string(),
-        Permission::ManageFeedback.as_db_value().to_string(),
-        Permission::UploadFiles.as_db_value().to_string(),
-        Permission::ManageFiles.as_db_value().to_string(),
-        Permission::DevLoginAsCid.as_db_value().to_string(),
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Read).as_db_value(),
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Delete).as_db_value(),
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Manage).as_db_value(),
+        PermissionKey::new(PermissionResource::System, PermissionAction::Read).as_db_value(),
+        PermissionKey::new(PermissionResource::Users, PermissionAction::Read).as_db_value(),
+        PermissionKey::new(PermissionResource::Users, PermissionAction::Update).as_db_value(),
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Update).as_db_value(),
+        PermissionKey::new(PermissionResource::Feedback, PermissionAction::Update).as_db_value(),
+        PermissionKey::new(PermissionResource::Files, PermissionAction::Create).as_db_value(),
+        PermissionKey::new(PermissionResource::Files, PermissionAction::Read).as_db_value(),
+        PermissionKey::new(PermissionResource::Files, PermissionAction::Update).as_db_value(),
+        PermissionKey::new(PermissionResource::Files, PermissionAction::Delete).as_db_value(),
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Read).as_db_value(),
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Create).as_db_value(),
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Update).as_db_value(),
+        PermissionKey::new(PermissionResource::Events, PermissionAction::Delete).as_db_value(),
+        PermissionKey::new(PermissionResource::Stats, PermissionAction::Manage).as_db_value(),
+        PermissionKey::new(PermissionResource::Integrations, PermissionAction::Manage)
+            .as_db_value(),
+        PermissionKey::new(PermissionResource::Web, PermissionAction::Update).as_db_value(),
     ]
-}
-
-pub fn role_has_permission(role: &str, permission: Permission) -> bool {
-    let Some(role) = Role::from_db_value(role) else {
-        return false;
-    };
-
-    match role {
-        Role::User => matches!(permission, Permission::ReadOwnProfile | Permission::Logout),
-        Role::Staff => matches!(
-            permission,
-            Permission::ReadOwnProfile
-                | Permission::Logout
-                | Permission::ReadSystemReadiness
-                | Permission::ViewAllUsers
-                | Permission::ManageUsers
-                | Permission::ManageTraining
-                | Permission::ManageFeedback
-                | Permission::ManageFiles
-                | Permission::DevLoginAsCid
-        ),
-    }
-}
-
-pub fn permissions_for_role(role: &str) -> Vec<Permission> {
-    let all_permissions = [
-        Permission::ReadOwnProfile,
-        Permission::Logout,
-        Permission::ReadSystemReadiness,
-        Permission::ViewAllUsers,
-        Permission::ManageUsers,
-        Permission::ManageTraining,
-        Permission::ManageFeedback,
-        Permission::UploadFiles,
-        Permission::ManageFiles,
-        Permission::DevLoginAsCid,
-    ];
-
-    all_permissions
-        .into_iter()
-        .filter(|permission| role_has_permission(role, *permission))
-        .collect()
-}
-
-pub fn effective_permissions_from_roles(roles: &[String]) -> Vec<Permission> {
-    let mut collected = BTreeSet::new();
-    for role in roles {
-        for permission in permissions_for_role(role) {
-            collected.insert(permission.as_db_value());
-        }
-    }
-
-    collected
-        .into_iter()
-        .filter_map(Permission::from_db_value)
-        .collect()
-}
-
-fn resolve_effective_permissions(
-    role_permission_names: Vec<String>,
-    user_permission_overrides: Vec<(String, bool)>,
-) -> Vec<Permission> {
-    let mut effective = BTreeSet::new();
-
-    for name in role_permission_names {
-        effective.insert(name);
-    }
-
-    let mut overrides = HashMap::new();
-    for (name, granted) in user_permission_overrides {
-        overrides.insert(name, granted);
-    }
-
-    for (name, granted) in overrides {
-        if granted {
-            effective.insert(name);
-        } else {
-            effective.remove(&name);
-        }
-    }
-
-    effective
-        .into_iter()
-        .filter_map(|name| Permission::from_db_value(&name))
-        .collect()
 }
 
 pub async fn fetch_user_access(
     pool: Option<&PgPool>,
     user_id: &str,
-    fallback_role: &str,
-) -> Result<(Vec<String>, Vec<Permission>), ApiError> {
+) -> Result<(Vec<String>, Vec<PermissionKey>), ApiError> {
     let Some(pool) = pool else {
-        let roles = vec![fallback_role.to_string()];
-        let permissions = effective_permissions_from_roles(&roles);
-        return Ok((roles, permissions));
+        return Ok((Vec::new(), Vec::new()));
     };
 
-    let mut roles = sqlx::query_scalar::<_, String>(
-        "select role_name from user_roles where user_id = $1 order by role_name",
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    if roles.is_empty() {
-        roles.push(fallback_role.to_string());
-    }
-
-    let role_permissions = sqlx::query_scalar::<_, String>(
-        r#"
-        select distinct rp.permission_name
-        from user_roles ur
-        join role_permissions rp on rp.role_name = ur.role_name
-        where ur.user_id = $1
-        order by permission_name
-        "#,
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let user_overrides = sqlx::query_as::<_, (String, bool)>(
-        r#"
-        select permission_name, granted
-        from user_permissions
-        where user_id = $1
-        "#,
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let permissions = if role_permissions.is_empty() && user_overrides.is_empty() {
-        effective_permissions_from_roles(&roles)
-    } else {
-        resolve_effective_permissions(role_permissions, user_overrides)
-    };
+    let roles = access_repo::fetch_user_role_names(pool, user_id).await?;
+    let permission_names = access_repo::fetch_user_permission_names(pool, user_id).await?;
+    let permissions = access_repo::permission_names_to_permissions(permission_names)?;
 
     Ok((roles, permissions))
 }
 
-pub async fn fetch_access_catalog(pool: Option<&PgPool>) -> Result<(Vec<String>, Vec<String>), ApiError> {
+pub async fn fetch_service_account_access(
+    pool: Option<&PgPool>,
+    service_account_id: &str,
+) -> Result<(Vec<String>, Vec<PermissionKey>), ApiError> {
+    let Some(pool) = pool else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+
+    let roles = access_repo::fetch_service_account_role_names(pool, service_account_id).await?;
+    let permission_names =
+        access_repo::fetch_service_account_permission_names(pool, service_account_id).await?;
+    let permissions = access_repo::permission_names_to_permissions(permission_names)?;
+
+    Ok((roles, permissions))
+}
+
+pub async fn fetch_access_catalog(
+    pool: Option<&PgPool>,
+) -> Result<(Vec<String>, Vec<String>), ApiError> {
     let Some(pool) = pool else {
         return Ok((default_roles(), default_permission_names()));
     };
 
-    let mut roles = sqlx::query_scalar::<_, String>("select name from roles order by name")
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-
-    let mut permissions = sqlx::query_scalar::<_, String>("select name from permissions order by name")
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let (mut roles, mut permissions) = access_repo::fetch_access_catalog_names(pool).await?;
 
     if roles.is_empty() {
         roles = default_roles();
@@ -257,64 +267,187 @@ pub async fn fetch_access_catalog(pool: Option<&PgPool>) -> Result<(Vec<String>,
     Ok((roles, permissions))
 }
 
+pub fn group_permission_keys(permissions: &[PermissionKey]) -> GroupedPermissions {
+    let mut grouped: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for permission in permissions {
+        grouped
+            .entry(permission.resource.as_value().to_string())
+            .or_default()
+            .insert(permission.action.as_value().to_string());
+    }
+
+    grouped
+        .into_iter()
+        .map(|(resource, actions)| (resource, actions.into_iter().collect()))
+        .collect()
+}
+
+pub fn group_permission_names(permission_names: &[String]) -> Result<GroupedPermissions, ApiError> {
+    let permission_keys = access_repo::permission_names_to_permissions(permission_names.to_vec())?;
+    Ok(group_permission_keys(&permission_keys))
+}
+
+pub fn normalize_grouped_permissions(
+    grouped: &BTreeMap<String, Vec<String>>,
+) -> Result<Vec<String>, ApiError> {
+    let mut normalized = BTreeSet::new();
+
+    for (resource_name, actions) in grouped {
+        let resource = PermissionResource::from_value(resource_name).ok_or(ApiError::BadRequest)?;
+        if actions.is_empty() {
+            return Err(ApiError::BadRequest);
+        }
+
+        for action_name in actions {
+            let action = PermissionAction::from_value(action_name).ok_or(ApiError::BadRequest)?;
+            normalized.insert(PermissionKey::new(resource, action).as_db_value());
+        }
+    }
+
+    if normalized.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(normalized.into_iter().collect())
+}
+
+pub fn parse_legacy_permission_name(value: &str) -> Option<PermissionKey> {
+    LEGACY_PERMISSION_MAPPINGS
+        .iter()
+        .find_map(|(legacy, permission)| (*legacy == value.trim()).then_some(*permission))
+}
+
+pub fn normalize_legacy_permission_name(value: &str) -> Option<String> {
+    parse_legacy_permission_name(value).map(|permission| permission.as_db_value())
+}
+
+pub fn normalize_permission_override_groups(
+    overrides: &PermissionOverrideGroups,
+) -> Result<Vec<(String, bool)>, ApiError> {
+    let grant = normalize_grouped_permissions(&overrides.grant).or_else(|error| {
+        if overrides.grant.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Err(error)
+        }
+    })?;
+    let deny = normalize_grouped_permissions(&overrides.deny).or_else(|error| {
+        if overrides.deny.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Err(error)
+        }
+    })?;
+
+    let deny_set: BTreeSet<String> = deny.into_iter().collect();
+    let mut overrides_out = Vec::new();
+
+    for permission in grant {
+        if deny_set.contains(&permission) {
+            return Err(ApiError::BadRequest);
+        }
+        overrides_out.push((permission, true));
+    }
+
+    for permission in deny_set {
+        overrides_out.push((permission, false));
+    }
+
+    if overrides_out.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    overrides_out.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+    Ok(overrides_out)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::{
-        Permission, Role, default_permission_names, default_roles, permissions_for_role,
-        resolve_effective_permissions, role_has_permission,
+        PermissionAction, PermissionKey, PermissionOverrideGroups, PermissionResource,
+        default_permission_names, default_roles, group_permission_keys, normalize_grouped_permissions,
+        normalize_legacy_permission_name, normalize_permission_override_groups,
     };
 
     #[test]
-    fn parses_role_from_db_value() {
-        assert_eq!(Role::from_db_value("USER"), Some(Role::User));
-        assert_eq!(Role::from_db_value(" staff "), Some(Role::Staff));
-        assert_eq!(Role::from_db_value("admin"), None);
-    }
-
-    #[test]
-    fn enforces_user_permissions() {
-        assert!(role_has_permission("USER", Permission::ReadOwnProfile));
-        assert!(role_has_permission("USER", Permission::Logout));
-        assert!(!role_has_permission("USER", Permission::ManageUsers));
-        assert!(!role_has_permission("USER", Permission::ViewAllUsers));
-        assert!(!role_has_permission("USER", Permission::ManageTraining));
-        assert!(!role_has_permission("USER", Permission::ManageFeedback));
-        assert!(!role_has_permission("USER", Permission::UploadFiles));
-        assert!(!role_has_permission("USER", Permission::ManageFiles));
-        assert!(!role_has_permission("USER", Permission::DevLoginAsCid));
-    }
-
-    #[test]
-    fn enforces_staff_permissions() {
-        assert!(role_has_permission("STAFF", Permission::ReadOwnProfile));
-        assert!(role_has_permission("STAFF", Permission::ViewAllUsers));
-        assert!(role_has_permission("STAFF", Permission::ManageUsers));
-        assert!(role_has_permission("STAFF", Permission::ManageTraining));
-        assert!(role_has_permission("STAFF", Permission::ManageFeedback));
-        assert!(!role_has_permission("STAFF", Permission::UploadFiles));
-        assert!(role_has_permission("STAFF", Permission::ManageFiles));
-        assert!(role_has_permission("STAFF", Permission::DevLoginAsCid));
-    }
-
-    #[test]
-    fn unknown_role_has_no_permissions() {
-        assert!(permissions_for_role("UNKNOWN").is_empty());
-    }
-
-    #[test]
-    fn deny_override_takes_precedence_over_role_permission() {
-        let effective = resolve_effective_permissions(
-            vec!["manage_users".to_string(), "logout".to_string()],
-            vec![("manage_users".to_string(), false)],
+    fn parses_permission_from_db_value() {
+        assert_eq!(
+            PermissionKey::from_db_value("users.update"),
+            Some(PermissionKey::new(
+                PermissionResource::Users,
+                PermissionAction::Update
+            ))
         );
+        assert_eq!(PermissionKey::from_db_value("unknown"), None);
+    }
 
-        assert!(!effective.contains(&Permission::ManageUsers));
-        assert!(effective.contains(&Permission::Logout));
+    #[test]
+    fn exposes_db_value_names() {
+        assert_eq!(
+            PermissionKey::new(PermissionResource::Auth, PermissionAction::Delete).as_db_value(),
+            "auth.delete"
+        );
     }
 
     #[test]
     fn has_non_empty_default_access_catalog() {
         assert!(!default_roles().is_empty());
         assert!(!default_permission_names().is_empty());
+    }
+
+    #[test]
+    fn groups_permissions_for_api_output() {
+        let grouped = group_permission_keys(&[
+            PermissionKey::new(PermissionResource::Users, PermissionAction::Update),
+            PermissionKey::new(PermissionResource::Users, PermissionAction::Read),
+            PermissionKey::new(PermissionResource::Files, PermissionAction::Create),
+        ]);
+
+        assert_eq!(
+            grouped.get("users").cloned().unwrap_or_default(),
+            vec!["read".to_string(), "update".to_string()]
+        );
+        assert_eq!(
+            grouped.get("files").cloned().unwrap_or_default(),
+            vec!["create".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalizes_grouped_permissions() {
+        let grouped = BTreeMap::from([
+            ("events".to_string(), vec!["update".to_string(), "read".to_string()]),
+            ("files".to_string(), vec!["create".to_string()]),
+        ]);
+
+        assert_eq!(
+            normalize_grouped_permissions(&grouped).unwrap(),
+            vec![
+                "events.read".to_string(),
+                "events.update".to_string(),
+                "files.create".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn normalizes_legacy_permission_names() {
+        assert_eq!(
+            normalize_legacy_permission_name("manage_users"),
+            Some("users.update".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_permission_across_grant_and_deny() {
+        let overrides = PermissionOverrideGroups {
+            grant: BTreeMap::from([("events".to_string(), vec!["update".to_string()])]),
+            deny: BTreeMap::from([("events".to_string(), vec!["update".to_string()])]),
+        };
+
+        assert!(normalize_permission_override_groups(&overrides).is_err());
     }
 }

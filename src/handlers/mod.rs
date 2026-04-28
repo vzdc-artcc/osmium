@@ -1,6 +1,6 @@
 pub mod admin;
-pub mod dev;
 pub mod auth;
+pub mod dev;
 pub mod docs;
 pub mod events;
 pub mod feedback;

@@ -64,7 +64,10 @@ impl VatsimOAuthConfig {
             authorize_url: validate_url("VATSIM_AUTHORIZE_URL", &authorize_url)?,
             token_url: validate_url("VATSIM_TOKEN_URL", &token_url)?,
             userinfo_url: validate_url("VATSIM_USERINFO_URL", &userinfo_url)?,
-            redirect_uri: validate_url("VATSIM_REDIRECT_URI", &read_required("VATSIM_REDIRECT_URI")?)?,
+            redirect_uri: validate_url(
+                "VATSIM_REDIRECT_URI",
+                &read_required("VATSIM_REDIRECT_URI")?,
+            )?,
             scope: std::env::var("VATSIM_SCOPE")
                 .unwrap_or_else(|_| "full_name email vatsim_details country".to_string()),
             client_auth_method,
@@ -117,7 +120,10 @@ pub async fn exchange_code_for_token(
         .map_err(|_| ApiError::ServiceUnavailable)?;
 
     let status = response.status();
-    let body = response.text().await.map_err(|_| ApiError::ServiceUnavailable)?;
+    let body = response
+        .text()
+        .await
+        .map_err(|_| ApiError::ServiceUnavailable)?;
 
     if !status.is_success() {
         tracing::error!(
@@ -135,7 +141,10 @@ pub async fn exchange_code_for_token(
     }
 
     let token = serde_json::from_str::<TokenResponse>(&body).map_err(|_| {
-        tracing::error!(body = body.as_str(), "failed to parse vatsim token response");
+        tracing::error!(
+            body = body.as_str(),
+            "failed to parse vatsim token response"
+        );
         ApiError::Internal
     })?;
 
@@ -167,13 +176,14 @@ pub async fn fetch_profile(
         });
     }
 
-    let body = response
-        .text()
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let body = response.text().await.map_err(|_| ApiError::Internal)?;
 
     let userinfo = serde_json::from_str::<Value>(&body).map_err(|error| {
-        tracing::error!(?error, body = body.as_str(), "failed to parse vatsim userinfo response");
+        tracing::error!(
+            ?error,
+            body = body.as_str(),
+            "failed to parse vatsim userinfo response"
+        );
         ApiError::Internal
     })?;
 
@@ -183,27 +193,33 @@ pub async fn fetch_profile(
 fn parse_profile(raw: Value) -> Result<VatsimProfile, ApiError> {
     let cid = find_number(
         &raw,
-        &["cid", "id", "data.cid", "vatsim_details.cid", "data.vatsim_details.cid"],
+        &[
+            "cid",
+            "id",
+            "data.cid",
+            "vatsim_details.cid",
+            "data.vatsim_details.cid",
+        ],
     )
-        .or_else(|| {
-            find_string(
-                &raw,
-                &[
-                    "cid",
-                    "id",
-                    "data.cid",
-                    "data.user.cid",
-                    "data.vatsim.cid",
-                    "vatsim_details.cid",
-                    "data.vatsim_details.cid",
-                ],
-            )
-            .and_then(|v| v.parse().ok())
-        })
-        .ok_or_else(|| {
-            tracing::error!(payload = ?raw, "vatsim profile missing cid");
-            ApiError::Internal
-        })?;
+    .or_else(|| {
+        find_string(
+            &raw,
+            &[
+                "cid",
+                "id",
+                "data.cid",
+                "data.user.cid",
+                "data.vatsim.cid",
+                "vatsim_details.cid",
+                "data.vatsim_details.cid",
+            ],
+        )
+        .and_then(|v| v.parse().ok())
+    })
+    .ok_or_else(|| {
+        tracing::error!(payload = ?raw, "vatsim profile missing cid");
+        ApiError::Internal
+    })?;
 
     let email = find_string(
         &raw,
@@ -243,21 +259,34 @@ fn parse_profile(raw: Value) -> Result<VatsimProfile, ApiError> {
 
 fn read_required(name: &str) -> Result<String, ApiError> {
     let value = std::env::var(name).map_err(|_| {
-        tracing::error!(missing_env = name, "missing required oauth environment variable");
+        tracing::error!(
+            missing_env = name,
+            "missing required oauth environment variable"
+        );
         ApiError::ServiceUnavailable
     })?;
 
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        tracing::error!(missing_env = name, "oauth environment variable cannot be empty");
+        tracing::error!(
+            missing_env = name,
+            "oauth environment variable cannot be empty"
+        );
         return Err(ApiError::ServiceUnavailable);
     }
 
     Ok(trimmed.to_string())
 }
 
-fn resolve_oauth_endpoint(env_name: &str, prod_default: &str, dev_default: &str, use_dev_hosts: bool) -> String {
-    let configured = std::env::var(env_name).ok().map(|value| value.trim().to_string());
+fn resolve_oauth_endpoint(
+    env_name: &str,
+    prod_default: &str,
+    dev_default: &str,
+    use_dev_hosts: bool,
+) -> String {
+    let configured = std::env::var(env_name)
+        .ok()
+        .map(|value| value.trim().to_string());
 
     if let Some(url) = configured {
         if use_dev_hosts && url == prod_default {
@@ -289,7 +318,10 @@ fn resolve_client_auth_method(use_dev_hosts: bool) -> ClientAuthMethod {
         }
         Some("basic") => ClientAuthMethod::Basic,
         Some(other) => {
-            tracing::warn!(value = other, "unknown VATSIM_CLIENT_AUTH_METHOD, defaulting by mode");
+            tracing::warn!(
+                value = other,
+                "unknown VATSIM_CLIENT_AUTH_METHOD, defaulting by mode"
+            );
             if use_dev_hosts {
                 ClientAuthMethod::Post
             } else {
@@ -308,7 +340,12 @@ fn resolve_client_auth_method(use_dev_hosts: bool) -> ClientAuthMethod {
 
 fn env_flag_enabled(name: &str) -> bool {
     std::env::var(name)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -320,7 +357,11 @@ fn validate_url(name: &str, raw: &str) -> Result<String, ApiError> {
 
     let valid_scheme = matches!(url.scheme(), "http" | "https");
     if !valid_scheme || url.host_str().is_none() {
-        tracing::error!(env = name, value = raw, "oauth url must include http(s) scheme and host");
+        tracing::error!(
+            env = name,
+            value = raw,
+            "oauth url must include http(s) scheme and host"
+        );
         return Err(ApiError::ServiceUnavailable);
     }
 

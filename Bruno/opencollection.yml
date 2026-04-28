@@ -17,7 +17,7 @@ config:
 request:
   variables:
     - name: hostname
-      value: http://localhost:3000
+      value: https://api.vzdc.org
     - name: cid
       value: "1652726"
     - name: oauth_code
@@ -65,19 +65,29 @@ request:
     - name: feedback_status
       value: ""
     - name: file_id
-      value: b2978789-1057-4cac-b61e-f01ac71f2b56
+      value: ec993bd5-cc6c-4a22-bc55-5ebf57966e15
     - name: file_name
       value: intro to inst flight.pdf
     - name: file_public
       value: "true"
+    - name: file_owner_cid
+      value: ""
+    - name: file_viewer_cids
+      value: ""
+    - name: file_viewer_roles
+      value: ""
     - name: file_limit
       value: "25"
     - name: file_offset
       value: "0"
+    - name: file_audit_limit
+      value: "50"
+    - name: file_audit_offset
+      value: "0"
     - name: file_signed_expires_in
       value: "0"
     - name: file_signed_never_expire
-      value: "false"
+      value: "true"
     - name: file_signed_expires
       value: "0"
     - name: file_signed_sig

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
@@ -7,16 +9,21 @@ use axum::{
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{Permission, fetch_user_access},
-        middleware::CurrentUser,
+        acl::{
+            PermissionAction, PermissionKey, PermissionResource, fetch_service_account_access,
+            fetch_user_access, group_permission_keys,
+        },
+        context::{CurrentServiceAccount, CurrentUser},
         middleware::ensure_permission,
         vatsim::{VatsimOAuthConfig, exchange_code_for_token, fetch_profile},
     },
     errors::ApiError,
+    models::ServiceAccountSessionBody,
     state::AppState,
 };
 
@@ -25,48 +32,102 @@ const SESSION_COOKIE: &str = "osmium_session";
 const OAUTH_STATE_TTL_SECS: i64 = 10 * 60;
 const SESSION_TTL_SECS: i64 = 60 * 60 * 24 * 30;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct LoginQuery {
     prompt: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CallbackQuery {
     code: Option<String>,
     state: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct SessionBody {
     id: String,
     cid: i64,
     email: String,
     display_name: String,
-    role: String,
+    role: Option<String>,
     roles: Vec<String>,
-    permissions: Vec<Permission>,
+    permissions: BTreeMap<String, Vec<String>>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/me",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Current authenticated user session", body = SessionBody),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn me(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<SessionBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(&state, Some(user), Permission::ReadOwnProfile).await?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Read),
+    )
+    .await?;
 
-    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id, &user.role).await?;
+    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
 
     Ok(Json(SessionBody {
         id: user.id.clone(),
         cid: user.cid,
         email: user.email.clone(),
         display_name: user.display_name.clone(),
-        role: user.role.clone(),
+        role: user.primary_role.clone(),
         roles,
-        permissions,
+        permissions: group_permission_keys(&permissions),
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/service-account/me",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Current authenticated service account", body = crate::models::ServiceAccountSessionBody),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn service_account_me(
+    State(state): State<AppState>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+) -> Result<Json<ServiceAccountSessionBody>, ApiError> {
+    let service_account = current_service_account
+        .as_ref()
+        .ok_or(ApiError::Unauthorized)?;
+    let (roles, permissions) =
+        fetch_service_account_access(state.db.as_ref(), &service_account.id).await?;
+
+    Ok(Json(ServiceAccountSessionBody {
+        id: service_account.id.clone(),
+        key: service_account.key.clone(),
+        name: service_account.name.clone(),
+        roles,
+        permissions: group_permission_keys(&permissions),
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/vatsim/login",
+    tag = "auth",
+    params(
+        ("prompt" = Option<String>, Query, description = "Optional OAuth prompt override")
+    ),
+    responses(
+        (status = 307, description = "Redirects to VATSIM OAuth")
+    )
+)]
 pub async fn vatsim_login(
     jar: CookieJar,
     Query(query): Query<LoginQuery>,
@@ -74,8 +135,8 @@ pub async fn vatsim_login(
     let config = VatsimOAuthConfig::from_env()?;
     let oauth_state = Uuid::new_v4().to_string();
 
-    let mut authorize_url = Url::parse(&config.authorization_url(&oauth_state)?)
-        .map_err(|_| ApiError::Internal)?;
+    let mut authorize_url =
+        Url::parse(&config.authorization_url(&oauth_state)?).map_err(|_| ApiError::Internal)?;
 
     if let Some(prompt) = parse_prompt(query.prompt.as_deref())? {
         authorize_url
@@ -97,6 +158,19 @@ pub async fn vatsim_login(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/vatsim/callback",
+    tag = "auth",
+    params(
+        ("code" = Option<String>, Query, description = "OAuth authorization code"),
+        ("state" = Option<String>, Query, description = "OAuth state token")
+    ),
+    responses(
+        (status = 302, description = "Completes login and redirects to /api/v1/me"),
+        (status = 400, description = "Invalid callback state or code")
+    )
+)]
 pub async fn vatsim_callback(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -136,10 +210,11 @@ pub async fn vatsim_callback(
 
     let user_id = sqlx::query_scalar::<_, String>(
         r#"
-        insert into users (id, cid, email, display_name, role)
-        values ($1, $2, $3, $4, 'USER')
+        insert into identity.users (id, cid, email, full_name, display_name)
+        values ($1, $2, $3, $4, $4)
         on conflict (cid) do update
         set email = excluded.email,
+            full_name = excluded.full_name,
             display_name = excluded.display_name,
             updated_at = now()
         returning id
@@ -152,13 +227,29 @@ pub async fn vatsim_callback(
     .fetch_one(pool)
     .await
     .map_err(|error| {
-        tracing::error!(?error, cid = profile.cid, "failed to upsert user during oauth callback");
+        tracing::error!(
+            ?error,
+            cid = profile.cid,
+            "failed to upsert user during oauth callback"
+        );
         ApiError::Internal
     })?;
 
     sqlx::query(
         r#"
-        insert into user_roles (user_id, role_name)
+        insert into org.memberships (user_id, artcc, division, membership_status, controller_status)
+        values ($1, 'ZDC', 'USA', 'ACTIVE', 'NONE')
+        on conflict (user_id) do nothing
+        "#,
+    )
+    .bind(&user_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    sqlx::query(
+        r#"
+        insert into access.user_roles (user_id, role_name)
         values ($1, 'USER')
         on conflict (user_id, role_name) do nothing
         "#,
@@ -167,14 +258,18 @@ pub async fn vatsim_callback(
     .execute(pool)
     .await
     .map_err(|error| {
-        tracing::error!(?error, user_id = user_id.as_str(), "failed to ensure default user role during oauth callback");
+        tracing::error!(
+            ?error,
+            user_id = user_id.as_str(),
+            "failed to ensure default user role during oauth callback"
+        );
         ApiError::Internal
     })?;
 
     let session_token = Uuid::new_v4().to_string();
     sqlx::query(
         r#"
-        insert into sessions (session_token, user_id, expires_at)
+        insert into identity.sessions (session_token, user_id, expires_at)
         values ($1, $2, now() + interval '30 days')
         "#,
     )
@@ -183,7 +278,11 @@ pub async fn vatsim_callback(
     .execute(pool)
     .await
     .map_err(|error| {
-        tracing::error!(?error, user_id = user_id.as_str(), "failed to create session during oauth callback");
+        tracing::error!(
+            ?error,
+            user_id = user_id.as_str(),
+            "failed to create session during oauth callback"
+        );
         ApiError::Internal
     })?;
 
@@ -228,8 +327,8 @@ pub async fn login_as_cid(
 
     let user_id = sqlx::query_scalar::<_, String>(
         r#"
-        insert into users (id, cid, email, display_name, role)
-        values ($1, $2, $3, $4, 'USER')
+        insert into identity.users (id, cid, email, full_name, display_name)
+        values ($1, $2, $3, $4, $4)
         on conflict (cid) do update
         set updated_at = now()
         returning id
@@ -248,7 +347,19 @@ pub async fn login_as_cid(
 
     sqlx::query(
         r#"
-        insert into user_roles (user_id, role_name)
+        insert into org.memberships (user_id, artcc, division, membership_status, controller_status)
+        values ($1, 'ZDC', 'USA', 'ACTIVE', 'NONE')
+        on conflict (user_id) do nothing
+        "#,
+    )
+    .bind(&user_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    sqlx::query(
+        r#"
+        insert into access.user_roles (user_id, role_name)
         values ($1, 'USER')
         on conflict (user_id, role_name) do nothing
         "#,
@@ -257,14 +368,18 @@ pub async fn login_as_cid(
     .execute(pool)
     .await
     .map_err(|error| {
-        tracing::error!(?error, user_id = user_id.as_str(), "failed to ensure default user role during dev cid login");
+        tracing::error!(
+            ?error,
+            user_id = user_id.as_str(),
+            "failed to ensure default user role during dev cid login"
+        );
         ApiError::Internal
     })?;
 
     let session_token = Uuid::new_v4().to_string();
     sqlx::query(
         r#"
-        insert into sessions (session_token, user_id, expires_at)
+        insert into identity.sessions (session_token, user_id, expires_at)
         values ($1, $2, now() + interval '30 days')
         "#,
     )
@@ -273,7 +388,11 @@ pub async fn login_as_cid(
     .execute(pool)
     .await
     .map_err(|error| {
-        tracing::error!(?error, user_id = user_id.as_str(), "failed to create session during dev cid login");
+        tracing::error!(
+            ?error,
+            user_id = user_id.as_str(),
+            "failed to create session during dev cid login"
+        );
         ApiError::Internal
     })?;
 
@@ -288,16 +407,31 @@ pub async fn login_as_cid(
     Ok((jar.add(session_cookie), Redirect::to("/api/v1/me")))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/logout",
+    tag = "auth",
+    responses(
+        (status = 204, description = "Session revoked"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
 pub async fn logout(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(session_token): Extension<Option<String>>,
     jar: CookieJar,
 ) -> Result<(CookieJar, StatusCode), ApiError> {
-    ensure_permission(&state, current_user.as_ref(), Permission::Logout).await?;
+    ensure_permission(
+        &state,
+        current_user.as_ref(),
+        None,
+        PermissionKey::new(PermissionResource::Auth, PermissionAction::Delete),
+    )
+    .await?;
 
     if let (Some(pool), Some(token)) = (state.db.as_ref(), session_token.as_deref()) {
-        sqlx::query("delete from sessions where session_token = $1")
+        sqlx::query("delete from identity.sessions where session_token = $1")
             .bind(token)
             .execute(pool)
             .await
@@ -325,7 +459,12 @@ fn parse_prompt(raw_prompt: Option<&str>) -> Result<Option<&str>, ApiError> {
 
 fn cookie_secure() -> bool {
     std::env::var("COOKIE_SECURE")
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -335,7 +474,11 @@ fn api_dev_mode_enabled() -> bool {
 
 fn env_flag_enabled(name: &str) -> bool {
     std::env::var(name)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
-

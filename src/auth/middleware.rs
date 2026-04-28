@@ -3,22 +3,19 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::acl::{Permission, fetch_user_access},
+    auth::{
+        acl::{
+            PermissionAction, PermissionKey, PermissionResource, fetch_service_account_access,
+            fetch_user_access,
+        },
+        context::{CurrentServiceAccount, CurrentUser},
+    },
     errors::ApiError,
+    repos::access as access_repo,
     state::AppState,
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct CurrentUser {
-    pub id: String,
-    pub cid: i64,
-    pub email: String,
-    pub display_name: String,
-    pub role: String,
-}
 
 pub async fn resolve_current_user(
     State(state): State<AppState>,
@@ -29,28 +26,32 @@ pub async fn resolve_current_user(
         request.headers().get(http::header::COOKIE),
         "osmium_session",
     );
+    let bearer_token = parse_bearer_token(request.headers().get(http::header::AUTHORIZATION));
 
     let current_user =
         if let (Some(pool), Some(token)) = (state.db.as_ref(), session_token.as_deref()) {
-            sqlx::query_as::<_, CurrentUser>(
-                r#"
-            select u.id, u.cid, u.email, u.display_name, u.role
-            from sessions s
-            join users u on u.id = s.user_id
-            where s.session_token = $1 and s.expires_at > now()
-            "#,
-            )
-            .bind(token)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
+            access_repo::find_current_user_by_session_token(pool, token)
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+
+    let current_service_account =
+        if let (Some(pool), Some(token)) = (state.db.as_ref(), bearer_token.as_deref()) {
+            access_repo::find_current_service_account_by_bearer_token(pool, token)
+                .await
+                .ok()
+                .flatten()
         } else {
             None
         };
 
     request.extensions_mut().insert(current_user);
+    request.extensions_mut().insert(current_service_account);
     request.extensions_mut().insert(session_token);
+    request.extensions_mut().insert(bearer_token);
 
     next.run(request).await
 }
@@ -58,19 +59,29 @@ pub async fn resolve_current_user(
 pub async fn ensure_permission(
     state: &AppState,
     current_user: Option<&CurrentUser>,
-    permission: Permission,
+    current_service_account: Option<&CurrentServiceAccount>,
+    permission: PermissionKey,
 ) -> Result<(), ApiError> {
-    let Some(user) = current_user else {
-        return Err(ApiError::Unauthorized);
-    };
-
-    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id, &user.role).await?;
-
-    if permissions.contains(&permission) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized)
+    if let Some(user) = current_user {
+        let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+        return if permissions.contains(&permission) {
+            Ok(())
+        } else {
+            Err(ApiError::Unauthorized)
+        };
     }
+
+    if let Some(service_account) = current_service_account {
+        let (_, permissions) =
+            fetch_service_account_access(state.db.as_ref(), &service_account.id).await?;
+        return if permissions.contains(&permission) {
+            Ok(())
+        } else {
+            Err(ApiError::Unauthorized)
+        };
+    }
+
+    Err(ApiError::Unauthorized)
 }
 
 pub async fn require_staff(
@@ -78,11 +89,25 @@ pub async fn require_staff(
     request: Request,
     next: Next,
 ) -> Response {
-    let current_user = request.extensions().get::<Option<CurrentUser>>().cloned().flatten();
+    let current_user = request
+        .extensions()
+        .get::<Option<CurrentUser>>()
+        .cloned()
+        .flatten();
+    let current_service_account = request
+        .extensions()
+        .get::<Option<CurrentServiceAccount>>()
+        .cloned()
+        .flatten();
 
-    if ensure_permission(&state, current_user.as_ref(), Permission::ManageUsers)
-        .await
-        .is_err()
+    if ensure_permission(
+        &state,
+        current_user.as_ref(),
+        current_service_account.as_ref(),
+        PermissionKey::new(PermissionResource::Users, PermissionAction::Update),
+    )
+    .await
+    .is_err()
     {
         return ApiError::Unauthorized.into_response();
     }
@@ -104,4 +129,36 @@ fn parse_cookie(cookie_header: Option<&http::HeaderValue>, cookie_name: &str) ->
     }
 
     None
+}
+
+fn parse_bearer_token(auth_header: Option<&http::HeaderValue>) -> Option<String> {
+    let header_value = auth_header?.to_str().ok()?.trim();
+    let token = header_value.strip_prefix("Bearer ")?;
+    let token = token.trim();
+
+    if token.is_empty() {
+        None
+    } else {
+        Some(token.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_bearer_token;
+
+    #[test]
+    fn parses_bearer_token() {
+        let value = http::HeaderValue::from_static("Bearer token-123");
+        assert_eq!(
+            parse_bearer_token(Some(&value)).as_deref(),
+            Some("token-123")
+        );
+    }
+
+    #[test]
+    fn ignores_non_bearer_authorization() {
+        let value = http::HeaderValue::from_static("Basic abc");
+        assert!(parse_bearer_token(Some(&value)).is_none());
+    }
 }

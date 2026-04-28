@@ -1,8 +1,10 @@
 pub mod auth;
+pub mod docs;
 pub mod errors;
 pub mod handlers;
 pub mod jobs;
 pub mod models;
+pub mod repos;
 pub mod router;
 pub mod state;
 
@@ -59,7 +61,25 @@ async fn run_startup_migrations(
     };
 
     tracing::info!("running startup migrations");
-    sqlx::migrate!("./migrations").run(pool).await
+    let result = sqlx::migrate!("./migrations").run(pool).await;
+
+    if let Err(sqlx::migrate::MigrateError::VersionMissing(version)) = &result {
+        tracing::error!(
+            %version,
+            "database migration history contains an old version that no longer exists in this repo"
+        );
+        tracing::error!(
+            "this usually means the dev database or Docker volume still has the pre-reset migration ledger"
+        );
+        tracing::error!(
+            "compose recovery: `docker compose down -v && docker compose up -d postgres`"
+        );
+        tracing::error!(
+            "manual recovery: drop and recreate the `osmium` database, then rerun the current 0001-0015 migration chain"
+        );
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -150,6 +170,104 @@ mod tests {
         let body_text = std::str::from_utf8(&body).unwrap();
         assert!(body_text.contains("stats_sync"));
         assert!(body_text.contains("docs"));
+    }
+
+    #[tokio::test]
+    async fn docs_index_renders() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(Request::builder().uri("/docs").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_text = std::str::from_utf8(&body).unwrap();
+        assert!(body_text.contains("Osmium Docs"));
+        assert!(body_text.contains("Interactive API reference"));
+    }
+
+    #[tokio::test]
+    async fn all_registered_docs_pages_render() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        for page in crate::docs::DOC_PAGES
+            .iter()
+            .filter(|page| !page.section.is_empty())
+        {
+            let uri = format!("/docs/{}/{}", page.section, page.slug);
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::OK, "failed docs page: {uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn openapi_json_route_renders_and_covers_core_groups() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/docs/api/v1/openapi.json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let paths = json
+            .get("paths")
+            .and_then(|value| value.as_object())
+            .unwrap();
+
+        for expected in [
+            "/api/v1/me",
+            "/api/v1/auth/service-account/me",
+            "/api/v1/user",
+            "/api/v1/admin/acl",
+            "/api/v1/training/assignments",
+            "/api/v1/events",
+            "/api/v1/feedback",
+            "/api/v1/files",
+            "/api/v1/stats/artcc",
+        ] {
+            assert!(
+                paths.contains_key(expected),
+                "missing OpenAPI path: {expected}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn swagger_ui_route_renders() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/docs/api/v1/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -617,7 +735,6 @@ mod tests {
             .await
             .unwrap();
 
-
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -692,5 +809,4 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
-
 }

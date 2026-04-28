@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - osmium-postgres-data:/var/lib/postgresql/data
+      - osmium-postgres-v1-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d osmium"]
       interval: 5s
@@ -38,5 +38,5 @@ services:
       - osmium-files-data:/app/storage/files
 
 volumes:
-  osmium-postgres-data:
+  osmium-postgres-v1-data:
   osmium-files-data:

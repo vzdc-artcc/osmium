@@ -143,7 +143,7 @@ pub async fn run_stats_sync_once(state: &AppState) -> Result<StatsSyncResult, Ap
         .max(1);
 
     let last_sync = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
-        "select stats from sync_times where id = 'default'",
+        "select stats from stats.sync_times where id = 'default'",
     )
     .fetch_optional(pool)
     .await
@@ -165,14 +165,14 @@ pub async fn run_stats_sync_once(state: &AppState) -> Result<StatsSyncResult, Ap
     let controllers = fetch_vnas_controller_data().await?;
 
     let prefixes = sqlx::query_scalar::<_, Vec<String>>(
-        "select prefixes from statistics_prefixes where id = 'default'",
+        "select prefixes from stats.statistics_prefixes where id = 'default'",
     )
     .fetch_optional(pool)
     .await
     .map_err(|_| ApiError::Internal)?
     .unwrap_or_default();
 
-    let users = sqlx::query_as::<_, UserLite>("select id, cid from users")
+    let users = sqlx::query_as::<_, UserLite>("select id, cid from identity.users")
         .fetch_all(pool)
         .await
         .map_err(|_| ApiError::Internal)?;
@@ -191,8 +191,8 @@ pub async fn run_stats_sync_once(state: &AppState) -> Result<StatsSyncResult, Ap
         let active_position = sqlx::query_as::<_, ActivePosition>(
             r#"
             select cp.id, cp.position, cp.facility, cp.start
-            from controller_positions cp
-            join controller_logs cl on cl.id = cp.log_id
+            from stats.controller_positions cp
+            join stats.controller_logs cl on cl.id = cp.log_id
             where cl.user_id = $1 and cp.active = true
             limit 1
             "#,
@@ -247,7 +247,7 @@ pub async fn run_stats_sync_once(state: &AppState) -> Result<StatsSyncResult, Ap
 
         sqlx::query(
             r#"
-            delete from loas
+            delete from org.loas
             where user_id = $1
               and start <= $2
               and "end" >= $2
@@ -262,7 +262,7 @@ pub async fn run_stats_sync_once(state: &AppState) -> Result<StatsSyncResult, Ap
     }
 
     sqlx::query(
-        "insert into sync_times (id, stats, updated_at) values ('default', $1, now()) on conflict (id) do update set stats = excluded.stats, updated_at = now()",
+        "insert into stats.sync_times (id, stats, updated_at) values ('default', $1, now()) on conflict (id) do update set stats = excluded.stats, updated_at = now()",
     )
     .bind(now)
     .execute(pool)
@@ -280,7 +280,12 @@ pub async fn run_stats_sync_once(state: &AppState) -> Result<StatsSyncResult, Ap
 
 fn stats_sync_enabled() -> bool {
     std::env::var("STATS_SYNC_ENABLED")
-        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(true)
 }
 
@@ -310,7 +315,7 @@ async fn fetch_vnas_controller_data() -> Result<Vec<VnasController>, ApiError> {
 async fn ensure_controller_log(pool: &sqlx::PgPool, user_id: &str) -> Result<String, ApiError> {
     sqlx::query_scalar::<_, String>(
         r#"
-        insert into controller_logs (id, user_id)
+        insert into stats.controller_logs (id, user_id)
         values ($1, $2)
         on conflict (user_id) do update set user_id = excluded.user_id
         returning id
@@ -334,7 +339,7 @@ async fn create_active_position(
 
     sqlx::query(
         r#"
-        insert into controller_positions (id, log_id, position, facility, start, active)
+        insert into stats.controller_positions (id, log_id, position, facility, start, active)
         values ($1, $2, $3, $4, $5, true)
         "#,
     )
@@ -356,14 +361,12 @@ async fn close_position_and_add_hours(
     position: &ActivePosition,
     now: DateTime<Utc>,
 ) -> Result<(), ApiError> {
-    sqlx::query(
-        "update controller_positions set active = false, \"end\" = $2 where id = $1",
-    )
-    .bind(&position.id)
-    .bind(now)
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    sqlx::query("update stats.controller_positions set active = false, \"end\" = $2 where id = $1")
+        .bind(&position.id)
+        .bind(now)
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
 
     let elapsed = (now - position.start).num_seconds().max(0) as f64 / 3600.0;
     add_hours(pool, user_id, position.facility.unwrap_or(0), elapsed, now).await
@@ -399,7 +402,7 @@ async fn add_hours(
 
     sqlx::query(
         r#"
-        insert into controller_log_months (
+        insert into stats.controller_log_months (
             id,
             log_id,
             month,
@@ -412,11 +415,11 @@ async fn add_hours(
         )
         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         on conflict (log_id, month, year) do update
-        set delivery_hours = controller_log_months.delivery_hours + excluded.delivery_hours,
-            ground_hours = controller_log_months.ground_hours + excluded.ground_hours,
-            tower_hours = controller_log_months.tower_hours + excluded.tower_hours,
-            approach_hours = controller_log_months.approach_hours + excluded.approach_hours,
-            center_hours = controller_log_months.center_hours + excluded.center_hours
+        set delivery_hours = stats.controller_log_months.delivery_hours + excluded.delivery_hours,
+            ground_hours = stats.controller_log_months.ground_hours + excluded.ground_hours,
+            tower_hours = stats.controller_log_months.tower_hours + excluded.tower_hours,
+            approach_hours = stats.controller_log_months.approach_hours + excluded.approach_hours,
+            center_hours = stats.controller_log_months.center_hours + excluded.center_hours
         "#,
     )
     .bind(Uuid::new_v4().to_string())
@@ -445,4 +448,3 @@ fn map_facility_type(value: &str) -> i32 {
         _ => 0,
     }
 }
-
