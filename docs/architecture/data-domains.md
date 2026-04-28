@@ -16,7 +16,15 @@ Owns ARTCC membership, controller status, staff positions, certifications, and r
 
 ## training
 
-Owns assignments, assignment requests, release requests, lesson/progression structures, and training-session workflows.
+Owns assignments, assignment requests, release requests, lesson/progression structures, training appointments, OTS recommendations, and training-session workflows.
+
+Training-session workflow ownership includes:
+
+- `training_sessions`
+- `training_tickets`
+- `rubric_scores`
+- `session_performance_indicators`
+- lesson-linked roster-change rules that drive org and dossier side effects
 
 ## events
 

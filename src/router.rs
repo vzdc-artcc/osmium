@@ -64,6 +64,24 @@ pub fn build_router(state: AppState) -> Router {
             get(training::list_assignments).post(training::create_assignment),
         )
         .route(
+            "/lessons",
+            get(training::list_lessons).post(training::create_lesson),
+        )
+        .route(
+            "/lessons/{lesson_id}",
+            patch(training::update_lesson).delete(training::delete_lesson),
+        )
+        .route(
+            "/sessions",
+            get(training::list_training_sessions).post(training::create_training_session),
+        )
+        .route(
+            "/sessions/{session_id}",
+            get(training::get_training_session)
+                .patch(training::update_training_session)
+                .delete(training::delete_training_session),
+        )
+        .route(
             "/assignment-requests",
             get(training::list_assignment_requests).post(training::create_assignment_request),
         )
@@ -114,6 +132,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/logout", post(auth::logout))
         .route("/admin/files/audit", get(files::list_file_audit_logs))
         .route("/stats/artcc", get(stats::get_artcc_stats))
+        .route("/stats/controller-events", get(stats::list_controller_events))
         .route(
             "/stats/controller/{cid}/history",
             get(stats::get_controller_history),
