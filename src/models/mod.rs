@@ -6,8 +6,8 @@ pub mod training;
 pub mod users;
 
 pub use access::{
-    AccessCatalogBody, AclDebugBody, PermissionInput, PermissionOverrideInput,
-    ServiceAccountSessionBody, UpdateUserAccessRequest, UserAccessBody,
+    AccessCatalogBody, AclDebugBody, AuditLogItem, ListAuditLogsQuery, PermissionInput,
+    PermissionOverrideInput, ServiceAccountSessionBody, UpdateUserAccessRequest, UserAccessBody,
 };
 pub use events::{
     AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
@@ -20,18 +20,17 @@ pub use media::{FileAsset, ListFilesQuery, UpdateFileMetadataRequest, UploadFile
 pub use training::{
     ApiMessage, CreateOrUpdateTrainingSessionResult, CreateRubricScoreRequest,
     CreateTrainerReleaseRequestRequest, CreateTrainingAssignmentRequest,
-    CreateTrainingAssignmentRequestRequest, DecideTrainerReleaseRequestRequest,
-    DecideTrainingAssignmentRequestRequest, LessonRosterChangeSummary,
-    ListTrainingSessionsQuery, OtsRecommendationSummary, TrainerReleaseRequest,
-    TrainingAssignment, TrainingAssignmentRequest, TrainingLesson, TrainingSessionDetail,
-    TrainingSessionListItem, TrainingSessionPerformanceIndicatorCategoryDetail,
-    TrainingSessionPerformanceIndicatorCriteriaDetail,
-    TrainingSessionPerformanceIndicatorDetail, TrainingTicketDetail,
-    CreateTrainingLessonRequest, UpdateTrainingLessonRequest,
+    CreateTrainingAssignmentRequestRequest, CreateTrainingLessonRequest,
     CreateTrainingSessionPerformanceIndicatorCategoryRequest,
     CreateTrainingSessionPerformanceIndicatorCriteriaRequest,
     CreateTrainingSessionPerformanceIndicatorRequest, CreateTrainingSessionRequest,
-    CreateTrainingTicketRequest, RubricScoreDetail, UpdateTrainingSessionRequest,
+    CreateTrainingTicketRequest, DecideTrainerReleaseRequestRequest,
+    DecideTrainingAssignmentRequestRequest, LessonRosterChangeSummary, ListTrainingSessionsQuery,
+    OtsRecommendationSummary, RubricScoreDetail, TrainerReleaseRequest, TrainingAssignment,
+    TrainingAssignmentRequest, TrainingLesson, TrainingSessionDetail, TrainingSessionListItem,
+    TrainingSessionPerformanceIndicatorCategoryDetail,
+    TrainingSessionPerformanceIndicatorCriteriaDetail, TrainingSessionPerformanceIndicatorDetail,
+    TrainingTicketDetail, UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
 };
 
 pub use users::{

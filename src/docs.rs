@@ -284,6 +284,7 @@ pub fn build_docs_router() -> Router<AppState> {
         crate::handlers::users::visit_artcc,
         crate::handlers::users::get_user_feedback,
         crate::handlers::admin::acl_debug,
+        crate::handlers::admin::list_audit_logs,
         crate::handlers::admin::get_access_catalog,
         crate::handlers::admin::get_user_access,
         crate::handlers::admin::update_user_access,

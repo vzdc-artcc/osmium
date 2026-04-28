@@ -1,0 +1,56 @@
+info:
+  name: publish_event_positions
+  type: http
+  seq: 8
+  tags:
+    - events
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/events/:event_id/positions/publish"
+  params:
+    - name: event_id
+      value: ""
+      type: path
+      description: Event ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Positions published
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id/positions/publish"
+      method: POST
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+    response:
+      status: 200
+      statusText: OK
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id/positions/publish"
+      method: POST
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

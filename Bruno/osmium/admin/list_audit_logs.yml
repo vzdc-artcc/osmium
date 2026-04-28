@@ -1,0 +1,174 @@
+info:
+  name: list_audit_logs
+  type: http
+  seq: 3
+  tags:
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/audit"
+  params:
+    - name: resource_type
+      value: ""
+      type: query
+      disabled: true
+    - name: resource_id
+      value: ""
+      type: query
+      disabled: true
+    - name: actor_id
+      value: ""
+      type: query
+      disabled: true
+    - name: actor_type
+      value: ""
+      type: query
+      disabled: true
+    - name: scope_type
+      value: ""
+      type: query
+      disabled: true
+    - name: scope_key
+      value: ""
+      type: query
+      disabled: true
+    - name: action
+      value: ""
+      type: query
+      disabled: true
+    - name: limit
+      value: ""
+      type: query
+      disabled: true
+    - name: offset
+      value: ""
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Audit log rows
+    request:
+      url: "{{baseUrl}}/api/v1/admin/audit"
+      method: GET
+      params:
+        - name: resource_type
+          value: ""
+          type: query
+          disabled: true
+        - name: resource_id
+          value: ""
+          type: query
+          disabled: true
+        - name: actor_id
+          value: ""
+          type: query
+          disabled: true
+        - name: actor_type
+          value: ""
+          type: query
+          disabled: true
+        - name: scope_type
+          value: ""
+          type: query
+          disabled: true
+        - name: scope_key
+          value: ""
+          type: query
+          disabled: true
+        - name: action
+          value: ""
+          type: query
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "action": "",
+              "actor_display_name": "",
+              "actor_id": "",
+              "actor_service_account_id": "",
+              "actor_type": "",
+              "actor_user_id": "",
+              "after_state": "",
+              "before_state": "",
+              "created_at": "",
+              "id": "",
+              "ip_address": "",
+              "resource_id": "",
+              "resource_type": "",
+              "scope_key": "",
+              "scope_type": ""
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/audit"
+      method: GET
+      params:
+        - name: resource_type
+          value: ""
+          type: query
+          disabled: true
+        - name: resource_id
+          value: ""
+          type: query
+          disabled: true
+        - name: actor_id
+          value: ""
+          type: query
+          disabled: true
+        - name: actor_type
+          value: ""
+          type: query
+          disabled: true
+        - name: scope_type
+          value: ""
+          type: query
+          disabled: true
+        - name: scope_key
+          value: ""
+          type: query
+          disabled: true
+        - name: action
+          value: ""
+          type: query
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

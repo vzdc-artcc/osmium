@@ -1,0 +1,104 @@
+info:
+  name: list_file_audit_logs
+  type: http
+  seq: 1
+  tags:
+    - files
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/files/audit"
+  params:
+    - name: file_id
+      value: ""
+      type: query
+      description: Optional file ID filter
+      disabled: true
+    - name: limit
+      value: ""
+      type: query
+      description: Maximum rows
+      disabled: true
+    - name: offset
+      value: ""
+      type: query
+      description: Pagination offset
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: File audit log rows
+    request:
+      url: "{{baseUrl}}/api/v1/admin/files/audit"
+      method: GET
+      params:
+        - name: file_id
+          value: ""
+          type: query
+          description: Optional file ID filter
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "action": "",
+              "actor_user_id": "",
+              "created_at": "",
+              "details": "",
+              "file_id": "",
+              "id": "",
+              "ip_address": "",
+              "outcome": ""
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/files/audit"
+      method: GET
+      params:
+        - name: file_id
+          value: ""
+          type: query
+          description: Optional file ID filter
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

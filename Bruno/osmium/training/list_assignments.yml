@@ -1,0 +1,53 @@
+info:
+  name: list_assignments
+  type: http
+  seq: 6
+  tags:
+    - training
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/training/assignments"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List assignments
+    request:
+      url: "{{baseUrl}}/api/v1/training/assignments"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "created_at": "",
+              "id": "",
+              "primary_trainer_id": "",
+              "student_id": "",
+              "updated_at": ""
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/assignments"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

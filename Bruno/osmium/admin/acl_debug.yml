@@ -1,0 +1,50 @@
+info:
+  name: acl_debug
+  type: http
+  seq: 2
+  tags:
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/acl"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Effective access for the current staff user
+    request:
+      url: "{{baseUrl}}/api/v1/admin/acl"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "permissions": {},
+            "role": "",
+            "roles": [],
+            "user_id": ""
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/acl"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

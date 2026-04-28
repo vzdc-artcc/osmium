@@ -1,0 +1,200 @@
+info:
+  name: replace_file_content
+  type: http
+  seq: 8
+  tags:
+    - files
+
+http:
+  method: PUT
+  url: "{{baseUrl}}/api/v1/files/:file_id/content"
+  params:
+    - name: file_id
+      value: ""
+      type: path
+      description: File ID
+    - name: filename
+      value: ""
+      type: query
+      description: Replacement filename
+      disabled: true
+    - name: public
+      value: ""
+      type: query
+      description: Ignored compatibility upload flag
+      disabled: true
+    - name: owner_cid
+      value: ""
+      type: query
+      description: Ignored compatibility owner flag
+      disabled: true
+    - name: viewer_cids
+      value: ""
+      type: query
+      description: Ignored compatibility viewer CID flag
+      disabled: true
+    - name: viewer_roles
+      value: ""
+      type: query
+      description: Ignored compatibility viewer role flag
+      disabled: true
+  body:
+    type: text
+    data: ""
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Replaced file content
+    request:
+      url: "{{baseUrl}}/api/v1/files/:file_id/content"
+      method: PUT
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+        - name: filename
+          value: ""
+          type: query
+          description: Replacement filename
+          disabled: true
+        - name: public
+          value: ""
+          type: query
+          description: Ignored compatibility upload flag
+          disabled: true
+        - name: owner_cid
+          value: ""
+          type: query
+          description: Ignored compatibility owner flag
+          disabled: true
+        - name: viewer_cids
+          value: ""
+          type: query
+          description: Ignored compatibility viewer CID flag
+          disabled: true
+        - name: viewer_roles
+          value: ""
+          type: query
+          description: Ignored compatibility viewer role flag
+          disabled: true
+      body:
+        type: text
+        data: ""
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "content_type": "",
+            "created_at": "",
+            "etag": "",
+            "filename": "",
+            "id": "",
+            "is_public": false,
+            "owner_user_id": "",
+            "size_bytes": 0,
+            "updated_at": "",
+            "uploaded_by": "",
+            "viewer_roles": []
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/files/:file_id/content"
+      method: PUT
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+        - name: filename
+          value: ""
+          type: query
+          description: Replacement filename
+          disabled: true
+        - name: public
+          value: ""
+          type: query
+          description: Ignored compatibility upload flag
+          disabled: true
+        - name: owner_cid
+          value: ""
+          type: query
+          description: Ignored compatibility owner flag
+          disabled: true
+        - name: viewer_cids
+          value: ""
+          type: query
+          description: Ignored compatibility viewer CID flag
+          disabled: true
+        - name: viewer_roles
+          value: ""
+          type: query
+          description: Ignored compatibility viewer role flag
+          disabled: true
+      body:
+        type: text
+        data: ""
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/files/:file_id/content"
+      method: PUT
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+        - name: filename
+          value: ""
+          type: query
+          description: Replacement filename
+          disabled: true
+        - name: public
+          value: ""
+          type: query
+          description: Ignored compatibility upload flag
+          disabled: true
+        - name: owner_cid
+          value: ""
+          type: query
+          description: Ignored compatibility owner flag
+          disabled: true
+        - name: viewer_cids
+          value: ""
+          type: query
+          description: Ignored compatibility viewer CID flag
+          disabled: true
+        - name: viewer_roles
+          value: ""
+          type: query
+          description: Ignored compatibility viewer role flag
+          disabled: true
+      body:
+        type: text
+        data: ""
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

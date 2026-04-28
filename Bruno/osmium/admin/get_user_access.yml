@@ -1,0 +1,82 @@
+info:
+  name: get_user_access
+  type: http
+  seq: 4
+  tags:
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+  params:
+    - name: cid
+      value: ""
+      type: path
+      description: VATSIM CID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Access details for a user
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "cid": 0,
+            "id": "",
+            "permissions": {},
+            "role": "",
+            "roles": []
+          }
+  - name: 400 Response
+    description: Invalid CID
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/access"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

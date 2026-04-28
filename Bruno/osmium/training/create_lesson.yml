@@ -1,0 +1,141 @@
+info:
+  name: create_lesson
+  type: http
+  seq: 9
+  tags:
+    - training
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/training/lessons"
+  body:
+    type: json
+    data: |-
+      {
+        "description": "",
+        "duration": 0,
+        "facility": "",
+        "identifier": "",
+        "instructor_only": false,
+        "location": 0,
+        "name": "",
+        "notify_instructor_on_pass": false,
+        "performance_indicator_template_id": "",
+        "position": "",
+        "release_request_on_pass": false,
+        "trainee_preparation": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Training lesson created
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "duration": 0,
+            "facility": "",
+            "identifier": "",
+            "instructor_only": false,
+            "location": 0,
+            "name": "",
+            "notify_instructor_on_pass": false,
+            "performance_indicator_template_id": "",
+            "position": "",
+            "release_request_on_pass": false,
+            "trainee_preparation": ""
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "created_at": "",
+            "description": "",
+            "duration": 0,
+            "facility": "",
+            "id": "",
+            "identifier": "",
+            "instructor_only": false,
+            "location": 0,
+            "name": "",
+            "notify_instructor_on_pass": false,
+            "performance_indicator_template_id": "",
+            "position": "",
+            "release_request_on_pass": false,
+            "rubric_id": "",
+            "trainee_preparation": "",
+            "updated_at": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "duration": 0,
+            "facility": "",
+            "identifier": "",
+            "instructor_only": false,
+            "location": 0,
+            "name": "",
+            "notify_instructor_on_pass": false,
+            "performance_indicator_template_id": "",
+            "position": "",
+            "release_request_on_pass": false,
+            "trainee_preparation": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "duration": 0,
+            "facility": "",
+            "identifier": "",
+            "instructor_only": false,
+            "location": 0,
+            "name": "",
+            "notify_instructor_on_pass": false,
+            "performance_indicator_template_id": "",
+            "position": "",
+            "release_request_on_pass": false,
+            "trainee_preparation": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

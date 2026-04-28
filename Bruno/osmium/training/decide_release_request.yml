@@ -1,0 +1,107 @@
+info:
+  name: decide_release_request
+  type: http
+  seq: 19
+  tags:
+    - training
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/training/trainer-release-requests/:request_id"
+  params:
+    - name: request_id
+      value: ""
+      type: path
+      description: Trainer release request ID
+  body:
+    type: json
+    data: |-
+      {
+        "status": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Trainer release request updated
+    request:
+      url: "{{baseUrl}}/api/v1/training/trainer-release-requests/:request_id"
+      method: PATCH
+      params:
+        - name: request_id
+          value: ""
+          type: path
+          description: Trainer release request ID
+      body:
+        type: json
+        data: |-
+          {
+            "status": ""
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "decided_at": "",
+            "decided_by": "",
+            "id": "",
+            "status": "",
+            "student_id": "",
+            "submitted_at": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/trainer-release-requests/:request_id"
+      method: PATCH
+      params:
+        - name: request_id
+          value: ""
+          type: path
+          description: Trainer release request ID
+      body:
+        type: json
+        data: |-
+          {
+            "status": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/trainer-release-requests/:request_id"
+      method: PATCH
+      params:
+        - name: request_id
+          value: ""
+          type: path
+          description: Trainer release request ID
+      body:
+        type: json
+        data: |-
+          {
+            "status": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

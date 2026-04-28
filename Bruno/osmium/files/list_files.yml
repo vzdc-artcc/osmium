@@ -1,0 +1,92 @@
+info:
+  name: list_files
+  type: http
+  seq: 2
+  tags:
+    - files
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/files"
+  params:
+    - name: limit
+      value: ""
+      type: query
+      description: Maximum rows
+      disabled: true
+    - name: offset
+      value: ""
+      type: query
+      description: Pagination offset
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List file assets
+    request:
+      url: "{{baseUrl}}/api/v1/files"
+      method: GET
+      params:
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "content_type": "",
+              "created_at": "",
+              "etag": "",
+              "filename": "",
+              "id": "",
+              "is_public": false,
+              "owner_user_id": "",
+              "size_bytes": 0,
+              "updated_at": "",
+              "uploaded_by": "",
+              "viewer_roles": []
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/files"
+      method: GET
+      params:
+        - name: limit
+          value: ""
+          type: query
+          description: Maximum rows
+          disabled: true
+        - name: offset
+          value: ""
+          type: query
+          description: Pagination offset
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

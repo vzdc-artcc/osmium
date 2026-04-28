@@ -1,0 +1,72 @@
+info:
+  name: delete_training_session
+  type: http
+  seq: 15
+  tags:
+    - training
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+  params:
+    - name: session_id
+      value: ""
+      type: path
+      description: Training session ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Training session deleted
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: DELETE
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: DELETE
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: DELETE
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

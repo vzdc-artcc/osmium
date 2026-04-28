@@ -29,6 +29,7 @@ use crate::{
     },
     errors::ApiError,
     models::{FileAsset, ListFilesQuery, UpdateFileMetadataRequest, UploadFileQuery},
+    repos::audit as audit_repo,
     state::AppState,
 };
 
@@ -36,7 +37,7 @@ type HmacSha256 = Hmac<Sha256>;
 const ENCRYPTION_MAGIC: &[u8] = b"OSMENC1";
 const NONCE_LEN: usize = 12;
 
-#[derive(sqlx::FromRow)]
+#[derive(Clone, sqlx::FromRow)]
 struct FileAssetRow {
     id: String,
     filename: String,
@@ -381,7 +382,25 @@ pub async fn upload_file(
     )
     .await;
 
-    Ok((StatusCode::CREATED, Json(row.into())))
+    let created_asset: FileAsset = row.into();
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "CREATE".to_string(),
+            resource_type: "FILE".to_string(),
+            resource_id: Some(file_id.clone()),
+            scope_type: "file".to_string(),
+            scope_key: Some(file_id.clone()),
+            before_state: None,
+            after_state: Some(audit_repo::sanitized_snapshot(&created_asset)?),
+            ip_address: Some(ip_address),
+        },
+    )
+    .await?;
+
+    Ok((StatusCode::CREATED, Json(created_asset)))
 }
 
 #[utoipa::path(
@@ -593,6 +612,7 @@ pub async fn update_file_metadata(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(file_id): Path<String>,
+    headers: HeaderMap,
     Json(payload): Json<UpdateFileMetadataRequest>,
 ) -> Result<Json<FileAsset>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -601,6 +621,7 @@ pub async fn update_file_metadata(
     let existing = fetch_file_row(pool, &file_id)
         .await?
         .ok_or(ApiError::BadRequest)?;
+    let existing_asset: FileAsset = existing.clone().into();
     let changing_access_policy = payload.is_public.is_some()
         || payload.owner_cid.is_some()
         || payload.viewer_cids.is_some()
@@ -698,7 +719,25 @@ pub async fn update_file_metadata(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(row.into()))
+    let updated_asset: FileAsset = row.into();
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "FILE".to_string(),
+            resource_id: Some(file_id.clone()),
+            scope_type: "file".to_string(),
+            scope_key: Some(file_id),
+            before_state: Some(audit_repo::sanitized_snapshot(&existing_asset)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&updated_asset)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(updated_asset))
 }
 
 #[utoipa::path(
@@ -743,6 +782,7 @@ pub async fn replace_file_content(
     let existing = fetch_file_row(pool, &file_id)
         .await?
         .ok_or(ApiError::BadRequest)?;
+    let existing_asset: FileAsset = existing.clone().into();
     ensure_can_mutate_file(&state, user, &existing).await?;
 
     let filename = query
@@ -789,7 +829,25 @@ pub async fn replace_file_content(
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(row.into()))
+    let updated_asset: FileAsset = row.into();
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "FILE_CONTENT".to_string(),
+            resource_id: Some(file_id.clone()),
+            scope_type: "file".to_string(),
+            scope_key: Some(file_id),
+            before_state: Some(audit_repo::sanitized_snapshot(&existing_asset)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&updated_asset)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(updated_asset))
 }
 
 #[utoipa::path(
@@ -818,6 +876,7 @@ pub async fn delete_file(
     let existing = fetch_file_row(pool, &file_id)
         .await?
         .ok_or(ApiError::BadRequest)?;
+    let existing_asset: FileAsset = existing.clone().into();
     ensure_can_mutate_file(&state, user, &existing).await?;
 
     let storage_key = sqlx::query_scalar::<_, String>(
@@ -846,6 +905,23 @@ pub async fn delete_file(
         serde_json::json!({}),
     )
     .await;
+
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "DELETE".to_string(),
+            resource_type: "FILE".to_string(),
+            resource_id: Some(file_id.clone()),
+            scope_type: "file".to_string(),
+            scope_key: Some(file_id),
+            before_state: Some(audit_repo::sanitized_snapshot(&existing_asset)?),
+            after_state: None,
+            ip_address: Some(ip_address),
+        },
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -997,8 +1073,7 @@ async fn ensure_can_upload(state: &AppState, user: &CurrentUser) -> Result<(), A
     )) || permissions.contains(&PermissionKey::new(
         PermissionResource::Files,
         PermissionAction::Create,
-    ))
-    {
+    )) {
         Ok(())
     } else {
         Err(ApiError::Unauthorized)
@@ -1040,8 +1115,7 @@ async fn ensure_can_update_file_policy(
     if permissions.contains(&PermissionKey::new(
         PermissionResource::Files,
         PermissionAction::Update,
-    ))
-        || row.uploaded_by == user.id
+    )) || row.uploaded_by == user.id
         || row.owner_user_id.as_deref() == Some(user.id.as_str())
         || roles
             .iter()

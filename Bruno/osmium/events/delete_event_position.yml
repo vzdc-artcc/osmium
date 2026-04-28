@@ -1,0 +1,88 @@
+info:
+  name: delete_event_position
+  type: http
+  seq: 9
+  tags:
+    - events
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/events/:event_id/positions/:position_id"
+  params:
+    - name: event_id
+      value: ""
+      type: path
+      description: Event ID
+    - name: position_id
+      value: ""
+      type: path
+      description: Position ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Position deleted
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id/positions/:position_id"
+      method: DELETE
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+        - name: position_id
+          value: ""
+          type: path
+          description: Position ID
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id/positions/:position_id"
+      method: DELETE
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+        - name: position_id
+          value: ""
+          type: path
+          description: Position ID
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id/positions/:position_id"
+      method: DELETE
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+        - name: position_id
+          value: ""
+          type: path
+          description: Position ID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

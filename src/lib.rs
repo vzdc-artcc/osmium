@@ -3,6 +3,7 @@ pub mod docs;
 pub mod errors;
 pub mod handlers;
 pub mod jobs;
+pub mod logging;
 pub mod models;
 pub mod repos;
 pub mod router;

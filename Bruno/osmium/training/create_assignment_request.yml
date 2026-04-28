@@ -1,0 +1,61 @@
+info:
+  name: create_assignment_request
+  type: http
+  seq: 2
+  tags:
+    - training
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/training/assignment-requests"
+  body:
+    type: json
+    data: "{}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Assignment request created
+    request:
+      url: "{{baseUrl}}/api/v1/training/assignment-requests"
+      method: POST
+      body:
+        type: json
+        data: "{}"
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "decided_at": "",
+            "decided_by": "",
+            "id": "",
+            "status": "",
+            "student_id": "",
+            "submitted_at": ""
+          }
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/training/assignment-requests"
+      method: POST
+      body:
+        type: json
+        data: "{}"
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

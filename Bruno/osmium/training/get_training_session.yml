@@ -1,0 +1,110 @@
+info:
+  name: get_training_session
+  type: http
+  seq: 14
+  tags:
+    - training
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+  params:
+    - name: session_id
+      value: ""
+      type: path
+      description: Training session ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Training session detail
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: GET
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "additional_comments": "",
+            "created_at": "",
+            "enable_markdown": false,
+            "end": "",
+            "id": "",
+            "instructor_cid": 0,
+            "instructor_id": "",
+            "instructor_name": "",
+            "performance_indicator": "",
+            "start": "",
+            "student_cid": 0,
+            "student_id": "",
+            "student_name": "",
+            "tickets": [
+              {
+                "created_at": "",
+                "id": "",
+                "lesson_id": "",
+                "passed": false,
+                "scores": [
+                  {
+                    "cell_id": "",
+                    "criteria_id": "",
+                    "id": "",
+                    "passed": false
+                  }
+                ],
+                "session_id": ""
+              }
+            ],
+            "trainer_comments": "",
+            "updated_at": "",
+            "vatusa_id": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: GET
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/sessions/:session_id"
+      method: GET
+      params:
+        - name: session_id
+          value: ""
+          type: path
+          description: Training session ID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

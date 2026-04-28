@@ -1,6 +1,7 @@
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
+    http::HeaderMap,
 };
 
 use crate::{
@@ -16,11 +17,11 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        AccessCatalogBody, AclDebugBody, AdminUserListItem, ListUsersQuery, PermissionInput,
-        SetControllerStatusBody, SetControllerStatusRequest, UpdateUserAccessRequest,
-        UserAccessBody, UserOverviewBody,
+        AccessCatalogBody, AclDebugBody, AdminUserListItem, AuditLogItem, ListAuditLogsQuery,
+        ListUsersQuery, PermissionInput, SetControllerStatusBody, SetControllerStatusRequest,
+        UpdateUserAccessRequest, UserAccessBody, UserOverviewBody,
     },
-    repos::{access as access_repo, users as user_repo},
+    repos::{access as access_repo, audit as audit_repo, users as user_repo},
     state::AppState,
 };
 
@@ -128,6 +129,51 @@ pub async fn get_access_catalog(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/v1/admin/audit",
+    tag = "admin",
+    params(ListAuditLogsQuery),
+    responses(
+        (status = 200, description = "Audit log rows", body = [AuditLogItem]),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn list_audit_logs(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Query(query): Query<ListAuditLogsQuery>,
+) -> Result<Json<Vec<AuditLogItem>>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        current_service_account.as_ref(),
+        PermissionKey::new(PermissionResource::Audit, PermissionAction::Read),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let rows = audit_repo::fetch_audit_logs(
+        pool,
+        &audit_repo::AuditLogFilters {
+            resource_type: query.resource_type,
+            resource_id: query.resource_id,
+            actor_id: query.actor_id,
+            actor_type: query.actor_type,
+            scope_type: query.scope_type,
+            scope_key: query.scope_key,
+            action: query.action.map(|value| value.trim().to_ascii_uppercase()),
+            limit: query.limit.unwrap_or(50).clamp(1, 250),
+            offset: query.offset.unwrap_or(0).max(0),
+        },
+    )
+    .await?;
+
+    Ok(Json(rows))
+}
+
+#[utoipa::path(
     patch,
     path = "/api/v1/admin/users/{cid}/controller-status",
     tag = "admin",
@@ -146,6 +192,7 @@ pub async fn set_user_controller_status(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(cid): Path<i64>,
+    headers: HeaderMap,
     Json(payload): Json<SetControllerStatusRequest>,
 ) -> Result<Json<SetControllerStatusBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -180,6 +227,7 @@ pub async fn set_user_controller_status(
         .filter(|value| !value.is_empty())
         .map(|value| value.to_ascii_uppercase());
 
+    let before = user_repo::find_roster_user_by_cid(pool, cid).await?;
     let updated = user_repo::update_controller_status(
         pool,
         cid,
@@ -189,11 +237,34 @@ pub async fn set_user_controller_status(
     .await?
     .ok_or(ApiError::BadRequest)?;
 
-    Ok(Json(SetControllerStatusBody {
+    let response = SetControllerStatusBody {
         cid: updated.0,
         controller_status: updated.1,
         artcc: updated.2,
-    }))
+    };
+
+    let actor =
+        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "USER_CONTROLLER_STATUS".to_string(),
+            resource_id: before.as_ref().map(|row| row.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(cid.to_string()),
+            before_state: before
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
+            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(response))
 }
 
 pub async fn list_users(
@@ -274,6 +345,7 @@ pub async fn update_user_access(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(cid): Path<i64>,
+    headers: HeaderMap,
     Json(payload): Json<UpdateUserAccessRequest>,
 ) -> Result<Json<UserAccessBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -290,8 +362,10 @@ pub async fn update_user_access(
     };
 
     let parsed_roles = parse_roles(payload.roles.as_deref(), payload.role.as_deref())?;
-    let parsed_permissions =
-        parse_permissions(payload.permissions.as_ref(), payload.permission_overrides.as_ref())?;
+    let parsed_permissions = parse_permissions(
+        payload.permissions.as_ref(),
+        payload.permission_overrides.as_ref(),
+    )?;
 
     if parsed_roles.is_empty() && parsed_permissions.is_empty() {
         return Err(ApiError::BadRequest);
@@ -300,6 +374,11 @@ pub async fn update_user_access(
     let target_user_id = access_repo::find_user_id_by_cid(pool, cid)
         .await?
         .ok_or(ApiError::BadRequest)?;
+    let target_before = access_repo::find_current_user_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::BadRequest)?;
+    let (before_roles, before_permissions) =
+        fetch_user_access(state.db.as_ref(), &target_before.id).await?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     access_repo::replace_user_access(&mut tx, &target_user_id, &parsed_roles, &parsed_permissions)
@@ -310,8 +389,30 @@ pub async fn update_user_access(
         .await?
         .ok_or(ApiError::BadRequest)?;
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &updated.id).await?;
+    let response = build_user_access_body(&updated, roles, permissions);
+    let actor =
+        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "USER_ACCESS".to_string(),
+            resource_id: Some(updated.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(cid.to_string()),
+            before_state: Some(audit_repo::sanitize_value(serde_json::json!({
+                "user": target_before,
+                "roles": before_roles,
+                "permissions": group_permission_keys(&before_permissions),
+            }))),
+            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
 
-    Ok(Json(build_user_access_body(&updated, roles, permissions)))
+    Ok(Json(response))
 }
 
 fn parse_roles(

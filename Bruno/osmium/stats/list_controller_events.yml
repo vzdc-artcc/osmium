@@ -1,0 +1,108 @@
+info:
+  name: list_controller_events
+  type: http
+  seq: 2
+  tags:
+    - stats
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/stats/controller-events"
+  params:
+    - name: environment
+      value: ""
+      type: query
+      description: "Environment: live, sweatbox1, or sweatbox2"
+      disabled: true
+    - name: after_id
+      value: ""
+      type: query
+      description: Return events after this durable event id
+      disabled: true
+    - name: limit
+      value: ""
+      type: query
+      description: Max events to return
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Durable controller lifecycle events
+    request:
+      url: "{{baseUrl}}/api/v1/stats/controller-events"
+      method: GET
+      params:
+        - name: environment
+          value: ""
+          type: query
+          description: "Environment: live, sweatbox1, or sweatbox2"
+          disabled: true
+        - name: after_id
+          value: ""
+          type: query
+          description: Return events after this durable event id
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          description: Max events to return
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "environment": "",
+            "events": [
+              {
+                "activation_id": "",
+                "cid": 0,
+                "environment": "",
+                "event_type": "",
+                "id": 0,
+                "occurred_at": "",
+                "payload": "",
+                "session_id": "",
+                "user_id": ""
+              }
+            ]
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/stats/controller-events"
+      method: GET
+      params:
+        - name: environment
+          value: ""
+          type: query
+          description: "Environment: live, sweatbox1, or sweatbox2"
+          disabled: true
+        - name: after_id
+          value: ""
+          type: query
+          description: Return events after this durable event id
+          disabled: true
+        - name: limit
+          value: ""
+          type: query
+          description: Max events to return
+          disabled: true
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

@@ -2,10 +2,7 @@ use axum::{
     Router, middleware,
     routing::{get, patch, post},
 };
-use tower_http::{
-    cors::{Any, CorsLayer},
-    trace::TraceLayer,
-};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     auth::middleware::{require_staff, resolve_current_user},
@@ -20,6 +17,7 @@ use crate::{
 pub fn build_router(state: AppState) -> Router {
     let admin_routes = Router::new()
         .route("/acl", get(admin::acl_debug))
+        .route("/audit", get(admin::list_audit_logs))
         .route("/access/catalog", get(admin::get_access_catalog))
         .route(
             "/users/{cid}/access",
@@ -132,7 +130,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/logout", post(auth::logout))
         .route("/admin/files/audit", get(files::list_file_audit_logs))
         .route("/stats/artcc", get(stats::get_artcc_stats))
-        .route("/stats/controller-events", get(stats::list_controller_events))
+        .route(
+            "/stats/controller-events",
+            get(stats::list_controller_events),
+        )
         .route(
             "/stats/controller/{cid}/history",
             get(stats::get_controller_history),
@@ -165,9 +166,12 @@ pub fn build_router(state: AppState) -> Router {
         .merge(docs::build_docs_router())
         .layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::logging::log_requests,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
             resolve_current_user,
         ))
-        .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

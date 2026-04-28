@@ -1,0 +1,73 @@
+info:
+  name: get_event
+  type: http
+  seq: 3
+  tags:
+    - events
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/events/:event_id"
+  params:
+    - name: event_id
+      value: ""
+      type: path
+      description: Event ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Event details
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id"
+      method: GET
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "created_at": "",
+            "created_by": "",
+            "description": "",
+            "ends_at": "",
+            "event_type": "",
+            "host": "",
+            "id": "",
+            "published": false,
+            "starts_at": "",
+            "status": "",
+            "title": "",
+            "updated_at": ""
+          }
+  - name: 400 Response
+    description: Invalid event ID
+    request:
+      url: "{{baseUrl}}/api/v1/events/:event_id"
+      method: GET
+      params:
+        - name: event_id
+          value: ""
+          type: path
+          description: Event ID
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""

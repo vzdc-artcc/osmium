@@ -1,6 +1,7 @@
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
+    http::HeaderMap,
 };
 
 use crate::{
@@ -17,7 +18,7 @@ use crate::{
         UserFeedbackQuery, UserFullInfo, UserListItem, UserPrivateInfo, VisitArtccRequest,
         VisitArtccResponse,
     },
-    repos::users as user_repo,
+    repos::{audit as audit_repo, users as user_repo},
     state::AppState,
 };
 
@@ -125,6 +126,7 @@ pub async fn get_user(
 pub async fn visit_artcc(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    headers: HeaderMap,
     Json(payload): Json<VisitArtccRequest>,
 ) -> Result<Json<VisitArtccResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -135,6 +137,7 @@ pub async fn visit_artcc(
         return Err(ApiError::BadRequest);
     }
 
+    let before = user_repo::find_roster_user_by_cid(pool, viewer.cid).await?;
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     user_repo::ensure_visitor_membership(&mut tx, &viewer.id, &artcc, payload.rating.as_deref())
         .await?;
@@ -154,13 +157,35 @@ pub async fn visit_artcc(
     let updated = user_repo::fetch_user_cid_artcc_rating(&mut tx, &viewer.id).await?;
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(VisitArtccResponse {
+    let response = VisitArtccResponse {
         cid: updated.0,
         artcc: updated.1.unwrap_or(artcc),
         rating: updated.2,
         status: "ACTIVE".to_string(),
         roster_added: true,
-    }))
+    };
+
+    let actor = audit_repo::resolve_audit_actor(pool, Some(viewer), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "VISITOR_MEMBERSHIP".to_string(),
+            resource_id: Some(viewer.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(viewer.cid.to_string()),
+            before_state: before
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
+            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -249,15 +274,13 @@ pub async fn get_user_feedback(
 async fn can_view_all_users(state: &AppState, user: &CurrentUser) -> Result<bool, ApiError> {
     let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
 
-    Ok(
-        permissions.contains(&PermissionKey::new(
-            PermissionResource::Users,
-            PermissionAction::Update,
-        )) || permissions.contains(&PermissionKey::new(
-            PermissionResource::Users,
-            PermissionAction::Read,
-        )),
-    )
+    Ok(permissions.contains(&PermissionKey::new(
+        PermissionResource::Users,
+        PermissionAction::Update,
+    )) || permissions.contains(&PermissionKey::new(
+        PermissionResource::Users,
+        PermissionAction::Read,
+    )))
 }
 
 fn basic_info_from_row(row: &RosterUserRow) -> UserBasicInfo {

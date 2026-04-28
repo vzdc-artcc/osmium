@@ -30,12 +30,19 @@ impl StatsEnvironment {
 
     pub fn endpoint_url(self) -> String {
         match self {
-            Self::Live => std::env::var("VNAS_CONTROLLER_FEED_URL_LIVE")
-                .unwrap_or_else(|_| "https://live.env.vnas.vatsim.net/data-feed/controllers.json".to_string()),
-            Self::Sweatbox1 => std::env::var("VNAS_CONTROLLER_FEED_URL_SWEATBOX1")
-                .unwrap_or_else(|_| "https://sweatbox1.env.vnas.vatsim.net/data-feed/controllers.json".to_string()),
-            Self::Sweatbox2 => std::env::var("VNAS_CONTROLLER_FEED_URL_SWEATBOX2")
-                .unwrap_or_else(|_| "https://sweatbox2.env.vnas.vatsim.net/data-feed/controllers.json".to_string()),
+            Self::Live => std::env::var("VNAS_CONTROLLER_FEED_URL_LIVE").unwrap_or_else(|_| {
+                "https://live.env.vnas.vatsim.net/data-feed/controllers.json".to_string()
+            }),
+            Self::Sweatbox1 => {
+                std::env::var("VNAS_CONTROLLER_FEED_URL_SWEATBOX1").unwrap_or_else(|_| {
+                    "https://sweatbox1.env.vnas.vatsim.net/data-feed/controllers.json".to_string()
+                })
+            }
+            Self::Sweatbox2 => {
+                std::env::var("VNAS_CONTROLLER_FEED_URL_SWEATBOX2").unwrap_or_else(|_| {
+                    "https://sweatbox2.env.vnas.vatsim.net/data-feed/controllers.json".to_string()
+                })
+            }
         }
     }
 }
@@ -110,7 +117,9 @@ impl ControllerLifecycleEvent {
 
     pub fn environment(&self) -> &str {
         match self {
-            Self::ControllerLoggedOn(event) | Self::ControllerLoggedOff(event) => &event.environment,
+            Self::ControllerLoggedOn(event) | Self::ControllerLoggedOff(event) => {
+                &event.environment
+            }
             Self::PositionActivated(event) | Self::PositionDeactivated(event) => &event.environment,
         }
     }
@@ -336,8 +345,9 @@ pub fn start_stats_sync_worker(state: AppState) {
                 match result {
                     Ok(result) => {
                         if let Ok(mut health) = state.job_health.write() {
-                            let env_health =
-                                health.stats_sync.environment_mut(result.environment.as_str());
+                            let env_health = health
+                                .stats_sync
+                                .environment_mut(result.environment.as_str());
                             env_health.last_finished_at = Some(Utc::now());
                             env_health.last_result_ok = Some(result.ok);
                             env_health.processed = Some(result.processed);
@@ -410,7 +420,10 @@ async fn sync_environment(
         .filter(|controller| controller.artcc_id == TARGET_ARTCC_ID && !controller.is_observer)
         .collect::<Vec<_>>();
 
-    let online = controllers.iter().filter(|controller| controller.is_active).count();
+    let online = controllers
+        .iter()
+        .filter(|controller| controller.is_active)
+        .count();
 
     let existing_updated_at = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
         "select last_source_updated_at from stats.controller_feed_state where environment = $1",
@@ -453,7 +466,12 @@ async fn sync_environment(
     let open_sessions = fetch_open_sessions(&mut tx, environment).await?;
     let mut open_session_map = open_sessions
         .into_iter()
-        .map(|session| (session_key(session.cid, &session.source_login_time_raw), session))
+        .map(|session| {
+            (
+                session_key(session.cid, &session.source_login_time_raw),
+                session,
+            )
+        })
         .collect::<HashMap<_, _>>();
 
     let mut emitted_events = Vec::new();
@@ -523,7 +541,8 @@ async fn sync_environment(
             session
         };
 
-        sync_session_activations(&mut tx, &session, &snapshot, poll_time, &mut emitted_events).await?;
+        sync_session_activations(&mut tx, &session, &snapshot, poll_time, &mut emitted_events)
+            .await?;
     }
 
     for stale_session in open_session_map.into_values() {
@@ -616,7 +635,11 @@ async fn fetch_user_ids(
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    let mut map = cids.iter().copied().map(|cid| (cid, None)).collect::<HashMap<_, _>>();
+    let mut map = cids
+        .iter()
+        .copied()
+        .map(|cid| (cid, None))
+        .collect::<HashMap<_, _>>();
     for (cid, user_id) in rows {
         map.insert(cid, Some(user_id));
     }
@@ -805,7 +828,10 @@ async fn sync_session_activations(
     }
 
     if !snapshot.is_active && !seen_positions.is_empty() {
-        tracing::debug!(cid = snapshot.cid, "inactive controller retained active positions");
+        tracing::debug!(
+            cid = snapshot.cid,
+            "inactive controller retained active positions"
+        );
     }
 
     Ok(())
@@ -1049,18 +1075,24 @@ async fn add_monthly_rollup(
     kind: RollupKind<'_>,
 ) -> Result<(), ApiError> {
     for segment in monthly_segments(started_at, ended_at) {
-        let (online_seconds, delivery_seconds, ground_seconds, tower_seconds, tracon_seconds, center_seconds) =
-            match kind {
-                RollupKind::Online => (segment.seconds, 0, 0, 0, 0, 0),
-                RollupKind::Position(position_type) => match map_position_type(position_type) {
-                    PositionBucket::Delivery => (0, segment.seconds, 0, 0, 0, 0),
-                    PositionBucket::Ground => (0, 0, segment.seconds, 0, 0, 0),
-                    PositionBucket::Tower => (0, 0, 0, segment.seconds, 0, 0),
-                    PositionBucket::Tracon => (0, 0, 0, 0, segment.seconds, 0),
-                    PositionBucket::Center => (0, 0, 0, 0, 0, segment.seconds),
-                    PositionBucket::Unknown => (0, 0, 0, 0, 0, 0),
-                },
-            };
+        let (
+            online_seconds,
+            delivery_seconds,
+            ground_seconds,
+            tower_seconds,
+            tracon_seconds,
+            center_seconds,
+        ) = match kind {
+            RollupKind::Online => (segment.seconds, 0, 0, 0, 0, 0),
+            RollupKind::Position(position_type) => match map_position_type(position_type) {
+                PositionBucket::Delivery => (0, segment.seconds, 0, 0, 0, 0),
+                PositionBucket::Ground => (0, 0, segment.seconds, 0, 0, 0),
+                PositionBucket::Tower => (0, 0, 0, segment.seconds, 0, 0),
+                PositionBucket::Tracon => (0, 0, 0, 0, segment.seconds, 0),
+                PositionBucket::Center => (0, 0, 0, 0, 0, segment.seconds),
+                PositionBucket::Unknown => (0, 0, 0, 0, 0, 0),
+            },
+        };
 
         if online_seconds
             + delivery_seconds
@@ -1153,7 +1185,10 @@ async fn persist_events(
     Ok(())
 }
 
-fn build_session_event(session: &SessionRecord, occurred_at: DateTime<Utc>) -> ControllerSessionEvent {
+fn build_session_event(
+    session: &SessionRecord,
+    occurred_at: DateTime<Utc>,
+) -> ControllerSessionEvent {
     ControllerSessionEvent {
         environment: session.environment.clone(),
         artcc_id: session.artcc_id.clone(),
@@ -1201,7 +1236,12 @@ fn build_position_event(
 
 fn stats_sync_enabled() -> bool {
     std::env::var("STATS_SYNC_ENABLED")
-        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(true)
 }
 
@@ -1231,7 +1271,11 @@ fn monthly_segments(started_at: DateTime<Utc>, ended_at: DateTime<Utc>) -> Vec<M
 
     while cursor < ended_at {
         let next_month = next_month_boundary(cursor);
-        let segment_end = if next_month < ended_at { next_month } else { ended_at };
+        let segment_end = if next_month < ended_at {
+            next_month
+        } else {
+            ended_at
+        };
         let seconds = (segment_end - cursor).num_seconds().max(0);
         if seconds > 0 {
             segments.push(MonthlySegment {
@@ -1291,7 +1335,10 @@ mod tests {
     #[test]
     fn maps_position_types() {
         assert!(matches!(map_position_type("Artcc"), PositionBucket::Center));
-        assert!(matches!(map_position_type("Tracon"), PositionBucket::Tracon));
+        assert!(matches!(
+            map_position_type("Tracon"),
+            PositionBucket::Tracon
+        ));
         assert!(matches!(
             map_position_type("ClearanceDelivery"),
             PositionBucket::Delivery

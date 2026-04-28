@@ -1,0 +1,72 @@
+info:
+  name: delete_file
+  type: http
+  seq: 5
+  tags:
+    - files
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/files/:file_id"
+  params:
+    - name: file_id
+      value: ""
+      type: path
+      description: File ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: File deleted
+    request:
+      url: "{{baseUrl}}/api/v1/files/:file_id"
+      method: DELETE
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 400 Response
+    description: Invalid file ID
+    request:
+      url: "{{baseUrl}}/api/v1/files/:file_id"
+      method: DELETE
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/files/:file_id"
+      method: DELETE
+      params:
+        - name: file_id
+          value: ""
+          type: path
+          description: File ID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""
