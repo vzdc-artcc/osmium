@@ -32,7 +32,11 @@ Lesson routes now cover:
 
 ## Permissions
 
-- staff management routes require `training.update`
+- read routes require `training.read`
+- lesson, assignment, and training-session creation routes require `training.create`
+- lesson and training-session update routes require `training.update`
+- moderation and destructive routes require `training.manage`
+- `training.manage` is the umbrella training permission and also satisfies the read/create/update checks above
 - a normal authenticated user can create their own assignment or release requests and mark interest where allowed
 
 ## Session Notes

@@ -24,6 +24,7 @@ use crate::{
     },
     errors::ApiError,
     models::ServiceAccountSessionBody,
+    repos::access as access_repo,
     state::AppState,
 };
 
@@ -239,34 +240,39 @@ pub async fn vatsim_callback(
 
     sqlx::query(
         r#"
-        insert into org.memberships (user_id, artcc, division, membership_status, controller_status)
-        values ($1, 'ZDC', 'USA', 'ACTIVE', 'NONE')
-        on conflict (user_id) do nothing
+        insert into org.memberships (
+            user_id,
+            artcc,
+            division,
+            rating,
+            membership_status,
+            controller_status,
+            updated_at
+        )
+        values ($1, 'ZDC', 'USA', $2, 'ACTIVE', 'NONE', now())
+        on conflict (user_id) do update
+        set rating = coalesce(excluded.rating, org.memberships.rating),
+            membership_status = 'ACTIVE',
+            updated_at = now()
         "#,
     )
     .bind(&user_id)
+    .bind(profile.rating.as_deref())
     .execute(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    sqlx::query(
-        r#"
-        insert into access.user_roles (user_id, role_name)
-        values ($1, 'USER')
-        on conflict (user_id, role_name) do nothing
-        "#,
-    )
-    .bind(&user_id)
-    .execute(pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(
-            ?error,
-            user_id = user_id.as_str(),
-            "failed to ensure default user role during oauth callback"
-        );
-        ApiError::Internal
-    })?;
+    ensure_user_login_access(pool, &user_id, profile.cid)
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                ?error,
+                user_id = user_id.as_str(),
+                cid = profile.cid,
+                "failed to ensure user access during oauth callback"
+            );
+            error
+        })?;
 
     let session_token = Uuid::new_v4().to_string();
     sqlx::query(
@@ -359,24 +365,17 @@ pub async fn login_as_cid(
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    sqlx::query(
-        r#"
-        insert into access.user_roles (user_id, role_name)
-        values ($1, 'USER')
-        on conflict (user_id, role_name) do nothing
-        "#,
-    )
-    .bind(&user_id)
-    .execute(pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(
-            ?error,
-            user_id = user_id.as_str(),
-            "failed to ensure default user role during dev cid login"
-        );
-        ApiError::Internal
-    })?;
+    ensure_user_login_access(pool, &user_id, cid)
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                ?error,
+                user_id = user_id.as_str(),
+                cid,
+                "failed to ensure user access during dev cid login"
+            );
+            error
+        })?;
 
     let session_token = Uuid::new_v4().to_string();
     sqlx::query(
@@ -459,6 +458,45 @@ fn parse_prompt(raw_prompt: Option<&str>) -> Result<Option<&str>, ApiError> {
     }
 }
 
+async fn ensure_user_login_access(
+    pool: &sqlx::PgPool,
+    user_id: &str,
+    cid: i64,
+) -> Result<(), ApiError> {
+    match configured_server_admin_cid() {
+        Some(server_admin_cid) if server_admin_cid == cid => {
+            let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+            access_repo::assign_server_admin(&mut tx, user_id).await?;
+            tx.commit().await.map_err(|_| ApiError::Internal)?;
+            Ok(())
+        }
+        _ => {
+            sqlx::query(
+                r#"
+                insert into access.user_roles (user_id, role_name)
+                values ($1, 'USER')
+                on conflict (user_id, role_name) do nothing
+                "#,
+            )
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|_| ApiError::Internal)?;
+            Ok(())
+        }
+    }
+}
+
+fn configured_server_admin_cid() -> Option<i64> {
+    let raw = std::env::var("OSMIUM_SERVER_ADMIN_CID").ok()?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    raw.parse::<i64>().ok().filter(|cid| *cid > 0)
+}
+
 fn cookie_secure() -> bool {
     std::env::var("COOKIE_SECURE")
         .map(|value| {
@@ -483,4 +521,85 @@ fn env_flag_enabled(name: &str) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Mutex, OnceLock};
+
+    use super::configured_server_admin_cid;
+    use crate::auth::acl::SERVER_ADMIN_ROLE;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+
+            Self { key, previous }
+        }
+
+        fn unset(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::remove_var(key);
+            }
+
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.as_deref() {
+                unsafe {
+                    std::env::set_var(self.key, previous);
+                }
+            } else {
+                unsafe {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn env_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn parses_configured_server_admin_cid() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::set("OSMIUM_SERVER_ADMIN_CID", "1234567");
+
+        assert_eq!(configured_server_admin_cid(), Some(1234567));
+    }
+
+    #[test]
+    fn ignores_invalid_configured_server_admin_cid() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::set("OSMIUM_SERVER_ADMIN_CID", "abc");
+
+        assert_eq!(configured_server_admin_cid(), None);
+    }
+
+    #[test]
+    fn ignores_missing_configured_server_admin_cid() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::unset("OSMIUM_SERVER_ADMIN_CID");
+
+        assert_eq!(configured_server_admin_cid(), None);
+    }
+
+    #[test]
+    fn server_admin_role_constant_is_stable() {
+        assert_eq!(SERVER_ADMIN_ROLE, "SERVER_ADMIN");
+    }
 }

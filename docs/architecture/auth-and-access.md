@@ -48,6 +48,9 @@ GET /api/v1/auth/service-account/me
 - API access payloads group them as `{ resource: [action, ...] }`
 - direct overrides are rare exceptions
 - machine actors also receive roles and effective permissions
+- `SERVER_ADMIN` is a reserved singleton human role
+- `SERVER_ADMIN` resolves to every current permission in `access.permissions`, including permissions added later
+- `SERVER_ADMIN` is claimed or transferred on successful login when `OSMIUM_SERVER_ADMIN_CID` matches that user's CID
 
 ## Important Permissions
 
@@ -56,8 +59,11 @@ GET /api/v1/auth/service-account/me
 - `files.read`
 - `users.read`
 - `users.update`
+- `training.read`
+- `training.create`
 - `training.update`
-  This currently gates assignment management, release-request moderation, and all training-session CRUD routes.
+- `training.manage`
+  Training routes are now split across read/create/update/manage, with `training.manage` acting as the umbrella training permission.
 - `feedback.update`
 - `files.create`
   This is no longer part of the default `USER` role. Uploads require elevated access.
@@ -67,6 +73,8 @@ GET /api/v1/auth/service-account/me
 ## Default Human Access
 
 Newly logged-in users receive the baseline `USER` role.
+
+If `OSMIUM_SERVER_ADMIN_CID` matches the logging-in user, Osmium replaces that user's normal human roles and direct permission overrides with the singleton `SERVER_ADMIN` role instead.
 
 - `USER` is read-mostly by default
 - `USER` can read its own auth/session info

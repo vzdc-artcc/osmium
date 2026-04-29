@@ -6,6 +6,8 @@ use utoipa::ToSchema;
 
 use crate::{errors::ApiError, repos::access as access_repo};
 
+pub const SERVER_ADMIN_ROLE: &str = "SERVER_ADMIN";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionResource {
@@ -150,7 +152,7 @@ const LEGACY_PERMISSION_MAPPINGS: &[(&str, PermissionKey)] = &[
     ),
     (
         "manage_training",
-        PermissionKey::new(PermissionResource::Training, PermissionAction::Update),
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Manage),
     ),
     (
         "manage_feedback",
@@ -191,7 +193,11 @@ const LEGACY_PERMISSION_MAPPINGS: &[(&str, PermissionKey)] = &[
 ];
 
 fn default_roles() -> Vec<String> {
-    vec!["USER".to_string(), "STAFF".to_string()]
+    vec![
+        SERVER_ADMIN_ROLE.to_string(),
+        "USER".to_string(),
+        "STAFF".to_string(),
+    ]
 }
 
 fn default_permission_names() -> Vec<String> {
@@ -203,7 +209,10 @@ fn default_permission_names() -> Vec<String> {
         PermissionKey::new(PermissionResource::System, PermissionAction::Read).as_db_value(),
         PermissionKey::new(PermissionResource::Users, PermissionAction::Read).as_db_value(),
         PermissionKey::new(PermissionResource::Users, PermissionAction::Update).as_db_value(),
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Read).as_db_value(),
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Create).as_db_value(),
         PermissionKey::new(PermissionResource::Training, PermissionAction::Update).as_db_value(),
+        PermissionKey::new(PermissionResource::Training, PermissionAction::Manage).as_db_value(),
         PermissionKey::new(PermissionResource::Feedback, PermissionAction::Update).as_db_value(),
         PermissionKey::new(PermissionResource::Files, PermissionAction::Create).as_db_value(),
         PermissionKey::new(PermissionResource::Files, PermissionAction::Read).as_db_value(),
@@ -264,11 +273,20 @@ pub async fn fetch_access_catalog(
         roles = default_roles();
     }
 
+    roles = filter_assignable_roles(roles);
+
     if permissions.is_empty() {
         permissions = default_permission_names();
     }
 
     Ok((roles, permissions))
+}
+
+fn filter_assignable_roles(roles: Vec<String>) -> Vec<String> {
+    roles
+        .into_iter()
+        .filter(|role| role != SERVER_ADMIN_ROLE)
+        .collect()
 }
 
 pub fn group_permission_keys(permissions: &[PermissionKey]) -> GroupedPermissions {
@@ -372,8 +390,8 @@ mod tests {
 
     use super::{
         PermissionAction, PermissionKey, PermissionOverrideGroups, PermissionResource,
-        default_permission_names, default_roles, group_permission_keys,
-        normalize_grouped_permissions, normalize_legacy_permission_name,
+        SERVER_ADMIN_ROLE, default_permission_names, default_roles, filter_assignable_roles,
+        group_permission_keys, normalize_grouped_permissions, normalize_legacy_permission_name,
         normalize_permission_override_groups,
     };
 
@@ -399,8 +417,29 @@ mod tests {
 
     #[test]
     fn has_non_empty_default_access_catalog() {
-        assert!(!default_roles().is_empty());
+        assert_eq!(
+            default_roles(),
+            vec![
+                SERVER_ADMIN_ROLE.to_string(),
+                "USER".to_string(),
+                "STAFF".to_string()
+            ]
+        );
         assert!(!default_permission_names().is_empty());
+    }
+
+    #[test]
+    fn filters_server_admin_from_assignable_roles() {
+        let roles = vec![
+            "USER".to_string(),
+            SERVER_ADMIN_ROLE.to_string(),
+            "STAFF".to_string(),
+        ];
+
+        assert_eq!(
+            filter_assignable_roles(roles),
+            vec!["USER".to_string(), "STAFF".to_string()]
+        );
     }
 
     #[test]
@@ -446,6 +485,10 @@ mod tests {
         assert_eq!(
             normalize_legacy_permission_name("manage_users"),
             Some("users.update".to_string())
+        );
+        assert_eq!(
+            normalize_legacy_permission_name("manage_training"),
+            Some("training.manage".to_string())
         );
     }
 

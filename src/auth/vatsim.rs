@@ -27,6 +27,7 @@ pub struct VatsimProfile {
     pub cid: i64,
     pub email: String,
     pub display_name: String,
+    pub rating: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -250,10 +251,33 @@ fn parse_profile(raw: Value) -> Result<VatsimProfile, ApiError> {
     )
     .unwrap_or_else(|| format!("CID {}", cid));
 
+    let rating = find_string(
+        &raw,
+        &[
+            "rating",
+            "rating_short",
+            "vatsim_details.rating",
+            "vatsim_details.rating_short",
+            "vatsim_details.rating.code",
+            "vatsim_details.rating.short",
+            "data.rating",
+            "data.rating_short",
+            "data.user.rating",
+            "data.user.rating_short",
+            "data.vatsim_details.rating",
+            "data.vatsim_details.rating_short",
+            "data.vatsim_details.rating.code",
+            "data.vatsim_details.rating.short",
+        ],
+    )
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+
     Ok(VatsimProfile {
         cid,
         email,
         display_name,
+        rating,
     })
 }
 
@@ -396,4 +420,30 @@ fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
         current = current.get(segment)?;
     }
     Some(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::parse_profile;
+
+    #[test]
+    fn parses_rating_from_nested_vatsim_details() {
+        let profile = parse_profile(json!({
+            "cid": 10000010,
+            "email": "auth.dev10@vatsim.net",
+            "full_name": "Web Ten",
+            "data": {
+                "vatsim_details": {
+                    "rating": {
+                        "short": "S3"
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(profile.rating.as_deref(), Some("S3"));
+    }
 }

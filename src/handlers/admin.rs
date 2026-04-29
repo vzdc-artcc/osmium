@@ -8,9 +8,9 @@ use crate::{
     auth::{
         acl::{
             PermissionAction, PermissionKey, PermissionOverrideGroups, PermissionResource,
-            fetch_access_catalog, fetch_user_access, group_permission_keys, group_permission_names,
-            normalize_grouped_permissions, normalize_legacy_permission_name,
-            normalize_permission_override_groups,
+            SERVER_ADMIN_ROLE, fetch_access_catalog, fetch_user_access, group_permission_keys,
+            group_permission_names, normalize_grouped_permissions,
+            normalize_legacy_permission_name, normalize_permission_override_groups,
         },
         context::{CurrentServiceAccount, CurrentUser},
         middleware::ensure_permission,
@@ -675,6 +675,7 @@ fn parse_roles(
         let normalized = match role.trim().to_ascii_uppercase().as_str() {
             "USER" => "USER",
             "STAFF" => "STAFF",
+            SERVER_ADMIN_ROLE => return Err(ApiError::BadRequest),
             _ => return Err(ApiError::BadRequest),
         };
         if !parsed.iter().any(|value| value == normalized) {
@@ -744,9 +745,9 @@ fn build_user_access_body(
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{VISITOR_APPLICATION_APPROVER_ROLES, parse_permissions};
+    use super::{VISITOR_APPLICATION_APPROVER_ROLES, parse_permissions, parse_roles};
     use crate::{
-        auth::acl::PermissionOverrideGroups,
+        auth::acl::{PermissionOverrideGroups, SERVER_ADMIN_ROLE},
         models::{PermissionInput, PermissionOverrideInput},
     };
 
@@ -801,5 +802,12 @@ mod tests {
             VISITOR_APPLICATION_APPROVER_ROLES,
             &["ATM", "DATM", "TA", "ATA"]
         );
+    }
+
+    #[test]
+    fn rejects_server_admin_role_assignment() {
+        let roles = vec![SERVER_ADMIN_ROLE.to_string()];
+
+        assert!(parse_roles(Some(&roles), None).is_err());
     }
 }

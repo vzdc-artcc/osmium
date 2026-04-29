@@ -31,6 +31,8 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/osmium
       RUST_LOG: info,tower_http=debug
       RUN_MIGRATIONS_ON_STARTUP: "true"
+      # Set this before the matching user logs in for the first time to bootstrap SERVER_ADMIN.
+      OSMIUM_SERVER_ADMIN_CID: ${OSMIUM_SERVER_ADMIN_CID:-}
       FILE_STORAGE_ROOT: /app/storage/files
     ports:
       - "3000:3000"
