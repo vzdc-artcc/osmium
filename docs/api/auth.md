@@ -22,3 +22,4 @@ Provides user session login/logout and service-account introspection.
 - auth and service-account introspection responses expose grouped permissions
 - for local VATSIM OAuth, `auth-dev.vatsim.net` with `VATSIM_CLIENT_AUTH_METHOD=post` is the recommended setup
 - the login origin and `VATSIM_REDIRECT_URI` must match exactly to preserve the OAuth state cookie
+- if `OSMIUM_SERVER_ADMIN_CID` matches the logging-in user, that login claims or transfers the singleton `SERVER_ADMIN` role

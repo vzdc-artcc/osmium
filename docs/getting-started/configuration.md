@@ -9,6 +9,7 @@ This page documents the main environment variables used by Osmium.
 | `BIND_ADDR` | No | `0.0.0.0:3000` | Socket address for the Axum server. |
 | `RUST_LOG` | No | app default | Standard tracing filter. |
 | `RUN_MIGRATIONS_ON_STARTUP` | No | `true` | Applies SQLx migrations on boot when the DB is configured. |
+| `OSMIUM_SERVER_ADMIN_CID` | No | unset | When set to a VATSIM CID, the matching user claims or transfers the singleton `SERVER_ADMIN` role on successful login. |
 
 ## Database
 

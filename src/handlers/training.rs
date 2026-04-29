@@ -33,8 +33,14 @@ use crate::{
     state::AppState,
 };
 
-const TRAINING_PERMISSION: PermissionKey =
+const TRAINING_READ_PERMISSION: PermissionKey =
+    PermissionKey::new(PermissionResource::Training, PermissionAction::Read);
+const TRAINING_CREATE_PERMISSION: PermissionKey =
+    PermissionKey::new(PermissionResource::Training, PermissionAction::Create);
+const TRAINING_UPDATE_PERMISSION: PermissionKey =
     PermissionKey::new(PermissionResource::Training, PermissionAction::Update);
+const TRAINING_MANAGE_PERMISSION: PermissionKey =
+    PermissionKey::new(PermissionResource::Training, PermissionAction::Manage);
 
 const VALID_PI_MARKERS: &[&str] = &[
     "OBSERVED",
@@ -164,7 +170,7 @@ pub async fn list_assignments(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingAssignment>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingAssignment>(
@@ -195,7 +201,7 @@ pub async fn create_assignment(
     Json(payload): Json<CreateTrainingAssignmentRequest>,
 ) -> Result<(StatusCode, Json<TrainingAssignment>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_CREATE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
@@ -273,7 +279,7 @@ pub async fn list_lessons(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingLesson>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingLesson>(
@@ -324,7 +330,7 @@ pub async fn create_lesson(
     Json(payload): Json<CreateTrainingLessonRequest>,
 ) -> Result<(StatusCode, Json<TrainingLesson>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_CREATE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     validate_training_lesson_payload(&payload.identifier, payload.location, payload.duration)?;
@@ -434,7 +440,7 @@ pub async fn update_lesson(
     Json(payload): Json<UpdateTrainingLessonRequest>,
 ) -> Result<Json<TrainingLesson>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_UPDATE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     validate_training_lesson_payload(&payload.identifier, payload.location, payload.duration)?;
@@ -553,7 +559,7 @@ pub async fn delete_lesson(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
@@ -621,7 +627,7 @@ pub async fn list_assignment_requests(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingAssignmentRequest>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingAssignmentRequest>(
@@ -712,7 +718,7 @@ pub async fn decide_assignment_request(
     Json(payload): Json<DecideTrainingAssignmentRequestRequest>,
 ) -> Result<Json<TrainingAssignmentRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -781,7 +787,7 @@ pub async fn list_release_requests(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainerReleaseRequest>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainerReleaseRequest>(
@@ -872,7 +878,7 @@ pub async fn decide_release_request(
     Json(payload): Json<DecideTrainerReleaseRequestRequest>,
 ) -> Result<Json<TrainerReleaseRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -1060,7 +1066,7 @@ pub async fn list_training_sessions(
     Query(query): Query<ListTrainingSessionsQuery>,
 ) -> Result<Json<Vec<TrainingSessionListItem>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let limit = query.limit.unwrap_or(25).clamp(1, 200);
@@ -1232,7 +1238,7 @@ pub async fn get_training_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<TrainingSessionDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let detail = fetch_training_session_detail(db, &session_id)
@@ -1259,7 +1265,7 @@ pub async fn create_training_session(
     Json(payload): Json<CreateTrainingSessionRequest>,
 ) -> Result<(StatusCode, Json<CreateOrUpdateTrainingSessionResult>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_CREATE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, None, payload.into_update_request()).await? {
@@ -1289,7 +1295,7 @@ pub async fn update_training_session(
     Json(payload): Json<UpdateTrainingSessionRequest>,
 ) -> Result<Json<CreateOrUpdateTrainingSessionResult>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_UPDATE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, Some(session_id), payload).await? {
@@ -1318,7 +1324,7 @@ pub async fn delete_training_session(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user).await?;
+    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
@@ -1356,8 +1362,23 @@ pub async fn delete_training_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn ensure_training_permission(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {
-    ensure_permission(state, Some(user), None, TRAINING_PERMISSION).await
+async fn ensure_training_permission(
+    state: &AppState,
+    user: &CurrentUser,
+    required_permission: PermissionKey,
+) -> Result<(), ApiError> {
+    if ensure_permission(state, Some(user), None, required_permission)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    if required_permission != TRAINING_MANAGE_PERMISSION {
+        return ensure_permission(state, Some(user), None, TRAINING_MANAGE_PERMISSION).await;
+    }
+
+    Err(ApiError::Unauthorized)
 }
 
 fn validate_training_lesson_payload(

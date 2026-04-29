@@ -23,6 +23,15 @@ docker compose up -d postgres
 cargo run
 ```
 
+To bootstrap the singleton server admin in Docker, set `OSMIUM_SERVER_ADMIN_CID` before the matching user logs in:
+
+```bash
+OSMIUM_SERVER_ADMIN_CID=1234567
+docker compose up -d
+```
+
+Then log in as CID `1234567` and verify `GET /api/v1/me` returns `role: "SERVER_ADMIN"` with the full grouped permission set.
+
 If you previously ran the pre-reset schema and get `VersionMissing(20260329120000)` or a similar startup migration error, reset the old dev volume:
 
 ```bash

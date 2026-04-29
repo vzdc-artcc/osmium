@@ -48,6 +48,9 @@ GET /api/v1/auth/service-account/me
 - API access payloads group them as `{ resource: [action, ...] }`
 - direct overrides are rare exceptions
 - machine actors also receive roles and effective permissions
+- `SERVER_ADMIN` is a reserved singleton human role
+- `SERVER_ADMIN` resolves to every current permission in `access.permissions`, including permissions added later
+- `SERVER_ADMIN` is claimed or transferred on successful login when `OSMIUM_SERVER_ADMIN_CID` matches that user's CID
 
 ## Important Permissions
 
@@ -67,6 +70,8 @@ GET /api/v1/auth/service-account/me
 ## Default Human Access
 
 Newly logged-in users receive the baseline `USER` role.
+
+If `OSMIUM_SERVER_ADMIN_CID` matches the logging-in user, Osmium replaces that user's normal human roles and direct permission overrides with the singleton `SERVER_ADMIN` role instead.
 
 - `USER` is read-mostly by default
 - `USER` can read its own auth/session info

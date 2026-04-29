@@ -3,7 +3,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     auth::{
-        acl::{PermissionKey, normalize_legacy_permission_name},
+        acl::{PermissionKey, SERVER_ADMIN_ROLE, normalize_legacy_permission_name},
         context::{CurrentServiceAccount, CurrentUser},
     },
     errors::ApiError,
@@ -253,6 +253,44 @@ pub async fn replace_user_access(
             .map_err(|_| ApiError::Internal)?;
         }
     }
+
+    Ok(())
+}
+
+pub async fn assign_server_admin(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+) -> Result<(), ApiError> {
+    sqlx::query("delete from access.user_roles where role_name = $1")
+        .bind(SERVER_ADMIN_ROLE)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    sqlx::query("delete from access.user_roles where user_id = $1")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    sqlx::query("delete from access.user_permissions where user_id = $1")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    sqlx::query(
+        r#"
+        insert into access.user_roles (user_id, role_name)
+        values ($1, $2)
+        on conflict (user_id, role_name) do nothing
+        "#,
+    )
+    .bind(user_id)
+    .bind(SERVER_ADMIN_ROLE)
+    .execute(&mut **tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
 
     Ok(())
 }

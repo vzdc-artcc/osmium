@@ -33,7 +33,10 @@ Publication and publication-category management requires `web.update`.
 
 - access responses return grouped permissions such as `{ "users": ["read", "update"] }`
 - `POST /api/v1/admin/users/{cid}/access` accepts grouped `permissions` and grouped `permission_overrides`
+- `SERVER_ADMIN` is reserved for env-driven bootstrap and is not assignable through `POST /api/v1/admin/users/{cid}/access`
 - legacy flat permission overrides are still accepted for compatibility during migration
 - visitor application review supports `PENDING`, `APPROVED`, and `DENIED` workflow states
 - visitor application approval is further restricted to users with one of the explicit approver roles: `ATM`, `DATM`, `TA`, or `ATA`
 - approving a visitor application also calls the VATUSA `manageVisitor` endpoint with the configured `VATUSA_API_KEY`; if that external call fails, the local approval does not complete
+
+If a user is the current `SERVER_ADMIN`, the normal access endpoints still return that role and the full grouped effective permission set.

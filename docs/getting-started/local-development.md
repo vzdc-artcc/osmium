@@ -22,6 +22,15 @@ docker compose up -d postgres
 cargo run
 ```
 
+If you want your first login to become the singleton server admin, set `OSMIUM_SERVER_ADMIN_CID` before starting the API:
+
+```bash
+OSMIUM_SERVER_ADMIN_CID=1234567
+docker compose up -d
+```
+
+After CID `1234567` logs in, `GET /api/v1/me` should return `role` as `SERVER_ADMIN` and include every grouped permission.
+
 If startup fails with `VersionMissing(20260329120000)` or another missing old migration version, your Postgres volume still has the pre-reset migration ledger. Reset it:
 
 ```bash
