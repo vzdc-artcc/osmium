@@ -20,6 +20,7 @@ pub struct ReadyBody {
 #[derive(Serialize)]
 pub struct JobsHealthBody {
     stats_sync: StatsSyncHealthBody,
+    roster_sync: RosterSyncHealthBody,
 }
 
 #[derive(Serialize)]
@@ -42,6 +43,21 @@ pub struct StatsSyncEnvironmentHealthBody {
     processed: Option<usize>,
     online: Option<usize>,
     source_updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize)]
+pub struct RosterSyncHealthBody {
+    enabled: bool,
+    last_started_at: Option<DateTime<Utc>>,
+    last_finished_at: Option<DateTime<Utc>>,
+    last_success_at: Option<DateTime<Utc>>,
+    last_result_ok: Option<bool>,
+    last_error: Option<String>,
+    processed: Option<usize>,
+    matched: Option<usize>,
+    updated: Option<usize>,
+    demoted: Option<usize>,
+    skipped: Option<usize>,
 }
 
 pub async fn health() -> Json<HealthBody> {
@@ -89,6 +105,12 @@ pub async fn ready(State(state): State<AppState>) -> Json<ReadyBody> {
     };
 
     let live_stale = stats_sync.enabled && stats_sync.live.stale;
+    let roster_sync = state
+        .job_health
+        .read()
+        .ok()
+        .map(|health| roster_health_body(&health.roster_sync))
+        .unwrap_or_else(poisoned_roster_health_body);
 
     Json(ReadyBody {
         status: if database_ready && !live_stale {
@@ -98,7 +120,10 @@ pub async fn ready(State(state): State<AppState>) -> Json<ReadyBody> {
         },
         database: if database_ready { "ready" } else { "degraded" },
         docs: "ready",
-        jobs: JobsHealthBody { stats_sync },
+        jobs: JobsHealthBody {
+            stats_sync,
+            roster_sync,
+        },
     })
 }
 
@@ -135,5 +160,37 @@ fn poisoned_health_body() -> StatsSyncEnvironmentHealthBody {
         processed: None,
         online: None,
         source_updated_at: None,
+    }
+}
+
+fn roster_health_body(stats: &crate::state::RosterSyncHealth) -> RosterSyncHealthBody {
+    RosterSyncHealthBody {
+        enabled: stats.enabled,
+        last_started_at: stats.last_started_at,
+        last_finished_at: stats.last_finished_at,
+        last_success_at: stats.last_success_at,
+        last_result_ok: stats.last_result_ok,
+        last_error: stats.last_error.clone(),
+        processed: stats.processed,
+        matched: stats.matched,
+        updated: stats.updated,
+        demoted: stats.demoted,
+        skipped: stats.skipped,
+    }
+}
+
+fn poisoned_roster_health_body() -> RosterSyncHealthBody {
+    RosterSyncHealthBody {
+        enabled: false,
+        last_started_at: None,
+        last_finished_at: None,
+        last_success_at: None,
+        last_result_ok: None,
+        last_error: Some("job health lock poisoned".to_string()),
+        processed: None,
+        matched: None,
+        updated: None,
+        demoted: None,
+        skipped: None,
     }
 }
