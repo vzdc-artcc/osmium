@@ -25,6 +25,10 @@ struct RosterSyncRunResult {
     updated: usize,
     demoted: usize,
     skipped: usize,
+    created_memberships: usize,
+    changed_ratings: usize,
+    detail_failures: usize,
+    desired_missing_local_users: usize,
     warning: Option<String>,
 }
 
@@ -73,6 +77,12 @@ struct VatusaUserDetail {
 struct LocalRosterUser {
     user_id: String,
     cid: i64,
+    has_membership: bool,
+    rating: Option<String>,
+    controller_status: Option<String>,
+    membership_status: Option<String>,
+    home_facility: Option<String>,
+    visitor_home_facility: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +94,7 @@ struct DesiredMembership {
 #[derive(Debug, Clone)]
 struct MatchedUserUpdate {
     user_id: String,
+    cid: i64,
     first_name: String,
     last_name: String,
     full_name: String,
@@ -99,9 +110,31 @@ struct MatchedUserUpdate {
 #[derive(Debug, Clone)]
 struct OffRosterUpdate {
     user_id: String,
+    cid: i64,
     controller_status: &'static str,
     membership_status: &'static str,
     is_active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MembershipChangeSummary {
+    created_membership: bool,
+    rating_changed: bool,
+    controller_status_changed: bool,
+    membership_status_changed: bool,
+    home_facility_changed: bool,
+    visitor_home_facility_changed: bool,
+}
+
+impl MembershipChangeSummary {
+    fn has_meaningful_change(&self) -> bool {
+        self.created_membership
+            || self.rating_changed
+            || self.controller_status_changed
+            || self.membership_status_changed
+            || self.home_facility_changed
+            || self.visitor_home_facility_changed
+    }
 }
 
 pub fn start_roster_sync_worker(state: AppState) {
@@ -114,7 +147,7 @@ pub fn start_roster_sync_worker(state: AppState) {
 
             tracing::info!(
                 interval_secs = config.interval_secs,
-                facility_id = config.facility_id,
+                facility_id = config.facility_id.as_str(),
                 "starting roster sync worker"
             );
 
@@ -126,6 +159,13 @@ pub fn start_roster_sync_worker(state: AppState) {
                 loop {
                     ticker.tick().await;
                     let started_at = Utc::now();
+
+                    tracing::info!(
+                        facility_id = config.facility_id.as_str(),
+                        interval_secs = config.interval_secs,
+                        started_at = %started_at,
+                        "roster sync started"
+                    );
 
                     if let Ok(mut health) = state.job_health.write() {
                         health.roster_sync.last_started_at = Some(started_at);
@@ -148,11 +188,16 @@ pub fn start_roster_sync_worker(state: AppState) {
                             }
 
                             tracing::info!(
+                                facility_id = config.facility_id.as_str(),
                                 processed = result.processed,
                                 matched = result.matched,
                                 updated = result.updated,
                                 demoted = result.demoted,
                                 skipped = result.skipped,
+                                created_memberships = result.created_memberships,
+                                changed_ratings = result.changed_ratings,
+                                detail_failures = result.detail_failures,
+                                desired_missing_local_users = result.desired_missing_local_users,
                                 warning = result.warning.as_deref(),
                                 "roster sync completed"
                             );
@@ -173,7 +218,11 @@ pub fn start_roster_sync_worker(state: AppState) {
                                 health.roster_sync.last_error = Some(message.clone());
                             }
 
-                            tracing::warn!(?err, "roster sync failed");
+                            tracing::warn!(
+                                facility_id = config.facility_id.as_str(),
+                                ?err,
+                                "roster sync failed"
+                            );
                         }
                     }
                 }
@@ -210,17 +259,37 @@ async fn run_roster_sync(
         .build()
         .map_err(|_| RosterSyncError::Api(ApiError::Internal))?;
 
-    let home_roster = fetch_roster(&client, config, "home")
-        .await
-        .map_err(RosterSyncError::Api)?;
+    let home_roster = fetch_roster(&client, config, "home").await.map_err(|err| {
+        tracing::warn!(
+            facility_id = config.facility_id.as_str(),
+            stage = "fetch_home_roster",
+            ?err,
+            "roster sync stage failed"
+        );
+        RosterSyncError::Api(err)
+    })?;
     let visiting_roster = fetch_roster(&client, config, "visit")
         .await
-        .map_err(RosterSyncError::Api)?;
+        .map_err(|err| {
+            tracing::warn!(
+                facility_id = config.facility_id.as_str(),
+                stage = "fetch_visit_roster",
+                ?err,
+                "roster sync stage failed"
+            );
+            RosterSyncError::Api(err)
+        })?;
     let desired_memberships = build_desired_memberships(home_roster, visiting_roster);
 
-    let local_users = fetch_local_roster_users(pool)
-        .await
-        .map_err(RosterSyncError::Api)?;
+    let local_users = fetch_local_sync_candidates(pool).await.map_err(|err| {
+        tracing::warn!(
+            facility_id = config.facility_id.as_str(),
+            stage = "fetch_local_sync_candidates",
+            ?err,
+            "roster sync stage failed"
+        );
+        RosterSyncError::Api(err)
+    })?;
     let processed = local_users.len();
     let matched = local_users
         .iter()
@@ -239,6 +308,7 @@ async fn run_roster_sync(
 
     if !unknown_cids.is_empty() {
         tracing::info!(
+            facility_id = config.facility_id.as_str(),
             count = unknown_cids.len(),
             cids = ?unknown_cids,
             "ignoring vatusa roster users missing from local database"
@@ -251,7 +321,9 @@ async fn run_roster_sync(
 
     for local_user in &local_users {
         let Some(desired) = desired_memberships.get(&local_user.cid) else {
-            off_roster_updates.push(build_off_roster_update(local_user));
+            if local_user.has_membership {
+                off_roster_updates.push(build_off_roster_update(local_user));
+            }
             continue;
         };
 
@@ -260,6 +332,8 @@ async fn run_roster_sync(
             Err(err) => {
                 failed_detail_cids.push(local_user.cid);
                 tracing::warn!(
+                    facility_id = config.facility_id.as_str(),
+                    stage = "fetch_user_detail",
                     cid = local_user.cid,
                     ?err,
                     "failed to fetch vatusa user detail"
@@ -273,16 +347,83 @@ async fn run_roster_sync(
         .await
         .map_err(|_| RosterSyncError::Api(ApiError::Internal))?;
 
+    let mut created_memberships = 0;
+    let mut changed_ratings = 0;
+
     for update in &matched_updates {
+        let local_user = local_users
+            .iter()
+            .find(|user| user.user_id == update.user_id)
+            .expect("matched update must have local user context");
+        let change_summary = summarize_membership_change(local_user, update);
+
         apply_matched_update(&mut tx, update, &config.facility_id)
             .await
-            .map_err(RosterSyncError::Api)?;
+            .map_err(|err| {
+                tracing::warn!(
+                    facility_id = config.facility_id.as_str(),
+                    stage = "persist_memberships",
+                    cid = update.cid,
+                    user_id = update.user_id.as_str(),
+                    ?err,
+                    "roster sync stage failed"
+                );
+                RosterSyncError::Api(err)
+            })?;
+
+        if change_summary.created_membership {
+            created_memberships += 1;
+        }
+
+        if change_summary.rating_changed {
+            changed_ratings += 1;
+        }
+
+        if change_summary.has_meaningful_change() {
+            tracing::info!(
+                cid = update.cid,
+                user_id = update.user_id.as_str(),
+                change = "membership_upserted",
+                created_membership = change_summary.created_membership,
+                old_rating = local_user.rating.as_deref(),
+                new_rating = update.rating.as_str(),
+                old_controller_status = local_user.controller_status.as_deref(),
+                new_controller_status = update.controller_status.as_str(),
+                old_membership_status = local_user.membership_status.as_deref(),
+                new_membership_status = "ACTIVE",
+                old_home_facility = local_user.home_facility.as_deref(),
+                new_home_facility = update.home_facility.as_deref(),
+                old_visitor_home_facility = local_user.visitor_home_facility.as_deref(),
+                new_visitor_home_facility = update.visitor_home_facility.as_deref(),
+                "roster sync applied membership changes"
+            );
+        }
     }
 
     for update in &off_roster_updates {
         apply_off_roster_update(&mut tx, update)
             .await
-            .map_err(RosterSyncError::Api)?;
+            .map_err(|err| {
+                tracing::warn!(
+                    facility_id = config.facility_id.as_str(),
+                    stage = "persist_memberships",
+                    cid = update.cid,
+                    user_id = update.user_id.as_str(),
+                    ?err,
+                    "roster sync stage failed"
+                );
+                RosterSyncError::Api(err)
+            })?;
+
+        tracing::info!(
+            cid = update.cid,
+            user_id = update.user_id.as_str(),
+            change = "membership_demoted",
+            new_controller_status = update.controller_status,
+            new_membership_status = update.membership_status,
+            is_active = update.is_active,
+            "roster sync demoted off-roster membership"
+        );
     }
 
     sqlx::query(
@@ -295,11 +436,23 @@ async fn run_roster_sync(
     )
     .execute(&mut *tx)
     .await
-    .map_err(|_| RosterSyncError::Api(ApiError::Internal))?;
+    .map_err(|_| {
+        tracing::warn!(
+            facility_id = config.facility_id.as_str(),
+            stage = "update_sync_times",
+            "roster sync stage failed"
+        );
+        RosterSyncError::Api(ApiError::Internal)
+    })?;
 
-    tx.commit()
-        .await
-        .map_err(|_| RosterSyncError::Api(ApiError::Internal))?;
+    tx.commit().await.map_err(|_| {
+        tracing::warn!(
+            facility_id = config.facility_id.as_str(),
+            stage = "persist_memberships",
+            "roster sync commit failed"
+        );
+        RosterSyncError::Api(ApiError::Internal)
+    })?;
 
     Ok(RosterSyncRunResult {
         processed,
@@ -307,6 +460,10 @@ async fn run_roster_sync(
         updated: matched_updates.len(),
         demoted: off_roster_updates.len(),
         skipped: failed_detail_cids.len(),
+        created_memberships,
+        changed_ratings,
+        detail_failures: failed_detail_cids.len(),
+        desired_missing_local_users: unknown_cids.len(),
         warning: build_warning_summary(&failed_detail_cids),
     })
 }
@@ -451,14 +608,22 @@ fn build_desired_memberships(
     desired
 }
 
-async fn fetch_local_roster_users(pool: &sqlx::PgPool) -> Result<Vec<LocalRosterUser>, ApiError> {
+async fn fetch_local_sync_candidates(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<LocalRosterUser>, ApiError> {
     sqlx::query_as::<_, LocalRosterUser>(
         r#"
         select
             u.id as user_id,
-            u.cid
+            u.cid,
+            (m.user_id is not null) as has_membership,
+            m.rating,
+            m.controller_status,
+            m.membership_status,
+            m.home_facility,
+            m.visitor_home_facility
         from identity.users u
-        join org.memberships m on m.user_id = u.id
+        left join org.memberships m on m.user_id = u.id
         left join identity.user_flags f on f.user_id = u.id
         where u.cid is not null
           and coalesce(f.excluded_from_roster_sync, false) = false
@@ -482,7 +647,7 @@ fn build_matched_update(
         .roster_user
         .facility_join
         .as_deref()
-        .and_then(parse_timestamp);
+        .and_then(|value| parse_timestamp(value, local_user.cid));
 
     let (home_facility, visitor_home_facility) = match desired.status {
         MembershipStatus::Home => (Some(desired.roster_user.facility.clone()), None),
@@ -491,6 +656,7 @@ fn build_matched_update(
 
     MatchedUserUpdate {
         user_id: local_user.user_id.clone(),
+        cid: local_user.cid,
         first_name,
         last_name,
         full_name: full_name.clone(),
@@ -507,6 +673,7 @@ fn build_matched_update(
 fn build_off_roster_update(local_user: &LocalRosterUser) -> OffRosterUpdate {
     OffRosterUpdate {
         user_id: local_user.user_id.clone(),
+        cid: local_user.cid,
         controller_status: "NONE",
         membership_status: "INACTIVE",
         is_active: false,
@@ -542,18 +709,31 @@ async fn apply_matched_update(
 
     sqlx::query(
         r#"
-        update org.memberships
-        set artcc = $2,
-            division = 'USA',
-            rating = $3,
-            controller_status = $4,
+        insert into org.memberships (
+            user_id,
+            artcc,
+            division,
+            rating,
+            controller_status,
+            membership_status,
+            is_active,
+            join_date,
+            home_facility,
+            visitor_home_facility,
+            updated_at
+        )
+        values ($1, $2, 'USA', $3, $4, 'ACTIVE', true, $5, $6, $7, now())
+        on conflict (user_id) do update
+        set artcc = excluded.artcc,
+            division = excluded.division,
+            rating = excluded.rating,
+            controller_status = excluded.controller_status,
             membership_status = 'ACTIVE',
             is_active = true,
-            join_date = coalesce($5, join_date),
-            home_facility = $6,
-            visitor_home_facility = $7,
+            join_date = coalesce(excluded.join_date, org.memberships.join_date),
+            home_facility = excluded.home_facility,
+            visitor_home_facility = excluded.visitor_home_facility,
             updated_at = now()
-        where user_id = $1
         "#,
     )
     .bind(&update.user_id)
@@ -608,10 +788,35 @@ fn build_warning_summary(failed_detail_cids: &[i64]) -> Option<String> {
     }
 }
 
-fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map(|parsed| parsed.with_timezone(&Utc))
-        .ok()
+fn summarize_membership_change(
+    local_user: &LocalRosterUser,
+    update: &MatchedUserUpdate,
+) -> MembershipChangeSummary {
+    MembershipChangeSummary {
+        created_membership: !local_user.has_membership,
+        rating_changed: local_user.rating.as_deref() != Some(update.rating.as_str()),
+        controller_status_changed: local_user.controller_status.as_deref()
+            != Some(update.controller_status.as_str()),
+        membership_status_changed: local_user.membership_status.as_deref() != Some("ACTIVE"),
+        home_facility_changed: local_user.home_facility != update.home_facility,
+        visitor_home_facility_changed: local_user.visitor_home_facility
+            != update.visitor_home_facility,
+    }
+}
+
+fn parse_timestamp(value: &str, cid: i64) -> Option<DateTime<Utc>> {
+    match chrono::DateTime::parse_from_rfc3339(value) {
+        Ok(parsed) => Some(parsed.with_timezone(&Utc)),
+        Err(error) => {
+            tracing::warn!(
+                cid,
+                raw_value = value,
+                ?error,
+                "failed to parse vatusa facility_join timestamp"
+            );
+            None
+        }
+    }
 }
 
 fn build_full_name(first_name: &str, last_name: &str) -> String {
@@ -748,6 +953,12 @@ mod tests {
         let local = LocalRosterUser {
             user_id: "user-1".to_string(),
             cid: 1001,
+            has_membership: true,
+            rating: Some("S2".to_string()),
+            controller_status: Some("VISITOR".to_string()),
+            membership_status: Some("ACTIVE".to_string()),
+            home_facility: None,
+            visitor_home_facility: Some("ZOB".to_string()),
         };
         let desired = DesiredMembership {
             status: MembershipStatus::Visitor,
@@ -783,6 +994,12 @@ mod tests {
         let local = LocalRosterUser {
             user_id: "user-2".to_string(),
             cid: 2002,
+            has_membership: true,
+            rating: Some("C1".to_string()),
+            controller_status: Some("HOME".to_string()),
+            membership_status: Some("ACTIVE".to_string()),
+            home_facility: Some("ZDC".to_string()),
+            visitor_home_facility: None,
         };
 
         let update = build_off_roster_update(&local);
@@ -790,6 +1007,111 @@ mod tests {
         assert_eq!(update.controller_status, "NONE");
         assert_eq!(update.membership_status, "INACTIVE");
         assert!(!update.is_active);
+    }
+
+    #[test]
+    fn summarize_membership_change_detects_created_membership_and_rating_change() {
+        let local = LocalRosterUser {
+            user_id: "user-3".to_string(),
+            cid: 3003,
+            has_membership: false,
+            rating: None,
+            controller_status: None,
+            membership_status: None,
+            home_facility: None,
+            visitor_home_facility: None,
+        };
+        let update = MatchedUserUpdate {
+            user_id: local.user_id.clone(),
+            cid: local.cid,
+            first_name: "Jane".to_string(),
+            last_name: "Controller".to_string(),
+            full_name: "Jane Controller".to_string(),
+            display_name: "Jane Controller".to_string(),
+            email: "jane@example.com".to_string(),
+            rating: "S3".to_string(),
+            controller_status: "HOME".to_string(),
+            join_date: None,
+            home_facility: Some("ZDC".to_string()),
+            visitor_home_facility: None,
+        };
+
+        let summary = summarize_membership_change(&local, &update);
+
+        assert!(summary.created_membership);
+        assert!(summary.rating_changed);
+        assert!(summary.controller_status_changed);
+        assert!(summary.membership_status_changed);
+        assert!(summary.home_facility_changed);
+        assert!(!summary.visitor_home_facility_changed);
+        assert!(summary.has_meaningful_change());
+    }
+
+    #[test]
+    fn summarize_membership_change_detects_noop_update() {
+        let local = LocalRosterUser {
+            user_id: "user-4".to_string(),
+            cid: 4004,
+            has_membership: true,
+            rating: Some("S3".to_string()),
+            controller_status: Some("HOME".to_string()),
+            membership_status: Some("ACTIVE".to_string()),
+            home_facility: Some("ZDC".to_string()),
+            visitor_home_facility: None,
+        };
+        let update = MatchedUserUpdate {
+            user_id: local.user_id.clone(),
+            cid: local.cid,
+            first_name: "Jane".to_string(),
+            last_name: "Controller".to_string(),
+            full_name: "Jane Controller".to_string(),
+            display_name: "Jane Controller".to_string(),
+            email: "jane@example.com".to_string(),
+            rating: "S3".to_string(),
+            controller_status: "HOME".to_string(),
+            join_date: None,
+            home_facility: Some("ZDC".to_string()),
+            visitor_home_facility: None,
+        };
+
+        let summary = summarize_membership_change(&local, &update);
+
+        assert!(!summary.created_membership);
+        assert!(!summary.rating_changed);
+        assert!(!summary.controller_status_changed);
+        assert!(!summary.membership_status_changed);
+        assert!(!summary.home_facility_changed);
+        assert!(!summary.visitor_home_facility_changed);
+        assert!(!summary.has_meaningful_change());
+    }
+
+    #[test]
+    fn matched_user_update_home_sets_home_facility() {
+        let local = LocalRosterUser {
+            user_id: "user-5".to_string(),
+            cid: 5005,
+            has_membership: true,
+            rating: Some("S2".to_string()),
+            controller_status: Some("VISITOR".to_string()),
+            membership_status: Some("ACTIVE".to_string()),
+            home_facility: None,
+            visitor_home_facility: Some("ZNY".to_string()),
+        };
+        let desired = DesiredMembership {
+            status: MembershipStatus::Home,
+            roster_user: roster_user(5005, "ZDC", Some("2024-02-01T12:00:00Z")),
+        };
+
+        let update = build_matched_update(&local, &desired, user_detail("ZNY"));
+
+        assert_eq!(update.controller_status, "HOME");
+        assert_eq!(update.home_facility.as_deref(), Some("ZDC"));
+        assert_eq!(update.visitor_home_facility, None);
+    }
+
+    #[test]
+    fn malformed_join_timestamp_is_ignored() {
+        assert!(parse_timestamp("not-a-timestamp", 6006).is_none());
     }
 
     #[test]

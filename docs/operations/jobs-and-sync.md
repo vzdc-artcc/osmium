@@ -27,7 +27,7 @@ Readiness uses `STATS_SYNC_STALE_SECS` against the `live` feed only to decide wh
 
 ## Roster Sync
 
-The roster worker polls VATUSA for the configured facility roster, refreshes matching local users, and demotes local users who are no longer present on the external roster.
+The roster worker polls VATUSA for the configured facility roster, refreshes matching local users, upserts `org.memberships` rows for matched local identities when needed, keeps `org.memberships.rating` aligned with VATUSA user detail, and demotes local users who are no longer present on the external roster.
 
 Important fields:
 
@@ -42,5 +42,11 @@ Important fields:
 - `updated`
 - `demoted`
 - `skipped`
+
+Operational notes:
+
+- startup, completion, and failure logs include structured roster-sync fields such as `facility_id`, `processed`, `matched`, `updated`, `demoted`, `skipped`, `created_memberships`, and `changed_ratings`
+- per-user info logs are emitted only when a membership row is created, a synced membership field changes, or an off-roster demotion is applied
+- per-user warning logs are emitted for anomalies such as VATUSA detail fetch failures or malformed upstream timestamps
 
 This worker is reported through `/ready`, but it does not currently affect readiness status.

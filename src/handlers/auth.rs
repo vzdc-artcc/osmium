@@ -56,6 +56,18 @@ pub struct SessionBody {
     permissions: BTreeMap<String, Vec<String>>,
 }
 
+#[derive(sqlx::FromRow)]
+struct OAuthUserUpsertRow {
+    id: String,
+    created_user: bool,
+}
+
+#[derive(sqlx::FromRow)]
+struct OAuthMembershipUpsertRow {
+    rating: Option<String>,
+    created_membership: bool,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/me",
@@ -211,7 +223,7 @@ pub async fn vatsim_callback(
         return Err(ApiError::ServiceUnavailable);
     };
 
-    let user_id = sqlx::query_scalar::<_, String>(
+    let user_upsert = sqlx::query_as::<_, OAuthUserUpsertRow>(
         r#"
         insert into identity.users (id, cid, email, full_name, display_name)
         values ($1, $2, $3, $4, $4)
@@ -220,7 +232,7 @@ pub async fn vatsim_callback(
             full_name = excluded.full_name,
             display_name = excluded.display_name,
             updated_at = now()
-        returning id
+        returning id, (xmax = 0) as created_user
         "#,
     )
     .bind(Uuid::new_v4().to_string())
@@ -237,8 +249,9 @@ pub async fn vatsim_callback(
         );
         ApiError::Internal
     })?;
+    let user_id = user_upsert.id;
 
-    sqlx::query(
+    let membership_upsert = sqlx::query_as::<_, OAuthMembershipUpsertRow>(
         r#"
         insert into org.memberships (
             user_id,
@@ -254,13 +267,33 @@ pub async fn vatsim_callback(
         set rating = coalesce(excluded.rating, org.memberships.rating),
             membership_status = 'ACTIVE',
             updated_at = now()
+        returning rating, (xmax = 0) as created_membership
         "#,
     )
     .bind(&user_id)
     .bind(profile.rating.as_deref())
-    .execute(pool)
+    .fetch_one(pool)
     .await
-    .map_err(|_| ApiError::Internal)?;
+    .map_err(|error| {
+        tracing::error!(
+            ?error,
+            cid = profile.cid,
+            user_id = user_id.as_str(),
+            "failed to upsert membership during oauth callback"
+        );
+        ApiError::Internal
+    })?;
+
+    tracing::info!(
+        cid = profile.cid,
+        user_id = user_id.as_str(),
+        source = "vatsim_oauth",
+        rating = membership_upsert.rating.as_deref(),
+        created_user = user_upsert.created_user,
+        created_membership = membership_upsert.created_membership,
+        membership_synced = true,
+        "oauth user sync completed"
+    );
 
     ensure_user_login_access(pool, &user_id, profile.cid)
         .await
