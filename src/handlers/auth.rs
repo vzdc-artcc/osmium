@@ -496,11 +496,29 @@ async fn ensure_user_login_access(
     user_id: &str,
     cid: i64,
 ) -> Result<(), ApiError> {
-    match configured_server_admin_cid() {
+    let configured_server_admin_cid = configured_server_admin_cid();
+
+    match configured_server_admin_cid {
         Some(server_admin_cid) if server_admin_cid == cid => {
+            tracing::info!(
+                user_id,
+                cid,
+                configured_server_admin_cid = server_admin_cid,
+                "assigning server admin role during login sync"
+            );
+
             let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
             access_repo::assign_server_admin(&mut tx, user_id).await?;
             tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+            let roles = access_repo::fetch_user_role_names(pool, user_id).await?;
+            tracing::info!(
+                user_id,
+                cid,
+                roles = ?roles,
+                "server admin login access synced"
+            );
+
             Ok(())
         }
         _ => {
@@ -515,6 +533,14 @@ async fn ensure_user_login_access(
             .execute(pool)
             .await
             .map_err(|_| ApiError::Internal)?;
+
+            tracing::info!(
+                user_id,
+                cid,
+                configured_server_admin_cid,
+                "default user login access synced"
+            );
+
             Ok(())
         }
     }
