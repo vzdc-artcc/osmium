@@ -18,6 +18,19 @@ Osmium uses one Postgres database with multiple schemas.
 - `training.v_active_assignments`
 - `events.v_event_staffing_summary`
 
+## Website Content Tables In Active Use
+
+The website/public-content domain now actively uses:
+
+- `web.pages`
+- `web.announcements`
+- `web.change_broadcasts`
+- `web.site_settings`
+- `web.publication_categories`
+- `web.publications`
+
+Publication records join to `media.file_assets` for CDN delivery and file metadata while keeping domain ownership in `web`.
+
 ## Training Tables In Active Use
 
 The training API now actively reads and writes these training tables:

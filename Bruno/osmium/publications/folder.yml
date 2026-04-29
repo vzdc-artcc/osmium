@@ -1,0 +1,7 @@
+info:
+  name: publications
+  type: folder
+  seq: 1
+
+request:
+  auth: none

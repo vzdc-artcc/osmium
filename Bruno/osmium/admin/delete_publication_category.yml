@@ -1,0 +1,23 @@
+info:
+  name: delete_publication_category
+  type: http
+  seq: 38
+  tags:
+    - admin
+    - publications
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/publications/categories/:category_id"
+  params:
+    - name: category_id
+      value: ""
+      type: path
+      description: Category ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

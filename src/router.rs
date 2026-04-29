@@ -8,8 +8,8 @@ use crate::{
     auth::middleware::{require_staff, resolve_current_user},
     docs,
     handlers::{
-        admin, auth, dev, docs as docs_handlers, events, feedback, files, health, stats, training,
-        users,
+        admin, auth, dev, docs as docs_handlers, events, feedback, files, health, publications,
+        stats, training, users,
     },
     state::AppState,
 };
@@ -34,6 +34,31 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/users/{cid}/controller-status",
             patch(admin::set_user_controller_status),
+        )
+        .nest(
+            "/publications",
+            Router::new()
+                .route(
+                    "/",
+                    get(publications::admin_list_publications)
+                        .post(publications::create_publication),
+                )
+                .route(
+                    "/categories",
+                    get(publications::admin_list_publication_categories)
+                        .post(publications::create_publication_category),
+                )
+                .route(
+                    "/categories/{category_id}",
+                    patch(publications::update_publication_category)
+                        .delete(publications::delete_publication_category),
+                )
+                .route(
+                    "/{publication_id}",
+                    get(publications::admin_get_publication)
+                        .patch(publications::update_publication)
+                        .delete(publications::delete_publication),
+                ),
         )
         .route_layer(middleware::from_fn_with_state(state.clone(), require_staff));
 
@@ -134,6 +159,14 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/{file_id}/signed-url", get(files::get_signed_download_url));
 
+    let publication_routes = Router::new()
+        .route(
+            "/categories",
+            get(publications::list_publication_categories),
+        )
+        .route("/", get(publications::list_publications))
+        .route("/{publication_id}", get(publications::get_publication));
+
     let mut api = Router::new()
         .route("/me", get(auth::me))
         .route("/auth/service-account/me", get(auth::service_account_me))
@@ -158,6 +191,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/events", event_routes)
         .nest("/feedback", feedback_routes)
         .nest("/files", file_routes)
+        .nest("/publications", publication_routes)
         .nest("/training", training_routes)
         .nest("/user", user_routes);
 

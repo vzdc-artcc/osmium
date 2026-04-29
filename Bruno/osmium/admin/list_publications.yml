@@ -1,0 +1,18 @@
+info:
+  name: list_publications
+  type: http
+  seq: 30
+  tags:
+    - admin
+    - publications
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/publications"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

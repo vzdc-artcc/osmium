@@ -42,6 +42,9 @@ The standard test suite does not fully validate:
 
 - Dev login, then `/api/v1/me`
 - File upload and signed URL generation
+- Publication category create/update/delete flow
+- Publication draft to published flow and public visibility
+- Public download access through `/cdn/{file_id}` for a published public publication
 - Training request create/approve flow
 - Event creation and position publish flow
 - Service-account introspection route with a valid bearer token

@@ -1,0 +1,31 @@
+info:
+  name: update_publication_category
+  type: http
+  seq: 37
+  tags:
+    - admin
+    - publications
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/publications/categories/:category_id"
+  params:
+    - name: category_id
+      value: ""
+      type: path
+      description: Category ID
+  auth: inherit
+  body:
+    mimeType: application/json
+    text: |-
+      {
+        "name": "Updated Category",
+        "description": "",
+        "sort_order": 1
+      }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

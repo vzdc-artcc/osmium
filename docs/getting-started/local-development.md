@@ -31,7 +31,7 @@ docker compose up -d postgres
 
 ## Database Setup
 
-Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0015`.
+Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0021`.
 
 If you are creating the database manually:
 
@@ -50,6 +50,8 @@ If `RUN_MIGRATIONS_ON_STARTUP=true` and `DATABASE_URL` is set, the app will atte
 - `GET /docs`
 - `GET /docs/api/v1`
 - `GET /api/v1/me`
+- `GET /api/v1/publications`
+- `GET /api/v1/publications/categories`
 
 Quick smoke check:
 
@@ -115,3 +117,5 @@ Use this only for local setup and quick functional testing.
 ## Storage Notes
 
 Files are stored under `FILE_STORAGE_ROOT` in local development. Signed URL generation and optional encryption behavior are controlled through env vars documented in the configuration page.
+
+The publications/downloads module stores only metadata and linked `file_id` values in `web.*`; publication downloads are still served back through the shared CDN route at `GET /cdn/{file_id}`.

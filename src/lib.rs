@@ -253,6 +253,13 @@ mod tests {
             "/api/v1/events",
             "/api/v1/feedback",
             "/api/v1/files",
+            "/api/v1/publications",
+            "/api/v1/publications/{publication_id}",
+            "/api/v1/publications/categories",
+            "/api/v1/admin/publications",
+            "/api/v1/admin/publications/{publication_id}",
+            "/api/v1/admin/publications/categories",
+            "/api/v1/admin/publications/categories/{category_id}",
             "/api/v1/stats/artcc",
         ] {
             assert!(

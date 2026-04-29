@@ -13,10 +13,21 @@ Administrative access and roster-control operations.
 - `GET /api/v1/admin/users/{cid}/access`
 - `POST /api/v1/admin/users/{cid}/access`
 - `PATCH /api/v1/admin/users/{cid}/controller-status`
+- `GET /api/v1/admin/publications`
+- `GET /api/v1/admin/publications/{publication_id}`
+- `POST /api/v1/admin/publications`
+- `PATCH /api/v1/admin/publications/{publication_id}`
+- `DELETE /api/v1/admin/publications/{publication_id}`
+- `GET /api/v1/admin/publications/categories`
+- `POST /api/v1/admin/publications/categories`
+- `PATCH /api/v1/admin/publications/categories/{category_id}`
+- `DELETE /api/v1/admin/publications/categories/{category_id}`
 
 ## Permissions
 
-These routes currently require `users.update`.
+Most admin routes on this page currently require `users.update`.
+
+Publication and publication-category management requires `web.update`.
 
 ## Permission Payloads
 

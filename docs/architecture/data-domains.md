@@ -38,6 +38,8 @@ Owns controller feedback and moderation/release decisions.
 
 Owns file metadata, access policy, audit logs, and storage references.
 
+Media remains the source of truth for file blobs and CDN delivery even when another domain record, such as a web publication, owns the metadata relationship.
+
 ## stats
 
 Owns controller time history, sync timestamps, and ARTCC-level rollups.
@@ -49,3 +51,5 @@ Owns provider-specific sync and machine-to-machine state.
 ## web
 
 Owns website-oriented shared content that belongs in the platform layer.
+
+This includes publication categories and publication metadata for the public downloads area, while linked file assets continue to live in `media`.
