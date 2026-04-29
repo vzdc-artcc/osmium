@@ -27,6 +27,7 @@ Current chain:
 - `0014_seed_roles_permissions.sql`
 - `0015_views_and_indexes.sql`
 - `0021_publications.sql`
+- `0022_access_web_scope.sql`
 
 ## Philosophy
 

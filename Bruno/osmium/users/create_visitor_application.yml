@@ -1,7 +1,7 @@
 info:
   name: create_visitor_application
   type: http
-  seq: 5
+  seq: 4
   tags:
     - users
 
@@ -10,12 +10,11 @@ http:
   url: "{{baseUrl}}/api/v1/user/visitor-application"
   body:
     type: json
-    data: |+
+    data: |-
       {
-        "home_facility": "ZNY",
-        "why_visit": "Interested in local procedures and event participation."
+        "home_facility": "",
+        "why_visit": ""
       }
-
   auth: inherit
 
 settings:
@@ -34,8 +33,8 @@ examples:
         type: json
         data: |-
           {
-            "home_facility": "ZNY",
-            "why_visit": "Interested in local procedures and event participation."
+            "home_facility": "",
+            "why_visit": ""
           }
     response:
       status: 200
@@ -47,17 +46,17 @@ examples:
         type: json
         data: |-
           {
-            "id": "",
-            "user_id": "",
-            "cid": 0,
+            "cid": "",
+            "decided_at": "",
+            "decided_by_actor_id": "",
             "display_name": "",
-            "home_facility": "ZNY",
-            "why_visit": "Interested in local procedures and event participation.",
-            "status": "PENDING",
-            "reason_for_denial": null,
-            "submitted_at": "2026-04-28T00:00:00Z",
-            "decided_at": null,
-            "decided_by_actor_id": null
+            "home_facility": "",
+            "id": "",
+            "reason_for_denial": "",
+            "status": "",
+            "submitted_at": "",
+            "user_id": "",
+            "why_visit": ""
           }
   - name: 400 Response
     description: Invalid request
@@ -82,6 +81,13 @@ examples:
     request:
       url: "{{baseUrl}}/api/v1/user/visitor-application"
       method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "home_facility": "",
+            "why_visit": ""
+          }
     response:
       status: 401
       statusText: Unauthorized

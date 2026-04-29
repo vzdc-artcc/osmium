@@ -1,7 +1,7 @@
 info:
-  name: get_visitor_application
+  name: get_my_visitor_application
   type: http
-  seq: 4
+  seq: 3
   tags:
     - users
 
@@ -18,7 +18,7 @@ settings:
 
 examples:
   - name: 200 Response
-    description: Current visitor application or null
+    description: Current user's visitor application, or null when absent
     request:
       url: "{{baseUrl}}/api/v1/user/visitor-application"
       method: GET
@@ -30,8 +30,7 @@ examples:
           value: application/json
       body:
         type: json
-        data: |-
-          null
+        data: ""
   - name: 401 Response
     description: Not authenticated
     request:

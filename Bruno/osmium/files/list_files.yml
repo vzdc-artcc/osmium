@@ -29,7 +29,7 @@ settings:
 
 examples:
   - name: 200 Response
-    description: List file assets visible to the authenticated caller
+    description: List file assets
     request:
       url: "{{baseUrl}}/api/v1/files"
       method: GET
@@ -69,7 +69,7 @@ examples:
             }
           ]
   - name: 401 Response
-    description: Not authenticated
+    description: Not authorized
     request:
       url: "{{baseUrl}}/api/v1/files"
       method: GET

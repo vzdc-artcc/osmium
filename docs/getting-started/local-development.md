@@ -31,7 +31,7 @@ docker compose up -d postgres
 
 ## Database Setup
 
-Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0021`.
+Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0022`.
 
 If you are creating the database manually:
 

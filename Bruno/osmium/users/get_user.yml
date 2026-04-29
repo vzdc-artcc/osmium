@@ -1,7 +1,7 @@
 info:
   name: get_user
   type: http
-  seq: 3
+  seq: 5
   tags:
     - users
 

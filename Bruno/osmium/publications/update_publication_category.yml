@@ -1,24 +1,26 @@
 info:
-  name: decide_visitor_application
+  name: update_publication_category
   type: http
-  seq: 8
+  seq: 6
   tags:
-    - admin
+    - publications
 
 http:
   method: PATCH
-  url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+  url: "{{baseUrl}}/api/v1/admin/publications/categories/:category_id"
   params:
-    - name: application_id
+    - name: category_id
       value: ""
       type: path
-      description: Visitor application id
+      description: Category ID
   body:
     type: json
     data: |-
       {
-        "reason_for_denial": "",
-        "status": ""
+        "description": "",
+        "key": "",
+        "name": "",
+        "sort_order": ""
       }
   auth: inherit
 
@@ -30,21 +32,23 @@ settings:
 
 examples:
   - name: 200 Response
-    description: Visitor application updated
+    description: Publication category updated
     request:
-      url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+      url: "{{baseUrl}}/api/v1/admin/publications/categories/:category_id"
       method: PATCH
       params:
-        - name: application_id
+        - name: category_id
           value: ""
           type: path
-          description: Visitor application id
+          description: Category ID
       body:
         type: json
         data: |-
           {
-            "reason_for_denial": "",
-            "status": ""
+            "description": "",
+            "key": "",
+            "name": "",
+            "sort_order": ""
           }
     response:
       status: 200
@@ -56,34 +60,32 @@ examples:
         type: json
         data: |-
           {
-            "cid": "",
-            "decided_at": "",
-            "decided_by_actor_id": "",
-            "display_name": "",
-            "home_facility": "",
+            "created_at": "",
+            "description": "",
             "id": "",
-            "reason_for_denial": "",
-            "status": "",
-            "submitted_at": "",
-            "user_id": "",
-            "why_visit": ""
+            "key": "",
+            "name": "",
+            "sort_order": 0,
+            "updated_at": ""
           }
   - name: 400 Response
     description: Invalid request
     request:
-      url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+      url: "{{baseUrl}}/api/v1/admin/publications/categories/:category_id"
       method: PATCH
       params:
-        - name: application_id
+        - name: category_id
           value: ""
           type: path
-          description: Visitor application id
+          description: Category ID
       body:
         type: json
         data: |-
           {
-            "reason_for_denial": "",
-            "status": ""
+            "description": "",
+            "key": "",
+            "name": "",
+            "sort_order": ""
           }
     response:
       status: 400
@@ -94,19 +96,21 @@ examples:
   - name: 401 Response
     description: Not authorized
     request:
-      url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+      url: "{{baseUrl}}/api/v1/admin/publications/categories/:category_id"
       method: PATCH
       params:
-        - name: application_id
+        - name: category_id
           value: ""
           type: path
-          description: Visitor application id
+          description: Category ID
       body:
         type: json
         data: |-
           {
-            "reason_for_denial": "",
-            "status": ""
+            "description": "",
+            "key": "",
+            "name": "",
+            "sort_order": ""
           }
     response:
       status: 401

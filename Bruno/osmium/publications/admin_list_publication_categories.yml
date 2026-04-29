@@ -1,13 +1,13 @@
 info:
-  name: list_publications
+  name: admin_list_publication_categories
   type: http
-  seq: 10
+  seq: 3
   tags:
     - publications
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/publications"
+  url: "{{baseUrl}}/api/v1/admin/publications/categories"
   auth: inherit
 
 settings:
@@ -18,9 +18,9 @@ settings:
 
 examples:
   - name: 200 Response
-    description: List public publications
+    description: List publication categories for admin
     request:
-      url: "{{baseUrl}}/api/v1/publications"
+      url: "{{baseUrl}}/api/v1/admin/publications/categories"
       method: GET
     response:
       status: 200
@@ -33,21 +33,23 @@ examples:
         data: |-
           [
             {
-              "category_id": "",
-              "category_key": "",
-              "category_name": "",
-              "cdn_url": "",
+              "created_at": "",
               "description": "",
-              "effective_at": "",
-              "file_content_type": "",
-              "file_filename": "",
-              "file_id": "",
-              "file_size_bytes": 0,
               "id": "",
-              "is_public": false,
+              "key": "",
+              "name": "",
               "sort_order": 0,
-              "status": "",
-              "title": "",
               "updated_at": ""
             }
           ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications/categories"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

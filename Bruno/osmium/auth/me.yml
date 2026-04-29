@@ -10,11 +10,6 @@ http:
   url: "{{baseUrl}}/api/v1/me"
   auth: inherit
 
-runtime:
-  variables:
-    - name: baseUrl
-      value: http://127.0.0.1:3000
-
 settings:
   encodeUrl: true
   timeout: 0
@@ -42,6 +37,7 @@ examples:
             "email": "",
             "id": "",
             "permissions": {},
+            "rating": "",
             "role": "",
             "roles": []
           }

@@ -1,13 +1,13 @@
 info:
-  name: list_publications
+  name: admin_list_publications
   type: http
-  seq: 10
+  seq: 1
   tags:
     - publications
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/publications"
+  url: "{{baseUrl}}/api/v1/admin/publications"
   auth: inherit
 
 settings:
@@ -18,9 +18,9 @@ settings:
 
 examples:
   - name: 200 Response
-    description: List public publications
+    description: List publications for admin
     request:
-      url: "{{baseUrl}}/api/v1/publications"
+      url: "{{baseUrl}}/api/v1/admin/publications"
       method: GET
     response:
       status: 200
@@ -51,3 +51,14 @@ examples:
               "updated_at": ""
             }
           ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

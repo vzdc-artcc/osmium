@@ -1,13 +1,13 @@
 info:
-  name: get_publication
+  name: admin_get_publication
   type: http
-  seq: 12
+  seq: 7
   tags:
     - publications
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/publications/:publication_id"
+  url: "{{baseUrl}}/api/v1/admin/publications/:publication_id"
   params:
     - name: publication_id
       value: ""
@@ -23,9 +23,9 @@ settings:
 
 examples:
   - name: 200 Response
-    description: Publication details
+    description: Publication details for admin
     request:
-      url: "{{baseUrl}}/api/v1/publications/:publication_id"
+      url: "{{baseUrl}}/api/v1/admin/publications/:publication_id"
       method: GET
       params:
         - name: publication_id
@@ -62,7 +62,7 @@ examples:
   - name: 400 Response
     description: Invalid publication ID
     request:
-      url: "{{baseUrl}}/api/v1/publications/:publication_id"
+      url: "{{baseUrl}}/api/v1/admin/publications/:publication_id"
       method: GET
       params:
         - name: publication_id
@@ -72,6 +72,22 @@ examples:
     response:
       status: 400
       statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications/:publication_id"
+      method: GET
+      params:
+        - name: publication_id
+          value: ""
+          type: path
+          description: Publication ID
+    response:
+      status: 401
+      statusText: Unauthorized
       body:
         type: text
         data: ""
