@@ -1,13 +1,13 @@
 info:
-  name: me
+  name: get_my_visitor_application
   type: http
-  seq: 5
+  seq: 3
   tags:
-    - auth
+    - users
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/me"
+  url: "{{baseUrl}}/api/v1/user/visitor-application"
   auth: inherit
 
 settings:
@@ -18,9 +18,9 @@ settings:
 
 examples:
   - name: 200 Response
-    description: Current authenticated user session
+    description: Current user's visitor application, or null when absent
     request:
-      url: "{{baseUrl}}/api/v1/me"
+      url: "{{baseUrl}}/api/v1/user/visitor-application"
       method: GET
     response:
       status: 200
@@ -30,21 +30,11 @@ examples:
           value: application/json
       body:
         type: json
-        data: |-
-          {
-            "cid": 0,
-            "display_name": "",
-            "email": "",
-            "id": "",
-            "permissions": {},
-            "rating": "",
-            "role": "",
-            "roles": []
-          }
+        data: ""
   - name: 401 Response
     description: Not authenticated
     request:
-      url: "{{baseUrl}}/api/v1/me"
+      url: "{{baseUrl}}/api/v1/user/visitor-application"
       method: GET
     response:
       status: 401

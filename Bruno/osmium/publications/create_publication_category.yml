@@ -1,0 +1,100 @@
+info:
+  name: create_publication_category
+  type: http
+  seq: 4
+  tags:
+    - publications
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/publications/categories"
+  body:
+    type: json
+    data: |
+      {
+        "description": "This is a test one",
+        "key": "dsads",
+        "name": "TEST!",
+        "sort_order": 10
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Publication category created
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications/categories"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "key": "",
+            "name": "",
+            "sort_order": ""
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "created_at": "",
+            "description": "",
+            "id": "",
+            "key": "",
+            "name": "",
+            "sort_order": 0,
+            "updated_at": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications/categories"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "key": "",
+            "name": "",
+            "sort_order": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications/categories"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "description": "",
+            "key": "",
+            "name": "",
+            "sort_order": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

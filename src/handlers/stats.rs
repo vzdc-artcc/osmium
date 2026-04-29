@@ -346,7 +346,7 @@ pub async fn get_artcc_stats(
             p.display_name,
             p.first_name,
             p.last_name,
-            p.rating,
+            coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating,
             latest.real_name as session_real_name,
             r.online_hours,
             r.delivery_hours,
@@ -359,7 +359,7 @@ pub async fn get_artcc_stats(
         from rollups r
         left join org.v_user_roster_profile p on p.cid = r.cid
         left join lateral (
-            select real_name
+            select real_name, user_rating, requested_rating
             from stats.controller_sessions
             where environment = $1 and cid = r.cid
             order by login_at desc
@@ -521,7 +521,7 @@ pub async fn get_controller_history(
         environment: environment.as_str().to_string(),
         cid: user.cid,
         name: identity_name(&user),
-        rating: user.rating,
+        rating: normalize_rating_code(user.rating.as_deref()),
         year,
         months,
     }))
@@ -605,7 +605,7 @@ pub async fn get_controller_totals(
         environment: environment.as_str().to_string(),
         cid: user.cid,
         name: identity_name(&user),
-        rating: user.rating,
+        rating: normalize_rating_code(user.rating.as_deref()),
         online_hours: totals.online_hours,
         delivery_hours: totals.delivery_hours,
         ground_hours: totals.ground_hours,
@@ -708,10 +708,10 @@ async fn fetch_controller_identity(
             p.display_name,
             p.first_name,
             p.last_name,
-            p.rating,
+            coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating,
             latest.real_name as session_real_name
         from (
-            select cid, real_name
+            select cid, real_name, user_rating, requested_rating
             from stats.controller_sessions
             where environment = $1 and cid = $2
             order by login_at desc
@@ -751,7 +751,7 @@ fn row_to_controller_totals(row: &ControllerTotalsRow) -> ControllerTotals {
             row.session_real_name.as_deref(),
             row.cid,
         ),
-        rating: row.rating.clone(),
+        rating: normalize_rating_code(row.rating.as_deref()),
         online_hours: row.online_hours,
         delivery_hours: row.delivery_hours,
         ground_hours: row.ground_hours,
@@ -771,6 +771,30 @@ fn identity_name(row: &ControllerIdentityRow) -> String {
         row.session_real_name.as_deref(),
         row.cid,
     )
+}
+
+fn normalize_rating_code(value: Option<&str>) -> Option<String> {
+    let raw = value?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let normalized = match raw.to_ascii_uppercase().as_str() {
+        "OBS" | "OBSERVER" => "OBS",
+        "S1" | "STUDENT1" => "S1",
+        "S2" | "STUDENT2" => "S2",
+        "S3" | "STUDENT3" | "SENIORSTUDENT" => "S3",
+        "C1" | "CONTROLLER1" => "C1",
+        "C2" | "CONTROLLER2" => "C2",
+        "C3" | "CONTROLLER3" => "C3",
+        "I1" | "I2" | "I3" | "INS" | "INSTRUCTOR" | "INSTRUCTOR1" | "INSTRUCTOR2"
+        | "INSTRUCTOR3" => "INS",
+        "SUP" | "SUPERVISOR" => "SUP",
+        "ADM" | "ADMIN" | "ADMINISTRATOR" => "ADM",
+        other => return Some(other.to_string()),
+    };
+
+    Some(normalized.to_string())
 }
 
 fn user_name(
@@ -829,5 +853,32 @@ fn month_name(month: i32) -> &'static str {
         11 => "November",
         12 => "December",
         _ => "Unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_rating_code;
+
+    #[test]
+    fn normalize_rating_code_returns_short_codes() {
+        assert_eq!(
+            normalize_rating_code(Some("Student1")).as_deref(),
+            Some("S1")
+        );
+        assert_eq!(
+            normalize_rating_code(Some("Student3")).as_deref(),
+            Some("S3")
+        );
+        assert_eq!(
+            normalize_rating_code(Some("Supervisor")).as_deref(),
+            Some("SUP")
+        );
+        assert_eq!(
+            normalize_rating_code(Some("Instructor1")).as_deref(),
+            Some("INS")
+        );
+        assert_eq!(normalize_rating_code(Some("C1")).as_deref(), Some("C1"));
+        assert_eq!(normalize_rating_code(Some("")).as_deref(), None);
     }
 }

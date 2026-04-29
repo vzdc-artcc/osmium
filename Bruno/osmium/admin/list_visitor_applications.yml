@@ -1,32 +1,25 @@
 info:
-  name: get_user_feedback
+  name: list_visitor_applications
   type: http
-  seq: 6
+  seq: 7
   tags:
-    - users
+    - admin
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+  url: "{{baseUrl}}/api/v1/admin/visitor-applications"
   params:
-    - name: cid
-      value: ""
-      type: path
-      description: VATSIM CID
     - name: limit
       value: ""
       type: query
-      description: Maximum rows
       disabled: true
     - name: offset
       value: ""
       type: query
-      description: Pagination offset
       disabled: true
     - name: status
       value: ""
       type: query
-      description: Optional feedback status filter
       disabled: true
   auth: inherit
 
@@ -38,29 +31,22 @@ settings:
 
 examples:
   - name: 200 Response
-    description: Feedback for a user
+    description: Visitor applications
     request:
-      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      url: "{{baseUrl}}/api/v1/admin/visitor-applications"
       method: GET
       params:
-        - name: cid
-          value: ""
-          type: path
-          description: VATSIM CID
         - name: limit
           value: ""
           type: query
-          description: Maximum rows
           disabled: true
         - name: offset
           value: ""
           type: query
-          description: Pagination offset
           disabled: true
         - name: status
           value: ""
           type: query
-          description: Optional feedback status filter
           disabled: true
     response:
       status: 200
@@ -73,44 +59,36 @@ examples:
         data: |-
           [
             {
-              "comments": "",
-              "controller_position": "",
+              "cid": "",
               "decided_at": "",
-              "decided_by": "",
+              "decided_by_actor_id": "",
+              "display_name": "",
+              "home_facility": "",
               "id": "",
-              "pilot_callsign": "",
-              "rating": 0,
-              "staff_comments": "",
+              "reason_for_denial": "",
               "status": "",
               "submitted_at": "",
-              "submitter_user_id": "",
-              "target_user_id": ""
+              "user_id": "",
+              "why_visit": ""
             }
           ]
   - name: 400 Response
     description: Invalid request
     request:
-      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      url: "{{baseUrl}}/api/v1/admin/visitor-applications"
       method: GET
       params:
-        - name: cid
-          value: ""
-          type: path
-          description: VATSIM CID
         - name: limit
           value: ""
           type: query
-          description: Maximum rows
           disabled: true
         - name: offset
           value: ""
           type: query
-          description: Pagination offset
           disabled: true
         - name: status
           value: ""
           type: query
-          description: Optional feedback status filter
           disabled: true
     response:
       status: 400
@@ -119,29 +97,22 @@ examples:
         type: text
         data: ""
   - name: 401 Response
-    description: Not authenticated
+    description: Not authorized
     request:
-      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      url: "{{baseUrl}}/api/v1/admin/visitor-applications"
       method: GET
       params:
-        - name: cid
-          value: ""
-          type: path
-          description: VATSIM CID
         - name: limit
           value: ""
           type: query
-          description: Maximum rows
           disabled: true
         - name: offset
           value: ""
           type: query
-          description: Pagination offset
           disabled: true
         - name: status
           value: ""
           type: query
-          description: Optional feedback status filter
           disabled: true
     response:
       status: 401

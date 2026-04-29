@@ -1,6 +1,6 @@
 # Osmium
 
-Osmium is the shared backend and API platform for vZDC applications, bots, files, training workflows, events, feedback, and statistics.
+Osmium is the shared backend and API platform for vZDC applications, bots, publications/downloads, files, training workflows, events, feedback, and statistics.
 
 ## What It Owns
 
@@ -9,6 +9,7 @@ Osmium is the shared backend and API platform for vZDC applications, bots, files
 - roster and controller-state data
 - training assignments and requests
 - event staffing and lifecycle data
+- publication categories and download metadata
 - controller feedback
 - files, metadata, and CDN delivery
 - statistics and sync status

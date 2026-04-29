@@ -442,7 +442,7 @@ pub async fn upload_file(
             scope_key: Some(file_id.clone()),
             before_state: None,
             after_state: Some(audit_repo::sanitized_snapshot(&created_asset)?),
-            ip_address: Some(ip_address),
+            ip_address: audit_repo::client_ip(&headers),
         },
     )
     .await?;
@@ -965,7 +965,7 @@ pub async fn delete_file(
             scope_key: Some(file_id),
             before_state: Some(audit_repo::sanitized_snapshot(&existing_asset)?),
             after_state: None,
-            ip_address: Some(ip_address),
+            ip_address: audit_repo::client_ip(&headers),
         },
     )
     .await?;

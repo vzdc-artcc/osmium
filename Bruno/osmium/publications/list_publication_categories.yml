@@ -1,0 +1,44 @@
+info:
+  name: list_publication_categories
+  type: http
+  seq: 11
+  tags:
+    - publications
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/publications/categories"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List publication categories
+    request:
+      url: "{{baseUrl}}/api/v1/publications/categories"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "created_at": "",
+              "description": "",
+              "id": "",
+              "key": "",
+              "name": "",
+              "sort_order": 0,
+              "updated_at": ""
+            }
+          ]

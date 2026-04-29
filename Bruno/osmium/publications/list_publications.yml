@@ -1,0 +1,53 @@
+info:
+  name: list_publications
+  type: http
+  seq: 10
+  tags:
+    - publications
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/publications"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List public publications
+    request:
+      url: "{{baseUrl}}/api/v1/publications"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "category_id": "",
+              "category_key": "",
+              "category_name": "",
+              "cdn_url": "",
+              "description": "",
+              "effective_at": "",
+              "file_content_type": "",
+              "file_filename": "",
+              "file_id": "",
+              "file_size_bytes": 0,
+              "id": "",
+              "is_public": false,
+              "sort_order": 0,
+              "status": "",
+              "title": "",
+              "updated_at": ""
+            }
+          ]

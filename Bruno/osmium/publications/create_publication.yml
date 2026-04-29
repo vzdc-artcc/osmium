@@ -1,0 +1,125 @@
+info:
+  name: create_publication
+  type: http
+  seq: 2
+  tags:
+    - publications
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/publications"
+  body:
+    type: json
+    data: |-
+      {
+        "category_id": "",
+        "description": "",
+        "effective_at": "",
+        "file_id": "",
+        "is_public": false,
+        "sort_order": "",
+        "status": "",
+        "title": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Publication created
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "category_id": "",
+            "description": "",
+            "effective_at": "",
+            "file_id": "",
+            "is_public": false,
+            "sort_order": "",
+            "status": "",
+            "title": ""
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "category_id": "",
+            "category_key": "",
+            "category_name": "",
+            "cdn_url": "",
+            "description": "",
+            "effective_at": "",
+            "file_content_type": "",
+            "file_filename": "",
+            "file_id": "",
+            "file_size_bytes": 0,
+            "id": "",
+            "is_public": false,
+            "sort_order": 0,
+            "status": "",
+            "title": "",
+            "updated_at": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "category_id": "",
+            "description": "",
+            "effective_at": "",
+            "file_id": "",
+            "is_public": false,
+            "sort_order": "",
+            "status": "",
+            "title": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/publications"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "category_id": "",
+            "description": "",
+            "effective_at": "",
+            "file_id": "",
+            "is_public": false,
+            "sort_order": "",
+            "status": "",
+            "title": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

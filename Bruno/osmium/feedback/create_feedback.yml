@@ -10,13 +10,13 @@ http:
   url: "{{baseUrl}}/api/v1/feedback"
   body:
     type: json
-    data: |
+    data: |-
       {
-        "comments": "Hellooooo",
-        "controller_position": "IAD_GND",
-        "pilot_callsign": "AVL126",
-        "rating": 2,
-        "target_cid": 10000010
+        "comments": "",
+        "controller_position": "",
+        "pilot_callsign": "",
+        "rating": 0,
+        "target_cid": 0
       }
   auth: inherit
 

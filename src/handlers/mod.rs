@@ -6,6 +6,7 @@ pub mod events;
 pub mod feedback;
 pub mod files;
 pub mod health;
+pub mod publications;
 pub mod stats;
 pub mod training;
 pub mod users;

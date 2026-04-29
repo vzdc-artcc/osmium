@@ -2,7 +2,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     errors::ApiError,
-    models::users::{AdminUserListItem, RosterUserRow, UserStats},
+    models::users::{AdminUserListItem, RosterUserRow, UserStats, VisitorApplicationItem},
 };
 
 pub async fn list_admin_users(
@@ -83,7 +83,12 @@ pub async fn list_roster_users(
             rating,
             division,
             status,
-            controller_status
+            controller_status,
+            membership_status,
+            join_date,
+            home_facility,
+            visitor_home_facility,
+            is_active
         from org.v_user_roster_profile
         order by cid asc
         limit $1 offset $2
@@ -114,7 +119,12 @@ pub async fn find_roster_user_by_cid(
             rating,
             division,
             status,
-            controller_status
+            controller_status,
+            membership_status,
+            join_date,
+            home_facility,
+            visitor_home_facility,
+            is_active
         from org.v_user_roster_profile
         where cid = $1
         "#,
@@ -220,6 +230,240 @@ pub async fn fetch_user_cid_artcc_rating(
     .fetch_one(&mut **tx)
     .await
     .map_err(|_| ApiError::Internal)
+}
+
+pub async fn find_visitor_application_by_user_id(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Option<VisitorApplicationItem>, ApiError> {
+    sqlx::query_as::<_, VisitorApplicationItem>(
+        r#"
+        select
+            va.id,
+            va.user_id,
+            u.cid,
+            u.display_name,
+            va.home_facility,
+            va.why_visit,
+            va.status,
+            va.reason_for_denial,
+            va.submitted_at,
+            va.decided_at,
+            va.decided_by_actor_id
+        from org.visitor_applications va
+        join identity.users u on u.id = va.user_id
+        where va.user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn list_visitor_applications(
+    pool: &PgPool,
+    status: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<VisitorApplicationItem>, ApiError> {
+    sqlx::query_as::<_, VisitorApplicationItem>(
+        r#"
+        select
+            va.id,
+            va.user_id,
+            u.cid,
+            u.display_name,
+            va.home_facility,
+            va.why_visit,
+            va.status,
+            va.reason_for_denial,
+            va.submitted_at,
+            va.decided_at,
+            va.decided_by_actor_id
+        from org.visitor_applications va
+        join identity.users u on u.id = va.user_id
+        where ($1::text is null or va.status = $1)
+        order by va.submitted_at desc
+        limit $2 offset $3
+        "#,
+    )
+    .bind(status)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn find_visitor_application_by_id(
+    pool: &PgPool,
+    application_id: &str,
+) -> Result<Option<VisitorApplicationItem>, ApiError> {
+    sqlx::query_as::<_, VisitorApplicationItem>(
+        r#"
+        select
+            va.id,
+            va.user_id,
+            u.cid,
+            u.display_name,
+            va.home_facility,
+            va.why_visit,
+            va.status,
+            va.reason_for_denial,
+            va.submitted_at,
+            va.decided_at,
+            va.decided_by_actor_id
+        from org.visitor_applications va
+        join identity.users u on u.id = va.user_id
+        where va.id = $1
+        "#,
+    )
+    .bind(application_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn upsert_visitor_application(
+    pool: &PgPool,
+    user_id: &str,
+    home_facility: &str,
+    why_visit: &str,
+) -> Result<VisitorApplicationItem, ApiError> {
+    sqlx::query_as::<_, VisitorApplicationItem>(
+        r#"
+        insert into org.visitor_applications (
+            user_id,
+            home_facility,
+            why_visit,
+            status,
+            submitted_at,
+            reason_for_denial,
+            decided_at,
+            decided_by_actor_id
+        )
+        values ($1, $2, $3, 'PENDING', now(), null, null, null)
+        on conflict (user_id) do update
+        set home_facility = excluded.home_facility,
+            why_visit = excluded.why_visit,
+            status = 'PENDING',
+            submitted_at = now(),
+            reason_for_denial = null,
+            decided_at = null,
+            decided_by_actor_id = null,
+            updated_at = now()
+        returning
+            id,
+            user_id,
+            (select cid from identity.users where id = org.visitor_applications.user_id) as cid,
+            (select display_name from identity.users where id = org.visitor_applications.user_id) as display_name,
+            home_facility,
+            why_visit,
+            status,
+            reason_for_denial,
+            submitted_at,
+            decided_at,
+            decided_by_actor_id
+        "#,
+    )
+    .bind(user_id)
+    .bind(home_facility)
+    .bind(why_visit)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn decide_visitor_application(
+    tx: &mut Transaction<'_, Postgres>,
+    application_id: &str,
+    status: &str,
+    reason_for_denial: Option<&str>,
+    decided_by_actor_id: Option<&str>,
+    artcc: &str,
+) -> Result<Option<VisitorApplicationItem>, ApiError> {
+    let updated = sqlx::query_as::<_, VisitorApplicationItem>(
+        r#"
+        update org.visitor_applications
+        set status = $2,
+            reason_for_denial = $3,
+            decided_at = now(),
+            decided_by_actor_id = $4,
+            updated_at = now()
+        where id = $1
+        returning
+            id,
+            user_id,
+            (select cid from identity.users where id = org.visitor_applications.user_id) as cid,
+            (select display_name from identity.users where id = org.visitor_applications.user_id) as display_name,
+            home_facility,
+            why_visit,
+            status,
+            reason_for_denial,
+            submitted_at,
+            decided_at,
+            decided_by_actor_id
+        "#,
+    )
+    .bind(application_id)
+    .bind(status)
+    .bind(reason_for_denial)
+    .bind(decided_by_actor_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    if let Some(application) = updated
+        .as_ref()
+        .filter(|application| application.status == "APPROVED")
+    {
+        activate_visitor_membership(tx, &application.user_id, artcc, &application.home_facility)
+            .await?;
+    }
+
+    Ok(updated)
+}
+
+async fn activate_visitor_membership(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    artcc: &str,
+    home_facility: &str,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        insert into org.memberships (
+            user_id,
+            artcc,
+            division,
+            controller_status,
+            membership_status,
+            visitor_home_facility,
+            home_facility,
+            is_active,
+            updated_at
+        )
+        values ($1, $2, 'USA', 'VISITOR', 'ACTIVE', $3, null, true, now())
+        on conflict (user_id) do update
+        set artcc = excluded.artcc,
+            division = 'USA',
+            controller_status = 'VISITOR',
+            membership_status = 'ACTIVE',
+            visitor_home_facility = excluded.visitor_home_facility,
+            home_facility = null,
+            is_active = true,
+            updated_at = now()
+        "#,
+    )
+    .bind(user_id)
+    .bind(artcc)
+    .bind(home_facility)
+    .execute(&mut **tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
 }
 
 pub async fn find_user_identity_by_cid(

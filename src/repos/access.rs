@@ -20,9 +20,11 @@ pub async fn find_current_user_by_session_token(
             u.cid,
             coalesce(u.email::text, '') as email,
             u.display_name,
+            m.rating,
             pr.primary_role
         from identity.sessions s
         join identity.users u on u.id = s.user_id
+        left join org.memberships m on m.user_id = u.id
         left join access.v_user_primary_role pr on pr.user_id = u.id
         where s.session_token = $1
           and s.revoked_at is null
@@ -46,8 +48,10 @@ pub async fn find_current_user_by_cid(
             u.cid,
             coalesce(u.email::text, '') as email,
             u.display_name,
+            m.rating,
             pr.primary_role
         from identity.users u
+        left join org.memberships m on m.user_id = u.id
         left join access.v_user_primary_role pr on pr.user_id = u.id
         where u.cid = $1
         "#,

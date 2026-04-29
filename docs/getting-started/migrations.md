@@ -26,6 +26,8 @@ Current chain:
 - `0013_seed_reference_data.sql`
 - `0014_seed_roles_permissions.sql`
 - `0015_views_and_indexes.sql`
+- `0021_publications.sql`
+- `0022_access_web_scope.sql`
 
 ## Philosophy
 
@@ -63,6 +65,7 @@ Each migration file aligns with a clear platform domain:
 - media/files
 - integrations
 - web content
+- publications/downloads metadata inside the `web` schema
 
 ## Operational Note
 

@@ -47,7 +47,7 @@ settings:
 
 examples:
   - name: 201 Response
-    description: File uploaded by a caller with elevated file permissions
+    description: File uploaded
     request:
       url: "{{baseUrl}}/api/v1/files"
       method: POST
@@ -143,7 +143,7 @@ examples:
         type: text
         data: ""
   - name: 401 Response
-    description: Not authorized for baseline users without elevated file permissions
+    description: Not authorized
     request:
       url: "{{baseUrl}}/api/v1/files"
       method: POST

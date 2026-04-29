@@ -17,13 +17,19 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        AccessCatalogBody, AclDebugBody, AdminUserListItem, AuditLogItem, ListAuditLogsQuery,
-        ListUsersQuery, PermissionInput, SetControllerStatusBody, SetControllerStatusRequest,
-        UpdateUserAccessRequest, UserAccessBody, UserOverviewBody,
+        AccessCatalogBody, AclDebugBody, AdminUserListItem, AuditLogItem,
+        DecideVisitorApplicationRequest, ListAuditLogsQuery, ListUsersQuery,
+        ListVisitorApplicationsQuery, PermissionInput, SetControllerStatusBody,
+        SetControllerStatusRequest, UpdateUserAccessRequest, UserAccessBody, UserOverviewBody,
+        VisitorApplicationItem,
     },
     repos::{access as access_repo, audit as audit_repo, users as user_repo},
     state::AppState,
 };
+
+const DEFAULT_VATUSA_API_BASE_URL: &str = "https://api.vatusa.net/v2";
+const DEFAULT_VATUSA_FACILITY_ID: &str = "ZDC";
+const VISITOR_APPLICATION_APPROVER_ROLES: &[&str] = &["ATM", "DATM", "TA", "ATA"];
 
 #[utoipa::path(
     get,
@@ -267,6 +273,140 @@ pub async fn set_user_controller_status(
     Ok(Json(response))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/visitor-applications",
+    tag = "admin",
+    params(ListVisitorApplicationsQuery),
+    responses(
+        (status = 200, description = "Visitor applications", body = [VisitorApplicationItem]),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn list_visitor_applications(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Query(query): Query<ListVisitorApplicationsQuery>,
+) -> Result<Json<Vec<VisitorApplicationItem>>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        current_service_account.as_ref(),
+        PermissionKey::new(PermissionResource::Users, PermissionAction::Update),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let limit = query.limit.unwrap_or(25).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let normalized_status = normalize_visitor_application_status_filter(query.status.as_deref())?;
+    let items =
+        user_repo::list_visitor_applications(pool, normalized_status.as_deref(), limit, offset)
+            .await?;
+
+    Ok(Json(items))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/visitor-applications/{application_id}",
+    tag = "admin",
+    params(
+        ("application_id" = String, Path, description = "Visitor application id")
+    ),
+    request_body = DecideVisitorApplicationRequest,
+    responses(
+        (status = 200, description = "Visitor application updated", body = VisitorApplicationItem),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn decide_visitor_application(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path(application_id): Path<String>,
+    headers: HeaderMap,
+    Json(payload): Json<DecideVisitorApplicationRequest>,
+) -> Result<Json<VisitorApplicationItem>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        current_service_account.as_ref(),
+        PermissionKey::new(PermissionResource::Users, PermissionAction::Update),
+    )
+    .await?;
+    ensure_visitor_application_approver(
+        state.db.as_ref(),
+        Some(user),
+        current_service_account.as_ref(),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let normalized_status = normalize_visitor_application_decision_status(&payload.status)?;
+    let normalized_reason = payload
+        .reason_for_denial
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if normalized_status == "DENIED" && normalized_reason.is_none() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let before = user_repo::find_visitor_application_by_id(pool, &application_id)
+        .await?
+        .ok_or(ApiError::BadRequest)?;
+
+    if normalized_status == "APPROVED" {
+        sync_approved_visitor_to_vatusa(before.cid.ok_or(ApiError::BadRequest)?).await?;
+    }
+
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor =
+        audit_repo::resolve_audit_actor(&mut *tx, Some(user), current_service_account.as_ref())
+            .await?;
+    let after = user_repo::decide_visitor_application(
+        &mut tx,
+        &application_id,
+        normalized_status,
+        if normalized_status == "DENIED" {
+            normalized_reason.as_deref()
+        } else {
+            None
+        },
+        actor.actor_id.as_deref(),
+        &configured_artcc(),
+    )
+    .await?
+    .ok_or(ApiError::BadRequest)?;
+
+    audit_repo::record_audit(
+        &mut *tx,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "VISITOR_APPLICATION".to_string(),
+            resource_id: Some(after.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: after.cid.map(|cid| cid.to_string()),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&after)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(Json(after))
+}
+
 pub async fn list_users(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -324,6 +464,105 @@ pub async fn get_user_overview(
         permissions: group_permission_keys(&permissions),
         stats,
     }))
+}
+
+fn normalize_visitor_application_status_filter(
+    value: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase())
+        .map_or(Ok(None), |normalized| match normalized.as_str() {
+            "PENDING" | "APPROVED" | "DENIED" => Ok(Some(normalized)),
+            _ => Err(ApiError::BadRequest),
+        })
+}
+
+fn normalize_visitor_application_decision_status(value: &str) -> Result<&'static str, ApiError> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "APPROVED" => Ok("APPROVED"),
+        "DENIED" => Ok("DENIED"),
+        _ => Err(ApiError::BadRequest),
+    }
+}
+
+fn configured_artcc() -> String {
+    std::env::var("VATUSA_FACILITY_ID")
+        .ok()
+        .map(|value| value.trim().to_ascii_uppercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_VATUSA_FACILITY_ID.to_string())
+}
+
+async fn ensure_visitor_application_approver(
+    pool: Option<&sqlx::PgPool>,
+    current_user: Option<&CurrentUser>,
+    current_service_account: Option<&CurrentServiceAccount>,
+) -> Result<(), ApiError> {
+    if current_service_account.is_some() {
+        return Err(ApiError::Unauthorized);
+    }
+
+    let Some(user) = current_user else {
+        return Err(ApiError::Unauthorized);
+    };
+    let Some(pool) = pool else {
+        return Err(ApiError::ServiceUnavailable);
+    };
+
+    let roles = access_repo::fetch_user_role_names(pool, &user.id).await?;
+    if roles
+        .iter()
+        .any(|role| VISITOR_APPLICATION_APPROVER_ROLES.contains(&role.as_str()))
+    {
+        Ok(())
+    } else {
+        Err(ApiError::Unauthorized)
+    }
+}
+
+async fn sync_approved_visitor_to_vatusa(cid: i64) -> Result<(), ApiError> {
+    let api_key = std::env::var("VATUSA_API_KEY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or(ApiError::ServiceUnavailable)?;
+    let facility_id = configured_artcc();
+    let api_base_url = std::env::var("VATUSA_API_BASE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_VATUSA_API_BASE_URL.to_string());
+
+    let url = format!(
+        "{}/facility/{}/roster/manageVisitor/{}",
+        api_base_url, facility_id, cid
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|_| ApiError::Internal)?;
+
+    let response = client
+        .post(&url)
+        .query(&[("apikey", api_key.as_str())])
+        .send()
+        .await
+        .map_err(|error| {
+            tracing::warn!(cid, %url, ?error, "vatusa manageVisitor request failed");
+            ApiError::ServiceUnavailable
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        tracing::warn!(cid, %url, %status, body, "vatusa manageVisitor returned non-success status");
+        return Err(ApiError::ServiceUnavailable);
+    }
+
+    Ok(())
 }
 
 #[utoipa::path(
@@ -505,7 +744,7 @@ fn build_user_access_body(
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::parse_permissions;
+    use super::{VISITOR_APPLICATION_APPROVER_ROLES, parse_permissions};
     use crate::{
         auth::acl::PermissionOverrideGroups,
         models::{PermissionInput, PermissionOverrideInput},
@@ -553,6 +792,14 @@ mod tests {
                 ("files.create".to_string(), true),
                 ("users.update".to_string(), false)
             ]
+        );
+    }
+
+    #[test]
+    fn visitor_application_approver_roles_match_expected_staff_roles() {
+        assert_eq!(
+            VISITOR_APPLICATION_APPROVER_ROLES,
+            &["ATM", "DATM", "TA", "ATA"]
         );
     }
 }

@@ -4,6 +4,7 @@ pub mod feedback;
 pub mod media;
 pub mod training;
 pub mod users;
+pub mod web;
 
 pub use access::{
     AccessCatalogBody, AclDebugBody, AuditLogItem, ListAuditLogsQuery, PermissionInput,
@@ -16,6 +17,10 @@ pub use events::{
 
 pub use feedback::{CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem};
 pub use media::{FileAsset, ListFilesQuery, UpdateFileMetadataRequest, UploadFileQuery};
+pub use web::{
+    CreatePublicationCategoryRequest, CreatePublicationRequest, Publication, PublicationCategory,
+    UpdatePublicationCategoryRequest, UpdatePublicationRequest,
+};
 
 pub use training::{
     ApiMessage, CreateOrUpdateTrainingSessionResult, CreateRubricScoreRequest,
@@ -34,8 +39,9 @@ pub use training::{
 };
 
 pub use users::{
-    AdminUserListItem, ListUsersQuery, RosterUserRow, SetControllerStatusBody,
+    AdminUserListItem, CreateVisitorApplicationRequest, DecideVisitorApplicationRequest,
+    ListUsersQuery, ListVisitorApplicationsQuery, RosterUserRow, SetControllerStatusBody,
     SetControllerStatusRequest, UserBasicInfo, UserDetailsResponse, UserFeedbackQuery,
     UserFullInfo, UserListItem, UserOverviewBody, UserPrivateInfo, UserStats, VisitArtccRequest,
-    VisitArtccResponse,
+    VisitArtccResponse, VisitorApplicationItem,
 };
