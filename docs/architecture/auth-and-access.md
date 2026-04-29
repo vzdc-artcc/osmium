@@ -59,8 +59,11 @@ GET /api/v1/auth/service-account/me
 - `files.read`
 - `users.read`
 - `users.update`
+- `training.read`
+- `training.create`
 - `training.update`
-  This currently gates assignment management, release-request moderation, and all training-session CRUD routes.
+- `training.manage`
+  Training routes are now split across read/create/update/manage, with `training.manage` acting as the umbrella training permission.
 - `feedback.update`
 - `files.create`
   This is no longer part of the default `USER` role. Uploads require elevated access.

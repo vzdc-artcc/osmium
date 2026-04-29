@@ -486,6 +486,10 @@ mod tests {
             normalize_legacy_permission_name("manage_users"),
             Some("users.update".to_string())
         );
+        assert_eq!(
+            normalize_legacy_permission_name("manage_training"),
+            Some("training.manage".to_string())
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ Canonical representation:
   "events": ["read", "create", "update", "delete"],
   "files": ["read", "create", "update", "delete"],
   "users": ["read", "update"],
-  "training": ["read", "update"],
+  "training": ["read", "create", "update", "manage"],
   "feedback": ["read", "update"]
 }
 ```
@@ -77,7 +77,10 @@ Examples:
 
 - `users.read`
 - `users.update`
+- `training.read`
+- `training.create`
 - `training.update`
+- `training.manage`
 - `files.create`
 - `files.update`
 - `events.update`
@@ -107,7 +110,7 @@ Target mapping:
 - `read_system_readiness` -> `system.read`
 - `view_all_users` -> `users.read`
 - `manage_users` -> `users.update`
-- `manage_training` -> `training.update`
+- `manage_training` -> `training.manage`
 - `manage_feedback` -> `feedback.update`
 - `upload_files` -> `files.create`
 - `manage_files` -> `files.update`
@@ -297,7 +300,10 @@ Use these permissions at handlers:
 - user list/private full roster access -> `users.read`
 - event create/update/delete/position management -> `events.update`
 - event public reads -> no permission if public; otherwise `events.read`
-- training staff mutations -> `training.update`
+- training reads -> `training.read`
+- training creates -> `training.create`
+- training standard edits -> `training.update`
+- training moderation and destructive actions -> `training.manage`
 - feedback moderation/decision -> `feedback.update`
 - file upload -> `files.create`
 - file metadata/content replacement/delete/admin list/audit -> `files.update`
@@ -326,7 +332,10 @@ Initial role mapping:
   - `system.read`
   - `users.read`
   - `users.update`
+  - `training.read`
+  - `training.create`
   - `training.update`
+  - `training.manage`
   - `feedback.update`
   - `files.create`
   - `files.update`
