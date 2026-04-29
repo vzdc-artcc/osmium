@@ -6,6 +6,7 @@ pub struct CurrentUser {
     pub cid: i64,
     pub email: String,
     pub display_name: String,
+    pub rating: Option<String>,
     pub primary_role: Option<String>,
 }
 
