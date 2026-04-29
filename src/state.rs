@@ -9,6 +9,7 @@ use crate::jobs::stats_sync::ControllerLifecycleEvent;
 #[derive(Clone, Default)]
 pub struct JobHealth {
     pub stats_sync: StatsSyncHealth,
+    pub roster_sync: RosterSyncHealth,
 }
 
 #[derive(Clone, Default)]
@@ -29,6 +30,21 @@ pub struct StatsSyncEnvironmentHealth {
     pub processed: Option<usize>,
     pub online: Option<usize>,
     pub source_updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Default)]
+pub struct RosterSyncHealth {
+    pub enabled: bool,
+    pub last_started_at: Option<DateTime<Utc>>,
+    pub last_finished_at: Option<DateTime<Utc>>,
+    pub last_success_at: Option<DateTime<Utc>>,
+    pub last_result_ok: Option<bool>,
+    pub last_error: Option<String>,
+    pub processed: Option<usize>,
+    pub matched: Option<usize>,
+    pub updated: Option<usize>,
+    pub demoted: Option<usize>,
+    pub skipped: Option<usize>,
 }
 
 impl StatsSyncHealth {

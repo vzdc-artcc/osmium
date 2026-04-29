@@ -20,6 +20,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let state = state::AppState::from_env().await?;
     run_startup_migrations(&state).await?;
     jobs::stats_sync::start_stats_sync_worker(state.clone());
+    jobs::roster_sync::start_roster_sync_worker(state.clone());
 
     let app = router::build_router(state);
 
@@ -170,6 +171,7 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body_text = std::str::from_utf8(&body).unwrap();
         assert!(body_text.contains("stats_sync"));
+        assert!(body_text.contains("roster_sync"));
         assert!(body_text.contains("docs"));
     }
 
