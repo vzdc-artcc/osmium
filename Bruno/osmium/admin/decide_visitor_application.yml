@@ -1,0 +1,109 @@
+info:
+  name: decide_visitor_application
+  type: http
+  seq: 7
+  tags:
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+  params:
+    - name: application_id
+      value: a3d43c10-40e3-4979-8514-5f9961b38ee7
+      type: path
+      description: Visitor application id
+  body:
+    type: json
+    data: |-
+      {
+        "status": "APPROVED",
+        "reason_for_denial": null
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Visitor application updated
+    request:
+      url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+      method: PATCH
+      params:
+        - name: application_id
+          value: ""
+          type: path
+          description: Visitor application id
+      body:
+        type: json
+        data: |-
+          {
+            "status": "APPROVED",
+            "reason_for_denial": null
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "id": "",
+            "user_id": "",
+            "cid": 0,
+            "display_name": "",
+            "home_facility": "ZNY",
+            "why_visit": "Interested in local procedures and event participation.",
+            "status": "APPROVED",
+            "reason_for_denial": null,
+            "submitted_at": "2026-04-28T00:00:00Z",
+            "decided_at": "2026-04-28T00:00:00Z",
+            "decided_by_actor_id": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+      method: PATCH
+      params:
+        - name: application_id
+          value: ""
+          type: path
+          description: Visitor application id
+      body:
+        type: json
+        data: |-
+          {
+            "status": "DENIED",
+            "reason_for_denial": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/visitor-applications/:application_id"
+      method: PATCH
+      params:
+        - name: application_id
+          value: ""
+          type: path
+          description: Visitor application id
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

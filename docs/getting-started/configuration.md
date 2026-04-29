@@ -75,7 +75,7 @@ Do not mix `localhost` and `127.0.0.1` during the same login flow.
 | `VNAS_CONTROLLER_FEED_URL_SWEATBOX2` | No | sweatbox2 VNAS URL | Optional override for the Sweatbox 2 controller feed. |
 | `ROSTER_SYNC_ENABLED` | No | `true` | Enables the VATUSA roster sync worker. |
 | `ROSTER_SYNC_INTERVAL_SECS` | No | `900` | Poll interval for the VATUSA roster sync worker. |
-| `VATUSA_API_KEY` | Yes when roster sync enabled | none | API key used for VATUSA roster and user-detail requests. |
+| `VATUSA_API_KEY` | Yes when roster sync or visitor approval is enabled | none | API key used for VATUSA roster, user-detail, and visitor-management requests. |
 | `VATUSA_FACILITY_ID` | No | `ZDC` | Facility id to sync from VATUSA. |
 | `VATUSA_API_BASE_URL` | No | `https://api.vatusa.net/v2` | Base URL for VATUSA API requests. |
 

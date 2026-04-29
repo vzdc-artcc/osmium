@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Deserialize, ToSchema)]
 pub struct ListUsersQuery {
@@ -23,6 +24,11 @@ pub struct RosterUserRow {
     pub division: Option<String>,
     pub status: Option<String>,
     pub controller_status: Option<String>,
+    pub membership_status: Option<String>,
+    pub join_date: Option<DateTime<Utc>>,
+    pub home_facility: Option<String>,
+    pub visitor_home_facility: Option<String>,
+    pub is_active: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow, ToSchema)]
@@ -59,6 +65,11 @@ pub struct UserPrivateInfo {
     pub division: Option<String>,
     pub status: Option<String>,
     pub controller_status: Option<String>,
+    pub membership_status: Option<String>,
+    pub join_date: Option<DateTime<Utc>>,
+    pub home_facility: Option<String>,
+    pub visitor_home_facility: Option<String>,
+    pub is_active: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -134,4 +145,38 @@ pub struct SetControllerStatusBody {
     pub cid: i64,
     pub controller_status: String,
     pub artcc: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct VisitorApplicationItem {
+    pub id: String,
+    pub user_id: String,
+    pub cid: Option<i64>,
+    pub display_name: Option<String>,
+    pub home_facility: String,
+    pub why_visit: String,
+    pub status: String,
+    pub reason_for_denial: Option<String>,
+    pub submitted_at: DateTime<Utc>,
+    pub decided_at: Option<DateTime<Utc>>,
+    pub decided_by_actor_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateVisitorApplicationRequest {
+    pub home_facility: String,
+    pub why_visit: String,
+}
+
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct ListVisitorApplicationsQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DecideVisitorApplicationRequest {
+    pub status: String,
+    pub reason_for_denial: Option<String>,
 }

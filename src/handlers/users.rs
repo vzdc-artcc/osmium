@@ -14,9 +14,9 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        FeedbackItem, ListUsersQuery, RosterUserRow, UserBasicInfo, UserDetailsResponse,
-        UserFeedbackQuery, UserFullInfo, UserListItem, UserPrivateInfo, VisitArtccRequest,
-        VisitArtccResponse,
+        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery, RosterUserRow,
+        UserBasicInfo, UserDetailsResponse, UserFeedbackQuery, UserFullInfo, UserListItem,
+        UserPrivateInfo, VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
     },
     repos::{audit as audit_repo, users as user_repo},
     state::AppState,
@@ -190,6 +190,87 @@ pub async fn visit_artcc(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/user/visitor-application",
+    tag = "users",
+    responses(
+        (status = 200, description = "Current user's visitor application, or null when absent", body = Option<VisitorApplicationItem>),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn get_my_visitor_application(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+) -> Result<Json<Option<VisitorApplicationItem>>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let application = user_repo::find_visitor_application_by_user_id(pool, &user.id).await?;
+
+    Ok(Json(application))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/user/visitor-application",
+    tag = "users",
+    request_body = CreateVisitorApplicationRequest,
+    responses(
+        (status = 200, description = "Visitor application submitted", body = VisitorApplicationItem),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn create_visitor_application(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateVisitorApplicationRequest>,
+) -> Result<Json<VisitorApplicationItem>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let home_facility = payload.home_facility.trim().to_ascii_uppercase();
+    if home_facility.is_empty() || home_facility.len() > 8 {
+        return Err(ApiError::BadRequest);
+    }
+
+    let why_visit = payload.why_visit.trim();
+    if why_visit.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let before = user_repo::find_visitor_application_by_user_id(pool, &user.id).await?;
+    let application =
+        user_repo::upsert_visitor_application(pool, &user.id, &home_facility, why_visit).await?;
+
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: if before.is_some() {
+                "UPDATE".to_string()
+            } else {
+                "CREATE".to_string()
+            },
+            resource_type: "VISITOR_APPLICATION".to_string(),
+            resource_id: Some(application.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(user.cid.to_string()),
+            before_state: before
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
+            after_state: Some(audit_repo::sanitized_snapshot(&application)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(application))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/user/{cid}/feedback",
     tag = "users",
     params(
@@ -303,6 +384,11 @@ fn private_info_from_row(row: &RosterUserRow) -> UserPrivateInfo {
         division: row.division.clone(),
         status: row.status.clone(),
         controller_status: row.controller_status.clone(),
+        membership_status: row.membership_status.clone(),
+        join_date: row.join_date,
+        home_facility: row.home_facility.clone(),
+        visitor_home_facility: row.visitor_home_facility.clone(),
+        is_active: row.is_active,
     }
 }
 

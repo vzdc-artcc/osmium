@@ -34,8 +34,9 @@ pub use training::{
 };
 
 pub use users::{
-    AdminUserListItem, ListUsersQuery, RosterUserRow, SetControllerStatusBody,
+    AdminUserListItem, CreateVisitorApplicationRequest, DecideVisitorApplicationRequest,
+    ListUsersQuery, ListVisitorApplicationsQuery, RosterUserRow, SetControllerStatusBody,
     SetControllerStatusRequest, UserBasicInfo, UserDetailsResponse, UserFeedbackQuery,
     UserFullInfo, UserListItem, UserOverviewBody, UserPrivateInfo, UserStats, VisitArtccRequest,
-    VisitArtccResponse,
+    VisitArtccResponse, VisitorApplicationItem,
 };

@@ -20,6 +20,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/audit", get(admin::list_audit_logs))
         .route("/access/catalog", get(admin::get_access_catalog))
         .route(
+            "/visitor-applications",
+            get(admin::list_visitor_applications),
+        )
+        .route(
+            "/visitor-applications/{application_id}",
+            patch(admin::decide_visitor_application),
+        )
+        .route(
             "/users/{cid}/access",
             get(admin::get_user_access).post(admin::update_user_access),
         )
@@ -31,6 +39,10 @@ pub fn build_router(state: AppState) -> Router {
 
     let user_routes = Router::new()
         .route("/visit-artcc", post(users::visit_artcc))
+        .route(
+            "/visitor-application",
+            get(users::get_my_visitor_application).post(users::create_visitor_application),
+        )
         .route("/", get(users::list_users))
         .route("/{cid}/feedback", get(users::get_user_feedback))
         .route("/{cid}", get(users::get_user));

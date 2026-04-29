@@ -241,7 +241,10 @@ mod tests {
             "/api/v1/me",
             "/api/v1/auth/service-account/me",
             "/api/v1/user",
+            "/api/v1/user/visitor-application",
             "/api/v1/admin/acl",
+            "/api/v1/admin/visitor-applications",
+            "/api/v1/admin/visitor-applications/{application_id}",
             "/api/v1/training/assignments",
             "/api/v1/training/lessons",
             "/api/v1/training/lessons/{lesson_id}",
@@ -483,6 +486,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_list_visitor_applications_endpoint_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/admin/visitor-applications")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_decide_visitor_application_endpoint_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/admin/visitor-applications/test-application-id")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{\"status\":\"APPROVED\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn admin_access_catalog_endpoint_requires_staff_session() {
         let state = crate::state::AppState::without_db();
         let app = crate::router::build_router(state);
@@ -548,6 +589,46 @@ mod tests {
                     .uri("/api/v1/user/visit-artcc")
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .body(Body::from("{\"artcc\":\"ZDC\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn user_get_visitor_application_endpoint_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/user/visitor-application")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn user_create_visitor_application_endpoint_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/user/visitor-application")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"home_facility\":\"ZNY\",\"why_visit\":\"Interested in events\"}",
+                    ))
                     .unwrap(),
             )
             .await
