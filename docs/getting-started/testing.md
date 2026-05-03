@@ -23,20 +23,21 @@ This covers route-level checks, auth helpers, middleware behavior, and basic non
 - hit `/ready`
 - verify one authenticated flow with a dev session
 
-## Pull Request and Release Flow
+## Branch Build Flow
 
-- normal feature pull requests should target `develop`
-- `main` is reserved for stable release promotion from `develop`
-- release promotion should happen through a `develop` -> `main` pull request
-- stable releases are published from SemVer tags on `main`, for example `v0.2.0`
-- `develop` merges publish dev container tags based on the branch and commit SHA
+- pushes to `master` publish:
+  - `ghcr.io/<owner>/<repo>:master`
+  - `ghcr.io/<owner>/<repo>:master-<sha>`
+- pushes to `develop` publish:
+  - `ghcr.io/<owner>/<repo>:develop`
+  - `ghcr.io/<owner>/<repo>:develop-<sha>`
 
-Required GitHub checks for pull requests into `develop` and `main`:
+Recommended validation before pushing:
 
-- `fmt`
-- `check`
-- `test`
-- `docker-build-smoke`
+- `cargo fmt --all -- --check`
+- `cargo check`
+- `cargo test --all-targets`
+- `docker build -f Dockerfile .`
 
 ## Docs-Specific Checks
 

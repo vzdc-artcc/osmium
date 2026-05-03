@@ -83,29 +83,17 @@ cargo test
 cargo run
 ```
 
-## Git and Release Flow
+## Git and Image Flow
 
-- `main` is the stable release branch
-- `develop` is the shared integration branch for normal pull requests
-- feature branches should open pull requests into `develop`
-- releases are promoted with a pull request from `develop` into `main`
-- stable releases are cut by tagging `main` with `vX.Y.Z`
-
-CI/CD expectations:
-
-- pull requests into `develop` and `main` run required checks:
-  - `cargo fmt --all -- --check`
-  - `cargo check`
-  - `cargo test --all-targets`
-  - Docker build smoke test
-- merges to `develop` publish GHCR dev images:
+- `master` and `develop` both auto-publish Docker images on push
+- `master` publishes:
+  - `ghcr.io/<owner>/<repo>:master`
+  - `ghcr.io/<owner>/<repo>:master-<sha>`
+- `develop` publishes:
   - `ghcr.io/<owner>/<repo>:develop`
   - `ghcr.io/<owner>/<repo>:develop-<sha>`
-- SemVer tags on `main` publish stable GHCR images:
-  - `ghcr.io/<owner>/<repo>:vX.Y.Z`
-  - `ghcr.io/<owner>/<repo>:latest`
 
-Recommended local validation before opening a pull request:
+Recommended local validation before pushing:
 
 ```bash
 cargo fmt --all -- --check
