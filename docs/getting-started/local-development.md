@@ -22,6 +22,22 @@ docker compose up -d postgres
 cargo run
 ```
 
+## Branch and PR Flow
+
+- create feature branches from `develop`
+- open normal pull requests into `develop`
+- use `main` only for release promotion pull requests from `develop`
+- create stable release tags from `main` using the `vX.Y.Z` format
+
+Before opening a pull request, run:
+
+```bash
+cargo fmt --all -- --check
+cargo check
+cargo test --all-targets
+docker build -f Dockerfile .
+```
+
 If you want your first login to become the singleton server admin, set `OSMIUM_SERVER_ADMIN_CID` before starting the API:
 
 ```bash
