@@ -22,14 +22,12 @@ docker compose up -d postgres
 cargo run
 ```
 
-## Branch and PR Flow
+## Branch and Build Flow
 
-- create feature branches from `develop`
-- open normal pull requests into `develop`
-- use `main` only for release promotion pull requests from `develop`
-- create stable release tags from `main` using the `vX.Y.Z` format
+- pushes to `master` automatically publish a `master` image and a `master-<sha>` image
+- pushes to `develop` automatically publish a `develop` image and a `develop-<sha>` image
 
-Before opening a pull request, run:
+Before pushing, run:
 
 ```bash
 cargo fmt --all -- --check
