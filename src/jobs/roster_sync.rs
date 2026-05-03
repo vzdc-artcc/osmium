@@ -37,6 +37,12 @@ enum RosterSyncError {
     Api(ApiError),
 }
 
+#[derive(Debug)]
+enum UserDetailFetchError {
+    Http(ApiError),
+    Decode(reqwest::Error),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MembershipStatus {
     Home,
@@ -66,11 +72,13 @@ struct VatusaRosterUser {
 
 #[derive(Debug, Clone, Deserialize)]
 struct VatusaUserDetail {
+    cid: i64,
     fname: String,
     lname: String,
-    email: String,
+    email: Option<String>,
     facility: String,
     rating: i32,
+    rating_short: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -99,7 +107,7 @@ struct MatchedUserUpdate {
     last_name: String,
     full_name: String,
     display_name: String,
-    email: String,
+    email: Option<String>,
     rating: String,
     controller_status: String,
     join_date: Option<DateTime<Utc>>,
@@ -329,7 +337,7 @@ async fn run_roster_sync(
 
         match fetch_user_detail(&client, config, local_user.cid).await {
             Ok(detail) => matched_updates.push(build_matched_update(local_user, desired, detail)),
-            Err(err) => {
+            Err(UserDetailFetchError::Http(err)) => {
                 failed_detail_cids.push(local_user.cid);
                 tracing::warn!(
                     facility_id = config.facility_id.as_str(),
@@ -337,6 +345,16 @@ async fn run_roster_sync(
                     cid = local_user.cid,
                     ?err,
                     "failed to fetch vatusa user detail"
+                );
+            }
+            Err(UserDetailFetchError::Decode(error)) => {
+                failed_detail_cids.push(local_user.cid);
+                tracing::warn!(
+                    facility_id = config.facility_id.as_str(),
+                    stage = "decode_user_detail",
+                    cid = local_user.cid,
+                    ?error,
+                    "failed to decode vatusa user detail"
                 );
             }
         }
@@ -533,17 +551,18 @@ async fn fetch_user_detail(
     client: &reqwest::Client,
     config: &RosterSyncConfig,
     cid: i64,
-) -> Result<VatusaUserDetail, ApiError> {
+) -> Result<VatusaUserDetail, UserDetailFetchError> {
     let url = format!("{}/user/{}", config.api_base_url, cid);
 
     send_vatusa_request(client, &url, &config.api_key)
-        .await?
+        .await
+        .map_err(UserDetailFetchError::Http)?
         .json::<ApiEnvelope<VatusaUserDetail>>()
         .await
         .map(|body| body.data)
         .map_err(|error| {
             tracing::warn!(cid, ?error, "failed to parse vatusa user response");
-            ApiError::ServiceUnavailable
+            UserDetailFetchError::Decode(error)
         })
 }
 
@@ -640,6 +659,13 @@ fn build_matched_update(
     desired: &DesiredMembership,
     detail: VatusaUserDetail,
 ) -> MatchedUserUpdate {
+    if detail.cid != local_user.cid {
+        tracing::warn!(
+            expected_cid = local_user.cid,
+            actual_cid = detail.cid,
+            "vatusa user detail cid did not match local user cid"
+        );
+    }
     let first_name = detail.fname.trim().to_string();
     let last_name = detail.lname.trim().to_string();
     let full_name = build_full_name(&first_name, &last_name);
@@ -661,8 +687,17 @@ fn build_matched_update(
         last_name,
         full_name: full_name.clone(),
         display_name: full_name,
-        email: detail.email.trim().to_string(),
-        rating: rating_short_from_numeric(detail.rating).to_string(),
+        email: detail
+            .email
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        rating: resolve_rating_code(
+            detail.rating_short.as_deref(),
+            detail.rating,
+            local_user.cid,
+        ),
         controller_status: desired.status.as_db_value().to_string(),
         join_date,
         home_facility,
@@ -688,7 +723,7 @@ async fn apply_matched_update(
     sqlx::query(
         r#"
         update identity.users
-        set email = $2,
+        set email = coalesce($2, email),
             first_name = $3,
             last_name = $4,
             full_name = $5,
@@ -825,7 +860,41 @@ fn build_full_name(first_name: &str, last_name: &str) -> String {
         .to_string()
 }
 
-fn rating_short_from_numeric(value: i32) -> &'static str {
+fn resolve_rating_code(rating_short: Option<&str>, rating: i32, cid: i64) -> String {
+    if let Some(code) = normalize_rating_code(rating_short) {
+        return code;
+    }
+
+    numeric_rating_to_short_code(rating, cid).to_string()
+}
+
+fn normalize_rating_code(value: Option<&str>) -> Option<String> {
+    let raw = value?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let upper = raw.to_ascii_uppercase();
+    let normalized = match upper.as_str() {
+        "OBS" | "OBSERVER" => "OBS",
+        "S1" | "STUDENT1" => "S1",
+        "S2" | "STUDENT2" => "S2",
+        "S3" | "STUDENT3" | "SENIORSTUDENT" => "S3",
+        "C1" | "CONTROLLER1" => "C1",
+        "C2" | "CONTROLLER2" => "C2",
+        "C3" | "CONTROLLER3" => "C3",
+        "I1" | "INSTRUCTOR1" => "I1",
+        "I2" | "INSTRUCTOR2" => "I2",
+        "I3" | "INS" | "INSTRUCTOR" | "INSTRUCTOR3" => "I3",
+        "SUP" | "SUPERVISOR" => "SUP",
+        "ADM" | "ADMIN" | "ADMINISTRATOR" => "ADM",
+        other => other,
+    };
+
+    Some(normalized.to_string())
+}
+
+fn numeric_rating_to_short_code(value: i32, cid: i64) -> &'static str {
     match value {
         1 => "OBS",
         2 => "S1",
@@ -834,10 +903,15 @@ fn rating_short_from_numeric(value: i32) -> &'static str {
         5 => "C1",
         6 => "C2",
         7 => "C3",
-        8..=10 => "INS",
+        8 => "I1",
+        9 => "I2",
+        10 => "I3",
         11 => "SUP",
         12 => "ADM",
-        _ => "SUS",
+        _ => {
+            tracing::warn!(cid, rating = value, "unknown vatusa numeric rating");
+            "SUS"
+        }
     }
 }
 
@@ -909,11 +983,13 @@ mod tests {
 
     fn user_detail(facility: &str) -> VatusaUserDetail {
         VatusaUserDetail {
+            cid: 1001,
             fname: "Jane".to_string(),
             lname: "Controller".to_string(),
-            email: "jane@example.com".to_string(),
+            email: Some("jane@example.com".to_string()),
             facility: facility.to_string(),
             rating: 4,
+            rating_short: Some("S3".to_string()),
         }
     }
 
@@ -971,7 +1047,7 @@ mod tests {
         assert_eq!(update.last_name, "Controller");
         assert_eq!(update.full_name, "Jane Controller");
         assert_eq!(update.display_name, "Jane Controller");
-        assert_eq!(update.email, "jane@example.com");
+        assert_eq!(update.email.as_deref(), Some("jane@example.com"));
         assert_eq!(update.rating, "S3");
         assert_eq!(update.controller_status, "VISITOR");
         assert_eq!(update.home_facility, None);
@@ -980,13 +1056,114 @@ mod tests {
     }
 
     #[test]
-    fn numeric_rating_maps_to_short_code() {
-        assert_eq!(rating_short_from_numeric(1), "OBS");
-        assert_eq!(rating_short_from_numeric(5), "C1");
-        assert_eq!(rating_short_from_numeric(10), "INS");
-        assert_eq!(rating_short_from_numeric(11), "SUP");
-        assert_eq!(rating_short_from_numeric(12), "ADM");
-        assert_eq!(rating_short_from_numeric(0), "SUS");
+    fn visitor_detail_uses_home_facility_from_user_detail() {
+        let local = LocalRosterUser {
+            user_id: "user-8".to_string(),
+            cid: 8008,
+            has_membership: true,
+            rating: Some("S2".to_string()),
+            controller_status: Some("VISITOR".to_string()),
+            membership_status: Some("ACTIVE".to_string()),
+            home_facility: None,
+            visitor_home_facility: Some("ZOB".to_string()),
+        };
+        let desired = DesiredMembership {
+            status: MembershipStatus::Visitor,
+            roster_user: roster_user(8008, "ZDC", Some("2024-01-15T10:00:00Z")),
+        };
+
+        let update = build_matched_update(&local, &desired, user_detail("ZNY"));
+
+        assert_eq!(update.visitor_home_facility.as_deref(), Some("ZNY"));
+    }
+
+    #[test]
+    fn rating_short_from_vatusa_is_preferred() {
+        let local = LocalRosterUser {
+            user_id: "user-6".to_string(),
+            cid: 6006,
+            has_membership: true,
+            rating: Some("C1".to_string()),
+            controller_status: Some("VISITOR".to_string()),
+            membership_status: Some("ACTIVE".to_string()),
+            home_facility: None,
+            visitor_home_facility: Some("ZBW".to_string()),
+        };
+        let desired = DesiredMembership {
+            status: MembershipStatus::Visitor,
+            roster_user: roster_user(6006, "ZDC", Some("2024-01-15T10:00:00Z")),
+        };
+
+        let update = build_matched_update(
+            &local,
+            &desired,
+            VatusaUserDetail {
+                cid: 6006,
+                fname: "Jane".to_string(),
+                lname: "Controller".to_string(),
+                email: Some("jane@example.com".to_string()),
+                facility: "ZBW".to_string(),
+                rating: 8,
+                rating_short: Some("I1".to_string()),
+            },
+        );
+
+        assert_eq!(update.rating, "I1");
+    }
+
+    #[test]
+    fn numeric_rating_fallback_maps_instructor_levels_exactly() {
+        assert_eq!(numeric_rating_to_short_code(1, 1), "OBS");
+        assert_eq!(numeric_rating_to_short_code(5, 1), "C1");
+        assert_eq!(numeric_rating_to_short_code(8, 1), "I1");
+        assert_eq!(numeric_rating_to_short_code(9, 1), "I2");
+        assert_eq!(numeric_rating_to_short_code(10, 1), "I3");
+        assert_eq!(numeric_rating_to_short_code(11, 1), "SUP");
+        assert_eq!(numeric_rating_to_short_code(12, 1), "ADM");
+    }
+
+    #[test]
+    fn blank_rating_short_falls_back_to_numeric_rating() {
+        assert_eq!(resolve_rating_code(Some(" "), 5, 1), "C1");
+    }
+
+    #[test]
+    fn unknown_numeric_rating_uses_fallback() {
+        assert_eq!(numeric_rating_to_short_code(0, 1), "SUS");
+    }
+
+    #[test]
+    fn null_email_does_not_clear_local_email() {
+        let local = LocalRosterUser {
+            user_id: "user-7".to_string(),
+            cid: 7007,
+            has_membership: true,
+            rating: Some("S2".to_string()),
+            controller_status: Some("HOME".to_string()),
+            membership_status: Some("ACTIVE".to_string()),
+            home_facility: Some("ZDC".to_string()),
+            visitor_home_facility: None,
+        };
+        let desired = DesiredMembership {
+            status: MembershipStatus::Home,
+            roster_user: roster_user(7007, "ZDC", Some("2024-01-15T10:00:00Z")),
+        };
+
+        let update = build_matched_update(
+            &local,
+            &desired,
+            VatusaUserDetail {
+                cid: 7007,
+                fname: "Jane".to_string(),
+                lname: "Controller".to_string(),
+                email: None,
+                facility: "ZDC".to_string(),
+                rating: 4,
+                rating_short: Some("S3".to_string()),
+            },
+        );
+
+        assert_eq!(update.email, None);
     }
 
     #[test]
@@ -1028,7 +1205,7 @@ mod tests {
             last_name: "Controller".to_string(),
             full_name: "Jane Controller".to_string(),
             display_name: "Jane Controller".to_string(),
-            email: "jane@example.com".to_string(),
+            email: Some("jane@example.com".to_string()),
             rating: "S3".to_string(),
             controller_status: "HOME".to_string(),
             join_date: None,
@@ -1066,7 +1243,7 @@ mod tests {
             last_name: "Controller".to_string(),
             full_name: "Jane Controller".to_string(),
             display_name: "Jane Controller".to_string(),
-            email: "jane@example.com".to_string(),
+            email: Some("jane@example.com".to_string()),
             rating: "S3".to_string(),
             controller_status: "HOME".to_string(),
             join_date: None,

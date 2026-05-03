@@ -13,11 +13,30 @@ This covers route-level checks, auth helpers, middleware behavior, and basic non
 ## Recommended Local Validation
 
 - `cargo test`
+- `cargo fmt --all -- --check`
+- `cargo check`
+- `cargo test --all-targets`
+- `docker build -f Dockerfile .`
 - open `/docs`
 - open `/docs/api/v1`
 - hit `/health`
 - hit `/ready`
 - verify one authenticated flow with a dev session
+
+## Pull Request and Release Flow
+
+- normal feature pull requests should target `develop`
+- `main` is reserved for stable release promotion from `develop`
+- release promotion should happen through a `develop` -> `main` pull request
+- stable releases are published from SemVer tags on `main`, for example `v0.2.0`
+- `develop` merges publish dev container tags based on the branch and commit SHA
+
+Required GitHub checks for pull requests into `develop` and `main`:
+
+- `fmt`
+- `check`
+- `test`
+- `docker-build-smoke`
 
 ## Docs-Specific Checks
 

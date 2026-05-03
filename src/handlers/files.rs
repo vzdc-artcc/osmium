@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use aes_gcm::{
     Aes256Gcm,
-    aead::{Aead, KeyInit},
+    aead::{Aead, KeyInit as AeadKeyInit},
 };
 use axum::{
     Json,
@@ -11,8 +11,8 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use getrandom::getrandom;
 use hmac::{Hmac, Mac};
+use hmac::digest::KeyInit as HmacKeyInit;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use utoipa::ToSchema;
@@ -1477,7 +1477,7 @@ fn normalize_content_type_str(value: &str) -> Result<String, ApiError> {
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    hex_encode(hasher.finalize().as_ref())
 }
 
 fn sign_download_token(file_id: &str, expires: i64) -> Result<String, ApiError> {
@@ -1487,8 +1487,7 @@ fn sign_download_token(file_id: &str, expires: i64) -> Result<String, ApiError> 
     }
 
     let payload = format!("{}:{}", file_id, expires);
-    let mut mac =
-        <HmacSha256 as Mac>::new_from_slice(secret.as_bytes()).map_err(|_| ApiError::Internal)?;
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| ApiError::Internal)?;
     mac.update(payload.as_bytes());
     let digest = mac.finalize().into_bytes();
     Ok(hex_encode(&digest))
@@ -1566,7 +1565,7 @@ fn maybe_encrypt_blob(plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
     };
 
     let mut nonce = [0u8; NONCE_LEN];
-    getrandom(&mut nonce).map_err(|_| ApiError::Internal)?;
+    nonce.copy_from_slice(&Uuid::new_v4().into_bytes()[..NONCE_LEN]);
 
     let encrypted = cipher
         .encrypt((&nonce).into(), plaintext)
