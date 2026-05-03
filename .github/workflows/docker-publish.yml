@@ -1,8 +1,9 @@
-name: Dev Image
+name: Docker Publish
 
 on:
   push:
     branches:
+      - master
       - develop
   workflow_dispatch:
 
@@ -11,12 +12,11 @@ permissions:
   packages: write
 
 concurrency:
-  group: dev-image-${{ github.ref }}
+  group: docker-publish-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  publish:
-    name: publish-dev-image
+  docker:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,6 +28,7 @@ jobs:
         shell: bash
         run: |
           echo "image_name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "branch_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
@@ -41,21 +42,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push dev image
+      - name: Build and push image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ steps.meta.outputs.image_name }}:develop
-            ${{ steps.meta.outputs.image_name }}:develop-${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.branch_name }}
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.branch_name }}-${{ steps.meta.outputs.short_sha }}
           labels: |
             org.opencontainers.image.created=${{ steps.meta.outputs.created }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=0.1.0-dev.${{ github.run_number }}
             org.opencontainers.image.ref.name=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
