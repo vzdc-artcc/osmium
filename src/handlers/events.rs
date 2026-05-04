@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionKey, PermissionResource},
+        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
         middleware::ensure_permission,
     },
@@ -97,7 +97,7 @@ pub async fn create_event(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+        PermissionPath::from_segments(["events", "items"], PermissionAction::Create),
     )
     .await?;
 
@@ -173,7 +173,7 @@ pub async fn update_event(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+        PermissionPath::from_segments(["events", "items"], PermissionAction::Update),
     )
     .await?;
     let now = chrono::Utc::now();
@@ -261,7 +261,7 @@ pub async fn delete_event(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+        PermissionPath::from_segments(["events", "items"], PermissionAction::Delete),
     )
     .await?;
 
@@ -357,6 +357,13 @@ pub async fn create_event_position(
     Json(req): Json<CreateEventPositionRequest>,
 ) -> Result<(StatusCode, Json<EventPosition>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(["events", "positions", "self"], PermissionAction::Request),
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let position_id = Uuid::new_v4().to_string();
@@ -432,7 +439,7 @@ pub async fn assign_event_position(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+        PermissionPath::from_segments(["events", "positions"], PermissionAction::Assign),
     )
     .await?;
     let now = chrono::Utc::now();
@@ -509,7 +516,7 @@ pub async fn delete_event_position(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+        PermissionPath::from_segments(["events", "positions"], PermissionAction::Delete),
     )
     .await?;
 
@@ -579,7 +586,7 @@ pub async fn publish_event_positions(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Events, PermissionAction::Update),
+        PermissionPath::from_segments(["events", "positions"], PermissionAction::Publish),
     )
     .await?;
 

@@ -43,7 +43,7 @@ OSMIUM_SERVER_ADMIN_CID=1234567
 docker compose up -d
 ```
 
-After CID `1234567` logs in, `GET /api/v1/me` should return `role` as `SERVER_ADMIN` and include every grouped permission.
+After CID `1234567` logs in, `GET /api/v1/me` should return `role` as `SERVER_ADMIN`, include every grouped permission, and show a populated `profile.operating_initials` value once the membership bootstrap completes.
 
 If startup fails with `VersionMissing(20260329120000)` or another missing old migration version, your Postgres volume still has the pre-reset migration ledger. Reset it:
 
@@ -54,7 +54,7 @@ docker compose up -d postgres
 
 ## Database Setup
 
-Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0022`.
+Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0026`.
 
 If you are creating the database manually:
 
@@ -73,6 +73,8 @@ If `RUN_MIGRATIONS_ON_STARTUP=true` and `DATABASE_URL` is set, the app will atte
 - `GET /docs`
 - `GET /docs/api/v1`
 - `GET /api/v1/me`
+- `PATCH /api/v1/me`
+- `GET /api/v1/me/teamspeak-uids`
 - `GET /api/v1/publications`
 - `GET /api/v1/publications/categories`
 
@@ -126,6 +128,30 @@ GET /api/v1/auth/login/as/{cid}
 ```
 
 This creates or reuses a local user record and issues the `osmium_session` cookie.
+
+It also now runs the same bootstrap path as OAuth login:
+
+- ensures `identity.user_profiles`
+- ensures `org.memberships`
+- assigns unique two-letter `operating_initials` if missing
+
+## Quick Self-Service Smoke Checks
+
+After authenticating, useful manual checks are:
+
+```bash
+curl -s http://127.0.0.1:3000/api/v1/me
+curl -s -X PATCH http://127.0.0.1:3000/api/v1/me \
+  -H 'Content-Type: application/json' \
+  --data '{"preferred_name":"Jay","timezone":"America/Chicago","bio":"Facility controller.","receive_event_notifications":true}'
+curl -s http://127.0.0.1:3000/api/v1/me/teamspeak-uids
+```
+
+Expected results:
+
+- `GET /api/v1/me` returns a `profile` block and `teamspeak_uids`
+- the first authenticated login produces a unique `profile.operating_initials`
+- invalid timezone names on `PATCH /api/v1/me` return `bad_request`
 
 ## Seed Data
 

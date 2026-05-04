@@ -6,11 +6,9 @@ use axum::{
 
 use crate::{
     auth::{
-        acl::{
-            PermissionAction, PermissionKey, PermissionResource, fetch_user_access,
-            group_permission_keys,
-        },
+        acl::{PermissionAction, PermissionPath, fetch_user_access, permission_tree_from_paths},
         context::CurrentUser,
+        middleware::ensure_permission,
     },
     errors::ApiError,
     models::{
@@ -41,9 +39,16 @@ pub async fn list_users(
     Query(query): Query<ListUsersQuery>,
 ) -> Result<Json<Vec<UserListItem>>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(viewer),
+        None,
+        PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
+    )
+    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let can_view_all = can_view_all_users(&state, viewer).await?;
+    let can_view_private = can_view_private_directory(&state, viewer).await?;
     let limit = query.limit.unwrap_or(25).clamp(1, 200);
     let offset = query.offset.unwrap_or(0).max(0);
     let rows = user_repo::list_roster_users(pool, limit, offset).await?;
@@ -52,7 +57,7 @@ pub async fn list_users(
         .into_iter()
         .map(|row| {
             let basic = basic_info_from_row(&row);
-            let full = if can_view_all || row.cid == viewer.cid {
+            let full = if can_view_private || row.cid == viewer.cid {
                 Some(private_info_from_row(&row))
             } else {
                 None
@@ -91,8 +96,26 @@ pub async fn get_user(
         .ok_or(ApiError::BadRequest)?;
 
     let basic = basic_info_from_row(&row);
-    let can_view_all = can_view_all_users(&state, viewer).await?;
-    let can_view_full = can_view_all || row.cid == viewer.cid;
+    let is_self = row.cid == viewer.cid;
+    if is_self {
+        ensure_permission(
+            &state,
+            Some(viewer),
+            None,
+            PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
+        )
+        .await?;
+    } else {
+        ensure_permission(
+            &state,
+            Some(viewer),
+            None,
+            PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
+        )
+        .await?;
+    }
+    let can_view_private = can_view_private_directory(&state, viewer).await?;
+    let can_view_full = can_view_private || is_self;
 
     if !can_view_full {
         return Ok(Json(UserDetailsResponse { basic, full: None }));
@@ -106,7 +129,7 @@ pub async fn get_user(
         full: Some(UserFullInfo {
             profile: private_info_from_row(&row),
             roles,
-            permissions: group_permission_keys(&permissions),
+            permissions: permission_tree_from_paths(&permissions),
             stats,
         }),
     }))
@@ -130,6 +153,13 @@ pub async fn visit_artcc(
     Json(payload): Json<VisitArtccRequest>,
 ) -> Result<Json<VisitArtccResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(viewer),
+        None,
+        PermissionPath::from_segments(["users", "visit_artcc"], PermissionAction::Request),
+    )
+    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let artcc = payload.artcc.trim().to_ascii_uppercase();
@@ -141,18 +171,6 @@ pub async fn visit_artcc(
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     user_repo::ensure_visitor_membership(&mut tx, &viewer.id, &artcc, payload.rating.as_deref())
         .await?;
-
-    sqlx::query(
-        r#"
-        insert into access.user_roles (user_id, role_name)
-        values ($1, 'USER')
-        on conflict (user_id, role_name) do nothing
-        "#,
-    )
-    .bind(&viewer.id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
 
     let updated = user_repo::fetch_user_cid_artcc_rating(&mut tx, &viewer.id).await?;
     tx.commit().await.map_err(|_| ApiError::Internal)?;
@@ -202,6 +220,16 @@ pub async fn get_my_visitor_application(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Option<VisitorApplicationItem>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(
+            ["users", "visitor_applications", "self"],
+            PermissionAction::Read,
+        ),
+    )
+    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let application = user_repo::find_visitor_application_by_user_id(pool, &user.id).await?;
 
@@ -226,6 +254,16 @@ pub async fn create_visitor_application(
     Json(payload): Json<CreateVisitorApplicationRequest>,
 ) -> Result<Json<VisitorApplicationItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(
+            ["users", "visitor_applications", "self"],
+            PermissionAction::Request,
+        ),
+    )
+    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let home_facility = payload.home_facility.trim().to_ascii_uppercase();
@@ -298,9 +336,22 @@ pub async fn get_user_feedback(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    let can_view_all = can_view_all_users(&state, viewer).await?;
-    if !can_view_all && target.1 != viewer.cid {
-        return Err(ApiError::Unauthorized);
+    if target.1 == viewer.cid {
+        ensure_permission(
+            &state,
+            Some(viewer),
+            None,
+            PermissionPath::from_segments(["feedback", "items", "self"], PermissionAction::Read),
+        )
+        .await?;
+    } else {
+        ensure_permission(
+            &state,
+            Some(viewer),
+            None,
+            PermissionPath::from_segments(["users", "directory_private"], PermissionAction::Read),
+        )
+        .await?;
     }
 
     let limit = query.limit.unwrap_or(50).clamp(1, 500);
@@ -352,14 +403,14 @@ pub async fn get_user_feedback(
     Ok(Json(items))
 }
 
-async fn can_view_all_users(state: &AppState, user: &CurrentUser) -> Result<bool, ApiError> {
+async fn can_view_private_directory(
+    state: &AppState,
+    user: &CurrentUser,
+) -> Result<bool, ApiError> {
     let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
 
-    Ok(permissions.contains(&PermissionKey::new(
-        PermissionResource::Users,
-        PermissionAction::Update,
-    )) || permissions.contains(&PermissionKey::new(
-        PermissionResource::Users,
+    Ok(permissions.contains(&PermissionPath::from_segments(
+        ["users", "directory_private"],
         PermissionAction::Read,
     )))
 }

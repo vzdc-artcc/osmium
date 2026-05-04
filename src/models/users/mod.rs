@@ -1,13 +1,32 @@
-use std::collections::BTreeMap;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::{
+    IntoParams, PartialSchema, ToSchema,
+    openapi::{
+        RefOr,
+        schema::{AdditionalProperties, ObjectBuilder, Schema, SchemaType, Type},
+    },
+};
 
 #[derive(Deserialize, ToSchema)]
 pub struct ListUsersQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PatchMeRequest {
+    pub preferred_name: Option<Option<String>>,
+    pub timezone: Option<String>,
+    pub bio: Option<Option<String>>,
+    pub receive_event_notifications: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateTeamSpeakUidRequest {
+    pub uid: String,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -53,6 +72,37 @@ pub struct UserBasicInfo {
     pub rating: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct MeProfileBody {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub preferred_name: Option<String>,
+    pub bio: Option<String>,
+    pub timezone: String,
+    pub receive_event_notifications: bool,
+    pub operating_initials: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct TeamSpeakUidBody {
+    pub id: String,
+    pub uid: String,
+    pub linked_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MeBody {
+    pub id: String,
+    pub cid: i64,
+    pub email: String,
+    pub display_name: String,
+    pub rating: Option<String>,
+    pub server_admin: bool,
+    pub permissions: serde_json::Value,
+    pub profile: MeProfileBody,
+    pub teamspeak_uids: Vec<TeamSpeakUidBody>,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct UserPrivateInfo {
     pub id: String,
@@ -88,7 +138,7 @@ pub struct UserDetailsResponse {
 pub struct UserFullInfo {
     pub profile: UserPrivateInfo,
     pub roles: Vec<String>,
-    pub permissions: BTreeMap<String, Vec<String>>,
+    pub permissions: serde_json::Value,
     pub stats: UserStats,
 }
 
@@ -96,7 +146,7 @@ pub struct UserFullInfo {
 pub struct UserOverviewBody {
     pub user: AdminUserListItem,
     pub roles: Vec<String>,
-    pub permissions: BTreeMap<String, Vec<String>>,
+    pub permissions: serde_json::Value,
     pub stats: UserStats,
 }
 
@@ -179,4 +229,99 @@ pub struct ListVisitorApplicationsQuery {
 pub struct DecideVisitorApplicationRequest {
     pub status: String,
     pub reason_for_denial: Option<String>,
+}
+
+impl ToSchema for PatchMeRequest {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("PatchMeRequest")
+    }
+}
+
+impl PartialSchema for PatchMeRequest {
+    fn schema() -> RefOr<Schema> {
+        let nullable_string: SchemaType = [Type::String, Type::Null].into_iter().collect();
+        let nullable_bool: SchemaType = [Type::Boolean, Type::Null].into_iter().collect();
+
+        ObjectBuilder::new()
+            .description(Some(
+                "Self-service profile update payload. Only profile fields are accepted here. \
+                 Roles, permissions, and access overrides must be changed through \
+                 `POST /api/v1/admin/users/{cid}/access`.",
+            ))
+            .additional_properties(Some(AdditionalProperties::FreeForm(false)))
+            .property(
+                "preferred_name",
+                ObjectBuilder::new()
+                    .schema_type(nullable_string.clone())
+                    .description(Some(
+                        "Preferred display label for the user. Use null to clear.",
+                    )),
+            )
+            .property(
+                "timezone",
+                ObjectBuilder::new()
+                    .schema_type(nullable_string)
+                    .description(Some("IANA timezone name such as `America/Chicago`.")),
+            )
+            .property(
+                "bio",
+                ObjectBuilder::new()
+                    .schema_type(
+                        [Type::String, Type::Null]
+                            .into_iter()
+                            .collect::<SchemaType>(),
+                    )
+                    .description(Some("Profile bio. Use null to clear.")),
+            )
+            .property(
+                "receive_event_notifications",
+                ObjectBuilder::new()
+                    .schema_type(nullable_bool)
+                    .description(Some("Whether the user wants new event notifications.")),
+            )
+            .into()
+    }
+}
+
+impl ToSchema for CreateTeamSpeakUidRequest {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("CreateTeamSpeakUidRequest")
+    }
+}
+
+impl PartialSchema for CreateTeamSpeakUidRequest {
+    fn schema() -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .description(Some(
+                "Self-service TeamSpeak UID creation payload. This route only accepts the raw UID.",
+            ))
+            .additional_properties(Some(AdditionalProperties::FreeForm(false)))
+            .property(
+                "uid",
+                ObjectBuilder::new()
+                    .schema_type(Type::String)
+                    .description(Some(
+                        "TeamSpeak unique identifier to link to the current user.",
+                    )),
+            )
+            .required("uid")
+            .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PatchMeRequest;
+
+    #[test]
+    fn patch_me_rejects_unknown_fields_like_permissions() {
+        let payload = serde_json::json!({
+            "preferred_name": "Jay",
+            "permissions": {
+                "users": ["update"]
+            }
+        });
+
+        assert!(serde_json::from_value::<PatchMeRequest>(payload).is_err());
+    }
 }

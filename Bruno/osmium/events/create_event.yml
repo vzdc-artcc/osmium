@@ -11,13 +11,13 @@ http:
   body:
     type: json
     data: |-
-      {
-        "description": "",
-        "ends_at": "",
-        "event_type": "",
-        "host": "",
-        "starts_at": "",
-        "title": ""
+      {  
+        "description": "string",
+        "ends_at": "2026-05-04T22:14:04.123Z",
+        "event_type": "HOME",
+        "host": "ZDC",
+        "starts_at": "2026-05-04T22:14:04.123Z",
+        "title": "string"
       }
   auth: inherit
 

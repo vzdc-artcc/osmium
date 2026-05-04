@@ -1,0 +1,91 @@
+info:
+  name: create_ots_recommendation
+  type: http
+  seq: 9
+  tags:
+    - training
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/training/ots-recommendations"
+  body:
+    type: json
+    data: |-
+      {
+        "student_id": "",
+        "notes": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: OTS recommendation created
+    request:
+      url: "{{baseUrl}}/api/v1/training/ots-recommendations"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "student_id": "",
+            "notes": ""
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "assigned_instructor_id": null,
+            "created_at": "",
+            "id": "",
+            "notes": "",
+            "student_id": "",
+            "updated_at": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/ots-recommendations"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "student_id": "",
+            "notes": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/ots-recommendations"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "student_id": "",
+            "notes": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

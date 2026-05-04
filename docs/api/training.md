@@ -2,7 +2,13 @@
 
 ## Purpose
 
-Manage training assignments, assignment requests, trainer-release requests, trainer interest workflows, and full training session submission.
+Manage training assignments, appointments, assignment requests, trainer-release requests, trainer interest workflows, and full training session submission.
+
+OTS recommendation routes now cover:
+
+- recommendation list, create, assign or unassign, and delete
+- one active recommendation per student
+- compatibility with pass-triggered automatic OTS recommendation creation
 
 Training session routes now cover:
 
@@ -17,11 +23,22 @@ Lesson routes now cover:
 - lesson lookup for session submission
 - lesson create, update, and delete
 
+Training appointment routes now cover:
+
+- appointment create, update, delete, list, and detail reads
+- student, trainer, and combined user filtering
+- trainer ownership derived from the authenticated user on create
+- estimated duration and estimated end time computed from linked lesson durations
+
 ## Main Routes
 
 - `/api/v1/training/assignments`
+- `/api/v1/training/ots-recommendations`
+- `/api/v1/training/ots-recommendations/{recommendation_id}`
 - `/api/v1/training/lessons`
 - `/api/v1/training/lessons/{lesson_id}`
+- `/api/v1/training/appointments`
+- `/api/v1/training/appointments/{appointment_id}`
 - `/api/v1/training/sessions`
 - `/api/v1/training/sessions/{session_id}`
 - `/api/v1/training/assignment-requests`
@@ -33,11 +50,26 @@ Lesson routes now cover:
 ## Permissions
 
 - read routes require `training.read`
-- lesson, assignment, and training-session creation routes require `training.create`
-- lesson and training-session update routes require `training.update`
+- lesson, assignment, training-appointment, and training-session creation routes require `training.create`
+- lesson, training-appointment, and training-session update routes require `training.update`
+- OTS recommendation create, assign or unassign, and delete routes require `training.manage`
 - moderation and destructive routes require `training.manage`
 - `training.manage` is the umbrella training permission and also satisfies the read/create/update checks above
 - a normal authenticated user can create their own assignment or release requests and mark interest where allowed
+
+## Appointment Notes
+
+- Use `GET /api/v1/training/lessons` to discover lesson IDs before creating or updating an appointment.
+- Appointment create accepts `student_id`, `start`, `lesson_ids`, and optional `environment`.
+- Appointment create ignores trainer selection from the client; `trainer_id` is always the authenticated user submitting the request.
+- Appointment update preserves the original `trainer_id`.
+- Appointment list supports pagination plus optional `trainer_id`, `student_id`, and `user_id` filters.
+- `user_id` matches appointments where the user is either the trainer or the student.
+- Appointment detail returns linked lesson summaries.
+- `estimated_duration_minutes` is the sum of linked lesson durations.
+- `estimated_end` is computed as `start + estimated_duration_minutes`.
+- Empty or duplicate lesson ID payloads are rejected.
+- Appointment deletes remove lesson links through database cascades.
 
 ## Session Notes
 
@@ -52,4 +84,8 @@ Lesson routes now cover:
 - Common mistakes are intentionally not accepted by Osmium even though the legacy site supported them.
 - Performance-indicator payloads are only allowed when the first submitted lesson requires them.
 - Passing lessons can create release requests, update certifications, remove solo certifications, write dossier entries, and create or remove OTS recommendations.
+- Manual OTS recommendation creation requires `student_id` and non-empty `notes`.
+- A student can only have one active OTS recommendation at a time.
+- Assigning or unassigning an OTS recommendation updates `assigned_instructor_id`.
+- Automatic OTS creation from a passed lesson does nothing when the student already has an active recommendation; it preserves the existing notes and assignment.
 - Session deletes remove nested ticket and score data through database cascades.

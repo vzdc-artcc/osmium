@@ -918,6 +918,9 @@ fn numeric_rating_to_short_code(value: i32, cid: i64) -> &'static str {
 fn format_roster_sync_error(err: &ApiError) -> String {
     match err {
         ApiError::BadRequest => "bad request".to_string(),
+        ApiError::OAuthLoginOriginMismatch => "oauth login origin mismatch".to_string(),
+        ApiError::OAuthStateCookieMissing => "oauth state cookie missing".to_string(),
+        ApiError::OAuthStateMismatch => "oauth state mismatch".to_string(),
         ApiError::Unauthorized => "unauthorized".to_string(),
         ApiError::ServiceUnavailable => "service unavailable".to_string(),
         ApiError::Internal => "internal error".to_string(),

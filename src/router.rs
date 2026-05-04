@@ -5,7 +5,7 @@ use axum::{
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
-    auth::middleware::{require_staff, resolve_current_user},
+    auth::middleware::resolve_current_user,
     docs,
     handlers::{
         admin, auth, dev, docs as docs_handlers, events, feedback, files, health, publications,
@@ -59,8 +59,7 @@ pub fn build_router(state: AppState) -> Router {
                         .patch(publications::update_publication)
                         .delete(publications::delete_publication),
                 ),
-        )
-        .route_layer(middleware::from_fn_with_state(state.clone(), require_staff));
+        );
 
     let user_routes = Router::new()
         .route("/visit-artcc", post(users::visit_artcc))
@@ -99,12 +98,30 @@ pub fn build_router(state: AppState) -> Router {
             get(training::list_assignments).post(training::create_assignment),
         )
         .route(
+            "/ots-recommendations",
+            get(training::list_ots_recommendations).post(training::create_ots_recommendation),
+        )
+        .route(
+            "/ots-recommendations/{recommendation_id}",
+            patch(training::update_ots_recommendation).delete(training::delete_ots_recommendation),
+        )
+        .route(
             "/lessons",
             get(training::list_lessons).post(training::create_lesson),
         )
         .route(
             "/lessons/{lesson_id}",
             patch(training::update_lesson).delete(training::delete_lesson),
+        )
+        .route(
+            "/appointments",
+            get(training::list_training_appointments).post(training::create_training_appointment),
+        )
+        .route(
+            "/appointments/{appointment_id}",
+            get(training::get_training_appointment)
+                .patch(training::update_training_appointment)
+                .delete(training::delete_training_appointment),
         )
         .route(
             "/sessions",
@@ -168,7 +185,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/{publication_id}", get(publications::get_publication));
 
     let mut api = Router::new()
-        .route("/me", get(auth::me))
+        .route("/me", get(auth::me).patch(auth::patch_me))
+        .route(
+            "/me/teamspeak-uids",
+            get(auth::list_my_teamspeak_uids).post(auth::create_my_teamspeak_uid),
+        )
+        .route(
+            "/me/teamspeak-uids/{identity_id}",
+            axum::routing::delete(auth::delete_my_teamspeak_uid),
+        )
         .route("/auth/service-account/me", get(auth::service_account_me))
         .route("/auth/vatsim/login", get(auth::vatsim_login))
         .route("/auth/vatsim/callback", get(auth::vatsim_callback))

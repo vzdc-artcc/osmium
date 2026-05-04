@@ -1,30 +1,32 @@
-use std::collections::BTreeMap;
-
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Redirect,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use chrono_tz::Tz;
 use reqwest::Url;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     auth::{
         acl::{
-            PermissionAction, PermissionKey, PermissionResource, fetch_service_account_access,
-            fetch_user_access, group_permission_keys,
+            PermissionAction, PermissionPath, fetch_service_account_access, fetch_user_access,
+            is_server_admin, permission_tree_from_paths,
         },
         context::{CurrentServiceAccount, CurrentUser},
         middleware::ensure_permission,
         vatsim::{VatsimOAuthConfig, exchange_code_for_token, fetch_profile},
     },
     errors::ApiError,
-    models::ServiceAccountSessionBody,
-    repos::access as access_repo,
+    models::{
+        CreateTeamSpeakUidRequest, MeBody, PatchMeRequest, ServiceAccountSessionBody,
+        TeamSpeakUidBody,
+    },
+    repos::{access as access_repo, users as user_repo},
     state::AppState,
 };
 
@@ -44,64 +46,188 @@ pub struct CallbackQuery {
     state: Option<String>,
 }
 
-#[derive(Serialize, ToSchema)]
-pub struct SessionBody {
-    id: String,
-    cid: i64,
-    email: String,
-    display_name: String,
-    rating: Option<String>,
-    role: Option<String>,
-    roles: Vec<String>,
-    permissions: BTreeMap<String, Vec<String>>,
-}
-
-#[derive(sqlx::FromRow)]
-struct OAuthUserUpsertRow {
-    id: String,
-    created_user: bool,
-}
-
-#[derive(sqlx::FromRow)]
-struct OAuthMembershipUpsertRow {
-    rating: Option<String>,
-    created_membership: bool,
-}
-
 #[utoipa::path(
     get,
     path = "/api/v1/me",
     tag = "auth",
     responses(
-        (status = 200, description = "Current authenticated user session", body = SessionBody),
+        (status = 200, description = "Current authenticated user session", body = MeBody),
         (status = 401, description = "Not authenticated")
     )
 )]
 pub async fn me(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<SessionBody>, ApiError> {
+) -> Result<Json<MeBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Auth, PermissionAction::Read),
+        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
+    )
+    .await?;
+    Ok(Json(build_me_body(&state, user).await?))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/me",
+    tag = "auth",
+    request_body(
+        content = PatchMeRequest,
+        description = "Self-service profile updates only. This route cannot change roles, permissions, or access overrides. Use POST /api/v1/admin/users/{cid}/access for access changes."
+    ),
+    responses(
+        (status = 200, description = "Updated current user profile", body = MeBody),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn patch_me(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Json(payload): Json<PatchMeRequest>,
+) -> Result<Json<MeBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Update),
     )
     .await?;
 
-    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let current_profile = user_repo::fetch_me_profile(pool, &user.id).await?;
 
-    Ok(Json(SessionBody {
-        id: user.id.clone(),
-        cid: user.cid,
-        email: user.email.clone(),
-        display_name: user.display_name.clone(),
-        rating: user.rating.clone(),
-        role: user.primary_role.clone(),
-        roles,
-        permissions: group_permission_keys(&permissions),
-    }))
+    let preferred_name = payload
+        .preferred_name
+        .map(normalize_optional_text)
+        .unwrap_or(current_profile.preferred_name);
+    let bio = payload
+        .bio
+        .map(normalize_optional_text)
+        .unwrap_or(current_profile.bio);
+    let timezone = match payload.timezone {
+        Some(value) => validate_timezone(&value)?,
+        None => current_profile.timezone,
+    };
+    let receive_event_notifications = payload
+        .receive_event_notifications
+        .unwrap_or(current_profile.receive_event_notifications);
+
+    user_repo::update_me_profile(
+        pool,
+        &user.id,
+        &user_repo::SelfProfileUpdate {
+            preferred_name,
+            bio,
+            timezone,
+            receive_event_notifications,
+        },
+    )
+    .await?;
+
+    Ok(Json(build_me_body(&state, user).await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/teamspeak-uids",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Current user's TeamSpeak UIDs", body = [TeamSpeakUidBody]),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn list_my_teamspeak_uids(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+) -> Result<Json<Vec<TeamSpeakUidBody>>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(["auth", "teamspeak_uids"], PermissionAction::Read),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    Ok(Json(user_repo::list_teamspeak_uids(pool, &user.id).await?))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/me/teamspeak-uids",
+    tag = "auth",
+    request_body(
+        content = CreateTeamSpeakUidRequest,
+        description = "Self-service TeamSpeak UID linkage only. This route does not manage permissions or any other user access state."
+    ),
+    responses(
+        (status = 200, description = "Added TeamSpeak UID", body = TeamSpeakUidBody),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn create_my_teamspeak_uid(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Json(payload): Json<CreateTeamSpeakUidRequest>,
+) -> Result<Json<TeamSpeakUidBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(["auth", "teamspeak_uids"], PermissionAction::Create),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let uid = payload.uid.trim();
+    if uid.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(Json(
+        user_repo::create_teamspeak_uid(pool, &user.id, uid).await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/me/teamspeak-uids/{identity_id}",
+    tag = "auth",
+    params(
+        ("identity_id" = String, Path, description = "TeamSpeak identity id")
+    ),
+    responses(
+        (status = 204, description = "Deleted TeamSpeak UID"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn delete_my_teamspeak_uid(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(identity_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(["auth", "teamspeak_uids"], PermissionAction::Delete),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    user_repo::delete_teamspeak_uid(pool, &user.id, &identity_id).await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -128,7 +254,7 @@ pub async fn service_account_me(
         key: service_account.key.clone(),
         name: service_account.name.clone(),
         roles,
-        permissions: group_permission_keys(&permissions),
+        permissions: permission_tree_from_paths(&permissions),
     }))
 }
 
@@ -145,9 +271,11 @@ pub async fn service_account_me(
 )]
 pub async fn vatsim_login(
     jar: CookieJar,
+    headers: HeaderMap,
     Query(query): Query<LoginQuery>,
 ) -> Result<(CookieJar, Redirect), ApiError> {
     let config = VatsimOAuthConfig::from_env()?;
+    validate_oauth_login_origin(&headers, &config)?;
     let oauth_state = Uuid::new_v4().to_string();
 
     let mut authorize_url =
@@ -207,12 +335,12 @@ pub async fn vatsim_callback(
 
     let Some(cookie_state) = jar.get(OAUTH_STATE_COOKIE).map(|cookie| cookie.value()) else {
         tracing::warn!("oauth callback missing state cookie");
-        return Err(ApiError::BadRequest);
+        return Err(ApiError::OAuthStateCookieMissing);
     };
 
     if cookie_state != callback_state {
         tracing::warn!("oauth callback state mismatch");
-        return Err(ApiError::BadRequest);
+        return Err(ApiError::OAuthStateMismatch);
     }
 
     let config = VatsimOAuthConfig::from_env()?;
@@ -223,75 +351,21 @@ pub async fn vatsim_callback(
         return Err(ApiError::ServiceUnavailable);
     };
 
-    let user_upsert = sqlx::query_as::<_, OAuthUserUpsertRow>(
-        r#"
-        insert into identity.users (id, cid, email, full_name, display_name)
-        values ($1, $2, $3, $4, $4)
-        on conflict (cid) do update
-        set email = excluded.email,
-            full_name = excluded.full_name,
-            display_name = excluded.display_name,
-            updated_at = now()
-        returning id, (xmax = 0) as created_user
-        "#,
+    let user_id = bootstrap_login_user(
+        pool,
+        profile.cid,
+        &profile.email,
+        &profile.display_name,
+        &profile.display_name,
+        profile.rating.as_deref(),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(profile.cid)
-    .bind(profile.email)
-    .bind(profile.display_name)
-    .fetch_one(pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(
-            ?error,
-            cid = profile.cid,
-            "failed to upsert user during oauth callback"
-        );
-        ApiError::Internal
-    })?;
-    let user_id = user_upsert.id;
-
-    let membership_upsert = sqlx::query_as::<_, OAuthMembershipUpsertRow>(
-        r#"
-        insert into org.memberships (
-            user_id,
-            artcc,
-            division,
-            rating,
-            membership_status,
-            controller_status,
-            updated_at
-        )
-        values ($1, 'ZDC', 'USA', $2, 'ACTIVE', 'NONE', now())
-        on conflict (user_id) do update
-        set rating = coalesce(excluded.rating, org.memberships.rating),
-            membership_status = 'ACTIVE',
-            updated_at = now()
-        returning rating, (xmax = 0) as created_membership
-        "#,
-    )
-    .bind(&user_id)
-    .bind(profile.rating.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(
-            ?error,
-            cid = profile.cid,
-            user_id = user_id.as_str(),
-            "failed to upsert membership during oauth callback"
-        );
-        ApiError::Internal
-    })?;
+    .await?;
 
     tracing::info!(
         cid = profile.cid,
         user_id = user_id.as_str(),
         source = "vatsim_oauth",
-        rating = membership_upsert.rating.as_deref(),
-        created_user = user_upsert.created_user,
-        created_membership = membership_upsert.created_membership,
-        membership_synced = true,
+        rating = profile.rating.as_deref(),
         "oauth user sync completed"
     );
 
@@ -366,37 +440,15 @@ pub async fn login_as_cid(
     let generated_email = format!("dev-cid-{}@example.invalid", cid);
     let generated_name = format!("Dev CID {}", cid);
 
-    let user_id = sqlx::query_scalar::<_, String>(
-        r#"
-        insert into identity.users (id, cid, email, full_name, display_name)
-        values ($1, $2, $3, $4, $4)
-        on conflict (cid) do update
-        set updated_at = now()
-        returning id
-        "#,
+    let user_id = bootstrap_login_user(
+        pool,
+        cid,
+        &generated_email,
+        &generated_name,
+        &generated_name,
+        None,
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(cid)
-    .bind(generated_email)
-    .bind(generated_name)
-    .fetch_one(pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(?error, cid, "failed to upsert user during dev cid login");
-        ApiError::Internal
-    })?;
-
-    sqlx::query(
-        r#"
-        insert into org.memberships (user_id, artcc, division, membership_status, controller_status)
-        values ($1, 'ZDC', 'USA', 'ACTIVE', 'NONE')
-        on conflict (user_id) do nothing
-        "#,
-    )
-    .bind(&user_id)
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     ensure_user_login_access(pool, &user_id, cid)
         .await
@@ -460,7 +512,7 @@ pub async fn logout(
         &state,
         current_user.as_ref(),
         None,
-        PermissionKey::new(PermissionResource::Auth, PermissionAction::Delete),
+        PermissionPath::from_segments(["auth", "sessions"], PermissionAction::Delete),
     )
     .await?;
 
@@ -489,6 +541,84 @@ fn parse_prompt(raw_prompt: Option<&str>) -> Result<Option<&str>, ApiError> {
         "none" | "login" | "consent" => Ok(Some(prompt)),
         _ => Err(ApiError::BadRequest),
     }
+}
+
+async fn build_me_body(state: &AppState, user: &CurrentUser) -> Result<MeBody, ApiError> {
+    ensure_permission(
+        state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+    let profile = user_repo::fetch_me_profile(pool, &user.id).await?;
+    let teamspeak_uids = user_repo::list_teamspeak_uids(pool, &user.id).await?;
+
+    Ok(MeBody {
+        id: user.id.clone(),
+        cid: user.cid,
+        email: user.email.clone(),
+        display_name: user.display_name.clone(),
+        rating: user.rating.clone(),
+        server_admin: is_server_admin(&roles),
+        permissions: permission_tree_from_paths(&permissions),
+        profile,
+        teamspeak_uids,
+    })
+}
+
+async fn bootstrap_login_user(
+    pool: &sqlx::PgPool,
+    cid: i64,
+    email: &str,
+    full_name: &str,
+    display_name: &str,
+    rating: Option<&str>,
+) -> Result<String, ApiError> {
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+    let user = user_repo::upsert_login_user(
+        &mut tx,
+        &Uuid::new_v4().to_string(),
+        cid,
+        email,
+        full_name,
+        display_name,
+    )
+    .await?;
+
+    user_repo::ensure_user_profile(&mut tx, &user.id).await?;
+    user_repo::upsert_login_membership(&mut tx, &user.id, rating).await?;
+    user_repo::ensure_operating_initials(
+        &mut tx,
+        &user.id,
+        user.first_name.as_deref(),
+        user.last_name.as_deref(),
+        display_name,
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(user.id)
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|inner| inner.trim().to_string())
+        .filter(|inner| !inner.is_empty())
+}
+
+fn validate_timezone(value: &str) -> Result<String, ApiError> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    normalized.parse::<Tz>().map_err(|_| ApiError::BadRequest)?;
+    Ok(normalized.to_string())
 }
 
 async fn ensure_user_login_access(
@@ -522,17 +652,27 @@ async fn ensure_user_login_access(
             Ok(())
         }
         _ => {
-            sqlx::query(
-                r#"
-                insert into access.user_roles (user_id, role_name)
-                values ($1, 'USER')
-                on conflict (user_id, role_name) do nothing
-                "#,
+            let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+            access_repo::replace_user_permissions(
+                &mut tx,
+                user_id,
+                &[
+                    "auth.profile.read".to_string(),
+                    "auth.profile.update".to_string(),
+                    "auth.teamspeak_uids.read".to_string(),
+                    "auth.teamspeak_uids.create".to_string(),
+                    "auth.teamspeak_uids.delete".to_string(),
+                    "auth.sessions.delete".to_string(),
+                    "users.visit_artcc.request".to_string(),
+                    "users.visitor_applications.self.read".to_string(),
+                    "users.visitor_applications.self.request".to_string(),
+                    "feedback.items.self.read".to_string(),
+                    "feedback.items.create".to_string(),
+                    "events.positions.self.request".to_string(),
+                ],
             )
-            .bind(user_id)
-            .execute(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+            .await?;
+            tx.commit().await.map_err(|_| ApiError::Internal)?;
 
             tracing::info!(
                 user_id,
@@ -565,6 +705,65 @@ fn cookie_secure() -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+fn validate_oauth_login_origin(
+    headers: &HeaderMap,
+    config: &VatsimOAuthConfig,
+) -> Result<(), ApiError> {
+    let expected_origin = url_origin(&config.redirect_uri).ok_or(ApiError::Internal)?;
+    let Some(request_origin) = request_origin(headers) else {
+        tracing::warn!(
+            expected_origin,
+            "oauth login request missing host/origin headers"
+        );
+        return Err(ApiError::OAuthLoginOriginMismatch);
+    };
+
+    if request_origin != expected_origin {
+        tracing::warn!(
+            expected_origin,
+            request_origin,
+            "oauth login request origin does not match configured redirect origin"
+        );
+        return Err(ApiError::OAuthLoginOriginMismatch);
+    }
+
+    Ok(())
+}
+
+fn request_origin(headers: &HeaderMap) -> Option<String> {
+    if let Some(origin) = header_value(headers, "origin") {
+        return Some(origin);
+    }
+
+    let host =
+        header_value(headers, "x-forwarded-host").or_else(|| header_value(headers, "host"))?;
+    let proto = header_value(headers, "x-forwarded-proto").unwrap_or_else(|| "http".to_string());
+    Some(format!("{proto}://{host}"))
+}
+
+fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn url_origin(raw: &str) -> Option<String> {
+    let url = Url::parse(raw).ok()?;
+    let host = url.host_str()?;
+    let scheme = url.scheme();
+    let port = url.port_or_known_default()?;
+
+    let is_default_port = (scheme == "http" && port == 80) || (scheme == "https" && port == 443);
+    if is_default_port {
+        Some(format!("{scheme}://{host}"))
+    } else {
+        Some(format!("{scheme}://{host}:{port}"))
+    }
 }
 
 fn api_dev_mode_enabled() -> bool {

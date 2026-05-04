@@ -1,22 +1,13 @@
 use axum::{
     Json,
-    extract::{Extension, Path, Query, State},
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
-use crate::{
-    auth::{
-        acl::{PermissionAction, PermissionKey, PermissionResource},
-        context::{CurrentServiceAccount, CurrentUser},
-        middleware::ensure_permission,
-    },
-    errors::ApiError,
-    jobs::stats_sync::parse_environment,
-    state::AppState,
-};
+use crate::{errors::ApiError, jobs::stats_sync::parse_environment, state::AppState};
 
 #[derive(Deserialize, ToSchema)]
 pub struct ArtccStatsQuery {
@@ -635,18 +626,9 @@ pub async fn get_controller_totals(
 )]
 pub async fn list_controller_events(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ControllerEventsQuery>,
 ) -> Result<Json<ControllerEventsResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionKey::new(PermissionResource::Integrations, PermissionAction::Manage),
-    )
-    .await?;
 
     let environment = parse_environment(query.environment.as_deref())?;
     let after_id = query.after_id.unwrap_or(0);

@@ -1,0 +1,48 @@
+info:
+  name: delete_teamspeak_uid
+  type: http
+  seq: 9
+  tags:
+    - auth
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/me/teamspeak-uids/:identity_id"
+  params:
+    - name: identity_id
+      value: ""
+      type: path
+      description: TeamSpeak identity id
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Deleted TeamSpeak UID
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids/:identity_id"
+      method: DELETE
+    response:
+      status: 204
+      statusText: No Content
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids/:identity_id"
+      method: DELETE
+    response:
+      status: 400
+      statusText: Bad Request
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids/:identity_id"
+      method: DELETE
+    response:
+      status: 401
+      statusText: Unauthorized

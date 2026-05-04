@@ -42,6 +42,13 @@ The training group now includes:
 - session cookie auth for human clients
 - bearer token auth for service accounts
 
+The auth group now also owns self-service profile mutation and TeamSpeak UID management:
+
+- `PATCH /api/v1/me`
+- `GET /api/v1/me/teamspeak-uids`
+- `POST /api/v1/me/teamspeak-uids`
+- `DELETE /api/v1/me/teamspeak-uids/{identity_id}`
+
 ## Error Patterns
 
 Common error values:
