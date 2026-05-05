@@ -109,5 +109,5 @@ Permission-gated routes:
 
 Token-based public route:
 
-- `GET /api/v1/emails/unsubscribe?token=...` -> public-by-token
-- `POST /api/v1/emails/unsubscribe` -> public-by-token
+- `GET /api/v1/emails/preferences?token=...` -> public-by-token
+- `POST /api/v1/emails/preferences` -> public-by-token

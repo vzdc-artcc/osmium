@@ -1,5 +1,6 @@
 use crate::errors::ApiError;
 
+use super::rsx::find_rsx_template;
 use super::templates::{RenderedEmail, TemplateDefinition, unsubscribe_link};
 
 pub fn render_template(
@@ -23,6 +24,10 @@ pub fn render_template(
             )
         })
     };
+
+    if let Some(rsx_template) = find_rsx_template(template.id) {
+        return rsx_template.render(payload, link.as_deref());
+    }
 
     (template.renderer)(payload, link.as_deref())
 }

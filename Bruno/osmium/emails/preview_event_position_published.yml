@@ -1,19 +1,19 @@
 info:
-  name: send_email
+  name: preview_event_position_published
   type: http
-  seq: 3
+  seq: 9
   tags:
     - emails
 
 http:
   method: POST
-  url: "{{baseUrl}}/api/v1/emails/send"
+  url: "{{baseUrl}}/api/v1/emails/preview"
   headers:
     - name: Content-Type
       value: application/json
   body:
     type: json
-    data: |
+    data: |-
       {
         "template_id": "events.position_published",
         "payload": {
@@ -21,11 +21,7 @@ http:
           "starts_at": "2026-05-10T20:00:00Z",
           "details_url": "https://example.com/events/123",
           "preheader": "Sign up now!"
-        },
-        "recipients": {
-          "users": ["38fb0468-e51f-4527-8264-f76c15b503e6"]
-        },
-        "dry_run": false
+        }
       }
   auth: inherit
 
