@@ -9,7 +9,9 @@ COPY src ./src
 COPY migrations ./migrations
 COPY docs ./docs
 
-RUN cargo build --release
+RUN awk 'BEGIN{skip=0} /^\[workspace\]/{skip=1; next} /^\[.*\]/{if(skip){skip=0}} !skip{print}' Cargo.toml > Cargo.toml.docker \
+    && mv Cargo.toml.docker Cargo.toml \
+    && cargo build --release
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app

@@ -1,0 +1,22 @@
+info:
+  name: get_event_preset_positions
+  type: http
+  seq: 17
+  tags:
+    - events
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/preset-positions"
+  auth: inherit
+
+runtime:
+  variables:
+    - name: eventId
+      value: 0617d698-4e98-46b9-a10f-452affbea6a4
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

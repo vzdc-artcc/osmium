@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,7 +34,11 @@ impl RsxTemplate for ProgressionAssignedTemplate {
         "progression.assigned"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let controller_name = required_string(payload, "controller_name")?;
         let progression_name = required_string(payload, "progression_name")?;
         let details_url = optional_string(payload, "details_url");
@@ -67,7 +71,9 @@ impl RsxTemplate for ProgressionAssignedTemplate {
             .blank()
             .line(&format!("Progression: {progression_name}"))
             .blank()
-            .line("Please review your training requirements and schedule sessions with your trainer.");
+            .line(
+                "Please review your training requirements and schedule sessions with your trainer.",
+            );
 
         if let Some(url) = details_url.as_deref() {
             text = text.link("View progression", url);
@@ -75,7 +81,11 @@ impl RsxTemplate for ProgressionAssignedTemplate {
 
         let text = text.optional_unsubscribe(unsubscribe_link).build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -86,7 +96,11 @@ impl RsxTemplate for ProgressionRemovedTemplate {
         "progression.removed"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
         let progression_name = required_string(payload, "progression_name")?;
         let reason = optional_string(payload, "reason");
@@ -130,6 +144,10 @@ impl RsxTemplate for ProgressionRemovedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

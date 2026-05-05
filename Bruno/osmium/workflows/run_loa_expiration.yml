@@ -1,0 +1,18 @@
+info:
+  name: run_loa_expiration
+  type: http
+  seq: 6
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/loa/expire-run"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

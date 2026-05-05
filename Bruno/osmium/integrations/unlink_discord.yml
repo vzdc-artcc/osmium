@@ -1,0 +1,23 @@
+info:
+  name: unlink_discord
+  type: http
+  seq: 4
+  tags:
+    - integrations
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/me/discord/unlink"
+  body:
+    type: json
+    data: |-
+      {
+        "external_id": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

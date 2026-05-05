@@ -1,0 +1,25 @@
+info:
+  name: update_discord_role
+  type: http
+  seq: 12
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/roles/{{roleId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Event Notifications",
+        "role_id": "345678901234567890"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,23 @@
+info:
+  name: start_discord_link
+  type: http
+  seq: 2
+  tags:
+    - integrations
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/me/discord/link/start"
+  body:
+    type: json
+    data: |-
+      {
+        "redirect_uri": "http://localhost:3000/discord/callback"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

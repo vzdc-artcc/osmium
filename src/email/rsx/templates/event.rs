@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,7 +34,11 @@ impl RsxTemplate for EventPositionPublishedTemplate {
         "events.position_published"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let title = required_string(payload, "event_title")?;
         let starts_at = required_string(payload, "starts_at")?;
         let details_url = required_string(payload, "details_url")?;
@@ -69,7 +73,11 @@ impl RsxTemplate for EventPositionPublishedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -80,7 +88,11 @@ impl RsxTemplate for EventReminderTemplate {
         "events.reminder"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let title = required_string(payload, "event_title")?;
         let starts_at = required_string(payload, "starts_at")?;
         let details_url = required_string(payload, "details_url")?;
@@ -124,6 +136,10 @@ impl RsxTemplate for EventReminderTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

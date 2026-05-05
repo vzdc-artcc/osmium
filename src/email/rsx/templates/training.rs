@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,7 +34,11 @@ impl RsxTemplate for AppointmentScheduledTemplate {
         "training.appointment_scheduled"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
         let trainer_name = required_string(payload, "trainer_name")?;
         let appointment_start = required_string(payload, "appointment_start")?;
@@ -81,7 +85,11 @@ impl RsxTemplate for AppointmentScheduledTemplate {
 
         let text = text.optional_unsubscribe(unsubscribe_link).build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -92,7 +100,11 @@ impl RsxTemplate for AppointmentCanceledTemplate {
         "training.appointment_canceled"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
         let trainer_name = required_string(payload, "trainer_name")?;
         let appointment_start = required_string(payload, "appointment_start")?;
@@ -141,7 +153,11 @@ impl RsxTemplate for AppointmentCanceledTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -152,7 +168,11 @@ impl RsxTemplate for AppointmentUpdatedTemplate {
         "training.appointment_updated"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
         let trainer_name = required_string(payload, "trainer_name")?;
         let appointment_start = required_string(payload, "appointment_start")?;
@@ -196,7 +216,11 @@ impl RsxTemplate for AppointmentUpdatedTemplate {
 
         let text = text.optional_unsubscribe(unsubscribe_link).build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -207,7 +231,11 @@ impl RsxTemplate for AppointmentWarningTemplate {
         "training.appointment_warning"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _student_name = required_string(payload, "student_name")?;
         let trainer_name = required_string(payload, "trainer_name")?;
         let appointment_start = required_string(payload, "appointment_start")?;
@@ -240,7 +268,9 @@ impl RsxTemplate for AppointmentWarningTemplate {
             .into_string();
 
         let mut text = TextBuilder::new()
-            .line(&format!("This is a reminder about your upcoming training appointment with {trainer_name}."))
+            .line(&format!(
+                "This is a reminder about your upcoming training appointment with {trainer_name}."
+            ))
             .blank()
             .line(&format!("Date/Time: {appointment_start}"));
 
@@ -254,7 +284,11 @@ impl RsxTemplate for AppointmentWarningTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -265,7 +299,11 @@ impl RsxTemplate for SessionCreatedTemplate {
         "training.session_created"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
         let trainer_name = required_string(payload, "trainer_name")?;
         let session_date = required_string(payload, "session_date")?;
@@ -300,7 +338,9 @@ impl RsxTemplate for SessionCreatedTemplate {
             .into_string();
 
         let mut text = TextBuilder::new()
-            .line(&format!("A training session has been recorded for {student_name} with {trainer_name}."))
+            .line(&format!(
+                "A training session has been recorded for {student_name} with {trainer_name}."
+            ))
             .blank()
             .line(&format!("Date: {session_date}"));
 
@@ -314,6 +354,10 @@ impl RsxTemplate for SessionCreatedTemplate {
 
         let text = text.optional_unsubscribe(unsubscribe_link).build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

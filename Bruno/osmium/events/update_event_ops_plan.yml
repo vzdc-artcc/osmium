@@ -1,0 +1,37 @@
+info:
+  name: update_event_ops_plan
+  type: http
+  seq: 12
+  tags:
+    - events
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/ops-plan"
+  body:
+    type: json
+    data: |-
+      {
+        "featured_fields": ["airports", "routes"],
+        "preset_positions": ["DCA_GND", "PCT_APP"],
+        "featured_field_configs": {
+          "airports": ["KDCA", "KIAD"]
+        },
+        "tmis": "MIT 20 NM north gate",
+        "ops_free_text": "Expect heavy departure push.",
+        "ops_plan_published": true,
+        "ops_planner_id": "user_uuid",
+        "enable_buffer_times": true
+      }
+  auth: inherit
+
+runtime:
+  variables:
+    - name: eventId
+      value: 0617d698-4e98-46b9-a10f-452affbea6a4
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

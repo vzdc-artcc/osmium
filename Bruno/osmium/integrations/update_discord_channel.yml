@@ -1,0 +1,25 @@
+info:
+  name: update_discord_channel
+  type: http
+  seq: 9
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/channels/{{channelId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "ops-announcements",
+        "channel_id": "234567890123456789"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

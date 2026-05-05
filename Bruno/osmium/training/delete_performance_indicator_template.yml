@@ -1,0 +1,18 @@
+info:
+  name: delete_performance_indicator_template
+  type: http
+  seq: 41
+  tags:
+    - training
+    - admin
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/training/performance-indicators/templates/{{templateId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

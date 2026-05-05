@@ -1,0 +1,18 @@
+info:
+  name: delete_discord_role
+  type: http
+  seq: 13
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/roles/{{roleId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

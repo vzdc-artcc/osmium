@@ -1,0 +1,18 @@
+info:
+  name: delete_progression_step
+  type: http
+  seq: 37
+  tags:
+    - training
+    - admin
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/training/progression-steps/{{stepId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,31 @@
+info:
+  name: admin_list_incidents
+  type: http
+  seq: 3
+  tags:
+    - incidents
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/incidents"
+  params:
+    - name: limit
+      value: "25"
+      type: query
+      disabled: true
+    - name: offset
+      value: "0"
+      type: query
+      disabled: true
+    - name: closed
+      value: "false"
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

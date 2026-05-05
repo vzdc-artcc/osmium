@@ -8,6 +8,10 @@ Provides user session login/logout, self-service profile management, TeamSpeak U
 
 - `GET /api/v1/me`
 - `PATCH /api/v1/me`
+- `GET /api/v1/me/discord`
+- `POST /api/v1/me/discord/link/start`
+- `POST /api/v1/me/discord/link/complete`
+- `POST /api/v1/me/discord/unlink`
 - `GET /api/v1/me/teamspeak-uids`
 - `POST /api/v1/me/teamspeak-uids`
 - `DELETE /api/v1/me/teamspeak-uids/{identity_id}`
@@ -69,6 +73,7 @@ Behavior notes:
 ## Notes
 
 - `me` requires a valid session cookie
+- Discord identity routes also require a valid session cookie
 - `patch me` and TeamSpeak UID management also require a valid session cookie
 - `service-account/me` requires a valid bearer token
 - `me`, `patch me`, and TeamSpeak UID routes require `auth.read`
@@ -77,6 +82,9 @@ Behavior notes:
 - auth and service-account introspection responses expose grouped permissions
 - first login now bootstraps `identity.user_profiles`, `org.memberships`, and `org.memberships.operating_initials` in one transaction
 - operating initials are generated as unique two-letter values on first login and then preserved unless changed separately in the future
+- Discord OAuth state is stored in `integration.external_sync_mappings` until `link/complete` finalizes the user identity mapping
+- `GET /api/v1/me/discord` returns `{ "linked": boolean, "external_id": string | null, "auth_url": string | null }`
+- `POST /api/v1/me/discord/unlink` accepts an optional `external_id` field for compatibility but removes the current user's stored mapping by local identity
 - for local VATSIM OAuth, `auth-dev.vatsim.net` with `VATSIM_CLIENT_AUTH_METHOD=post` is the recommended setup
 - the login origin and `VATSIM_REDIRECT_URI` must match exactly to preserve the OAuth state cookie
 - if `OSMIUM_SERVER_ADMIN_CID` matches the logging-in user, that login claims or transfers the singleton `SERVER_ADMIN` role

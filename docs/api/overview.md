@@ -8,8 +8,11 @@ The generated API reference lives at `/docs/api/v1`. This page explains how to r
 - api-keys
 - users
 - admin
+- workflows
 - training
 - events
+- incidents
+- integrations
 - feedback
 - files
 - publications
@@ -58,6 +61,14 @@ The API-keys group owns human-managed machine credentials:
 - `POST /api/v1/api-keys`
 - `PATCH /api/v1/api-keys/{key_id}`
 - `DELETE /api/v1/api-keys/{key_id}`
+
+The backend replacement work also added:
+
+- workflow APIs for LOA, solo certifications, staffing requests, SUA requests, controller lifecycle, and job operations
+- incident reporting and admin closure APIs
+- training admin/config APIs for progressions, performance indicators, assignments, and dossier reads
+- event ops-plan, TMI, preset-position, and lock/unlock APIs
+- Discord identity/config APIs and outbound notification jobs
 
 ## Error Patterns
 

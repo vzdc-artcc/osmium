@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,7 +34,11 @@ impl RsxTemplate for NewFeedbackTemplate {
         "feedback.new"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let controller_name = required_string(payload, "controller_name")?;
         let position = optional_string(payload, "position");
         let rating_text = optional_string(payload, "rating");
@@ -69,8 +73,8 @@ impl RsxTemplate for NewFeedbackTemplate {
             .render(body, cta)
             .into_string();
 
-        let mut text = TextBuilder::new()
-            .line("You have received new feedback for your controlling.");
+        let mut text =
+            TextBuilder::new().line("You have received new feedback for your controlling.");
 
         if let Some(ref pos) = position {
             text = text.line(&format!("Position: {pos}"));
@@ -86,6 +90,10 @@ impl RsxTemplate for NewFeedbackTemplate {
 
         let text = text.optional_unsubscribe(unsubscribe_link).build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

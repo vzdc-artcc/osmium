@@ -1,0 +1,24 @@
+info:
+  name: update_event_tmi
+  type: http
+  seq: 15
+  tags:
+    - events
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/tmis/{{tmiId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "tmi_type": "EDCT",
+        "notes": "Updated event flow restriction."
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

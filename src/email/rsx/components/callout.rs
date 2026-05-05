@@ -1,4 +1,4 @@
-use maud::{html, Markup};
+use maud::{Markup, html};
 
 pub fn callout(content: Markup) -> Markup {
     html! {

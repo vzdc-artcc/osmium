@@ -1,7 +1,7 @@
 use aws_sdk_sesv2::{
+    Client,
     error::ProvideErrorMetadata,
     operation::RequestId,
-    Client,
     types::{Body, Content, Destination, EmailContent, Message},
 };
 

@@ -1,0 +1,27 @@
+info:
+  name: create_progression
+  type: http
+  seq: 31
+  tags:
+    - training
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/training/progressions"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Tower Progression",
+        "next_progression_id": null,
+        "auto_assign_new_home_obs": true,
+        "auto_assign_new_visitor": false
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

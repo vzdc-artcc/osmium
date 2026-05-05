@@ -23,6 +23,10 @@ Permission-gated routes:
 
 - `GET /api/v1/me` -> `auth.profile.read`
 - `PATCH /api/v1/me` -> `auth.profile.update`
+- `GET /api/v1/me/discord` -> `auth.profile.read`
+- `POST /api/v1/me/discord/link/start` -> `auth.profile.read`
+- `POST /api/v1/me/discord/link/complete` -> `auth.profile.read`
+- `POST /api/v1/me/discord/unlink` -> `auth.profile.read`
 - `GET /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.read`
 - `POST /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.create`
 - `DELETE /api/v1/me/teamspeak-uids/{identity_id}` -> `auth.teamspeak_uids.delete`
@@ -39,7 +43,39 @@ Permission-gated routes:
 - `GET /api/v1/admin/users/{cid}/access` -> `access.users.read`
 - `POST /api/v1/admin/users/{cid}/access` -> `access.users.update`
 - `GET /api/v1/admin/audit` -> `audit.logs.read`
+- `GET /api/v1/admin/jobs` -> `system.read`
+- `GET /api/v1/admin/jobs/{job_name}` -> `system.read`
+- `POST /api/v1/admin/jobs/{job_name}/run` -> `users.controller_status.update`
+- `GET /api/v1/admin/loa` -> `users.directory.read`
+- `PATCH /api/v1/admin/loa/{loa_id}/decision` -> `users.controller_status.update`
+- `POST /api/v1/admin/loa/expire-run` -> `users.controller_status.update`
+- `GET /api/v1/admin/solo-certifications` -> `users.directory.read`
+- `POST /api/v1/admin/solo-certifications` -> `users.controller_status.update`
+- `PATCH /api/v1/admin/solo-certifications/{solo_id}` -> `users.controller_status.update`
+- `DELETE /api/v1/admin/solo-certifications/{solo_id}` -> `users.controller_status.update`
+- `GET /api/v1/admin/staffing-requests` -> `users.directory.read`
+- `DELETE /api/v1/admin/staffing-requests/{request_id}` -> `users.controller_status.update`
+- `GET /api/v1/admin/sua` -> `users.directory.read`
+- `GET /api/v1/admin/incidents` -> `feedback.items.decide`
+- `GET /api/v1/admin/incidents/{incident_id}` -> `feedback.items.decide`
+- `PATCH /api/v1/admin/incidents/{incident_id}` -> `feedback.items.decide`
+- `GET /api/v1/admin/integrations/discord/configs` -> `integrations.stats.update`
+- `POST /api/v1/admin/integrations/discord/configs` -> `integrations.stats.update`
+- `PATCH /api/v1/admin/integrations/discord/configs/{config_id}` -> `integrations.stats.update`
+- `POST /api/v1/admin/integrations/discord/channels` -> `integrations.stats.update`
+- `PATCH /api/v1/admin/integrations/discord/channels/{channel_id}` -> `integrations.stats.update`
+- `DELETE /api/v1/admin/integrations/discord/channels/{channel_id}` -> `integrations.stats.update`
+- `POST /api/v1/admin/integrations/discord/roles` -> `integrations.stats.update`
+- `PATCH /api/v1/admin/integrations/discord/roles/{role_id}` -> `integrations.stats.update`
+- `DELETE /api/v1/admin/integrations/discord/roles/{role_id}` -> `integrations.stats.update`
+- `POST /api/v1/admin/integrations/discord/categories` -> `integrations.stats.update`
+- `PATCH /api/v1/admin/integrations/discord/categories/{category_id}` -> `integrations.stats.update`
+- `DELETE /api/v1/admin/integrations/discord/categories/{category_id}` -> `integrations.stats.update`
+- `GET /api/v1/admin/integrations/outbound-jobs` -> `integrations.stats.update`
+- `POST /api/v1/admin/integrations/outbound-jobs/run` -> `integrations.stats.update`
+- `POST /api/v1/admin/notifications/announcements` -> `integrations.stats.update`
 - `PATCH /api/v1/admin/users/{cid}/controller-status` -> `users.controller_status.update`
+- `PATCH /api/v1/admin/users/{cid}/controller-lifecycle` -> `users.controller_status.update`
 - `POST /api/v1/admin/users/{cid}/refresh-vatusa` -> `users.vatusa_refresh.request`
 - `GET /api/v1/admin/visitor-applications` -> `users.visitor_applications.read`
 - `PATCH /api/v1/admin/visitor-applications/{application_id}` -> `users.visitor_applications.decide`
@@ -63,12 +99,25 @@ Permission-gated routes:
 - `PATCH /api/v1/events/{event_id}` -> `events.items.update`
 - `DELETE /api/v1/events/{event_id}` -> `events.items.delete`
 - `POST /api/v1/events/{event_id}/positions` -> `events.positions.self.request`
+- `GET /api/v1/events/{event_id}/ops-plan` -> public-by-policy
+- `PATCH /api/v1/events/{event_id}/ops-plan` -> `events.items.update`
+- `GET /api/v1/events/{event_id}/tmis` -> public-by-policy
+- `POST /api/v1/events/{event_id}/tmis` -> `events.items.update`
+- `PATCH /api/v1/events/{event_id}/tmis/{tmi_id}` -> `events.items.update`
+- `DELETE /api/v1/events/{event_id}/tmis/{tmi_id}` -> `events.items.update`
+- `GET /api/v1/events/{event_id}/preset-positions` -> public-by-policy
+- `PUT /api/v1/events/{event_id}/preset-positions` -> `events.items.update`
+- `POST /api/v1/events/{event_id}/positions/lock` -> `events.items.update`
+- `POST /api/v1/events/{event_id}/positions/unlock` -> `events.items.update`
+- `POST /api/v1/events/{event_id}/publish/discord` -> `integrations.stats.update`
 - `PATCH /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.assign`
 - `DELETE /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.delete`
 - `POST /api/v1/events/{event_id}/positions/publish` -> `events.positions.publish`
 - `POST /api/v1/feedback` -> `feedback.items.create`
 - `GET /api/v1/feedback` -> `feedback.items.read` for full list, `feedback.items.self.read` for own list
 - `PATCH /api/v1/feedback/{feedback_id}` -> `feedback.items.decide`
+- `POST /api/v1/incidents` -> `feedback.items.create`
+- `GET /api/v1/incidents` -> `feedback.items.self.read`
 - `GET /api/v1/admin/files/audit` -> `files.audit.read`
 - `GET /api/v1/files` -> `files.assets.read`
 - `POST /api/v1/files` -> `files.assets.create` and `files.content.create`
@@ -106,6 +155,30 @@ Permission-gated routes:
 - `GET /api/v1/training/trainer-release-requests` -> `training.release_requests.read`
 - `POST /api/v1/training/trainer-release-requests` -> `training.release_requests.self.request`
 - `PATCH /api/v1/training/trainer-release-requests/{request_id}` -> `training.release_requests.decide`
+- `GET /api/v1/users/{cid}/dossier` -> self `auth.profile.read`, otherwise `training.lessons.read`
+- `GET /api/v1/admin/training/progressions` -> `training.lessons.read`
+- `POST /api/v1/admin/training/progressions` -> `training.lessons.update`
+- `PATCH /api/v1/admin/training/progressions/{progression_id}` -> `training.lessons.update`
+- `DELETE /api/v1/admin/training/progressions/{progression_id}` -> `training.lessons.update`
+- `GET /api/v1/admin/training/progression-steps` -> `training.lessons.read`
+- `POST /api/v1/admin/training/progression-steps` -> `training.lessons.update`
+- `PATCH /api/v1/admin/training/progression-steps/{step_id}` -> `training.lessons.update`
+- `DELETE /api/v1/admin/training/progression-steps/{step_id}` -> `training.lessons.update`
+- `GET /api/v1/admin/training/performance-indicators/templates` -> `training.lessons.read`
+- `POST /api/v1/admin/training/performance-indicators/templates` -> `training.lessons.update`
+- `PATCH /api/v1/admin/training/performance-indicators/templates/{template_id}` -> `training.lessons.update`
+- `DELETE /api/v1/admin/training/performance-indicators/templates/{template_id}` -> `training.lessons.update`
+- `GET /api/v1/admin/training/performance-indicators/categories` -> `training.lessons.read`
+- `POST /api/v1/admin/training/performance-indicators/categories` -> `training.lessons.update`
+- `PATCH /api/v1/admin/training/performance-indicators/categories/{category_id}` -> `training.lessons.update`
+- `DELETE /api/v1/admin/training/performance-indicators/categories/{category_id}` -> `training.lessons.update`
+- `GET /api/v1/admin/training/performance-indicators/criteria` -> `training.lessons.read`
+- `POST /api/v1/admin/training/performance-indicators/criteria` -> `training.lessons.update`
+- `PATCH /api/v1/admin/training/performance-indicators/criteria/{criteria_id}` -> `training.lessons.update`
+- `DELETE /api/v1/admin/training/performance-indicators/criteria/{criteria_id}` -> `training.lessons.update`
+- `GET /api/v1/admin/training/progression-assignments` -> `training.lessons.read`
+- `POST /api/v1/admin/training/progression-assignments` -> `training.lessons.update`
+- `DELETE /api/v1/admin/training/progression-assignments/{user_id}` -> `training.lessons.update`
 
 Token-based public route:
 

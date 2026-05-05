@@ -150,7 +150,6 @@ struct ControllerTotalsRow {
     first_name: Option<String>,
     last_name: Option<String>,
     rating: Option<String>,
-    session_real_name: Option<String>,
     online_hours: f64,
     delivery_hours: f64,
     ground_hours: f64,
@@ -168,7 +167,6 @@ struct ControllerIdentityRow {
     first_name: Option<String>,
     last_name: Option<String>,
     rating: Option<String>,
-    session_real_name: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -338,7 +336,6 @@ pub async fn get_artcc_stats(
             p.first_name,
             p.last_name,
             coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating,
-            latest.real_name as session_real_name,
             r.online_hours,
             r.delivery_hours,
             r.ground_hours,
@@ -690,8 +687,7 @@ async fn fetch_controller_identity(
             p.display_name,
             p.first_name,
             p.last_name,
-            coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating,
-            latest.real_name as session_real_name
+            coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating
         from (
             select cid, real_name, user_rating, requested_rating
             from stats.controller_sessions
@@ -730,7 +726,6 @@ fn row_to_controller_totals(row: &ControllerTotalsRow) -> ControllerTotals {
             row.display_name.as_deref(),
             row.first_name.as_deref(),
             row.last_name.as_deref(),
-            row.session_real_name.as_deref(),
             row.cid,
         ),
         rating: normalize_rating_code(row.rating.as_deref()),
@@ -750,7 +745,6 @@ fn identity_name(row: &ControllerIdentityRow) -> String {
         row.display_name.as_deref(),
         row.first_name.as_deref(),
         row.last_name.as_deref(),
-        row.session_real_name.as_deref(),
         row.cid,
     )
 }
@@ -783,7 +777,6 @@ fn user_name(
     display_name: Option<&str>,
     first_name: Option<&str>,
     last_name: Option<&str>,
-    session_real_name: Option<&str>,
     cid: i64,
 ) -> String {
     let first = first_name.unwrap_or_default().trim();
@@ -798,12 +791,6 @@ fn user_name(
         && !display_name.trim().is_empty()
     {
         return display_name.to_string();
-    }
-
-    if let Some(session_real_name) = session_real_name
-        && !session_real_name.trim().is_empty()
-    {
-        return session_real_name.to_string();
     }
 
     cid.to_string()
@@ -840,7 +827,7 @@ fn month_name(month: i32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_rating_code;
+    use super::{normalize_rating_code, user_name};
 
     #[test]
     fn normalize_rating_code_returns_short_codes() {
@@ -862,5 +849,39 @@ mod tests {
         );
         assert_eq!(normalize_rating_code(Some("C1")).as_deref(), Some("C1"));
         assert_eq!(normalize_rating_code(Some("")).as_deref(), None);
+    }
+
+    #[test]
+    fn user_name_prefers_joined_first_and_last_name() {
+        assert_eq!(
+            user_name(Some("Display Name"), Some("Jane"), Some("Controller"), 10000001),
+            "Jane Controller"
+        );
+    }
+
+    #[test]
+    fn user_name_uses_non_empty_single_name_part() {
+        assert_eq!(
+            user_name(Some("Display Name"), Some("Jane"), Some("   "), 10000001),
+            "Jane"
+        );
+        assert_eq!(
+            user_name(Some("Display Name"), Some("   "), Some("Controller"), 10000001),
+            "Controller"
+        );
+    }
+
+    #[test]
+    fn user_name_falls_back_to_display_name() {
+        assert_eq!(
+            user_name(Some("Display Name"), Some("   "), Some(""), 10000001),
+            "Display Name"
+        );
+    }
+
+    #[test]
+    fn user_name_falls_back_to_cid_when_identity_name_missing() {
+        assert_eq!(user_name(Some("   "), Some(""), Some(""), 10000001), "10000001");
+        assert_eq!(user_name(None, None, None, 10000001), "10000001");
     }
 }

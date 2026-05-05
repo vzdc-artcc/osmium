@@ -1,0 +1,25 @@
+info:
+  name: update_discord_config
+  type: http
+  seq: 7
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/configs/{{configId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Main Guild Updated",
+        "guild_id": "123456789012345678"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

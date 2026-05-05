@@ -1,0 +1,30 @@
+info:
+  name: list_my_incidents
+  type: http
+  seq: 2
+  tags:
+    - incidents
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/incidents"
+  params:
+    - name: limit
+      value: "25"
+      type: query
+      disabled: true
+    - name: offset
+      value: "0"
+      type: query
+      disabled: true
+    - name: closed
+      value: "false"
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

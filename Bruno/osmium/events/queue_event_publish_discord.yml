@@ -1,0 +1,24 @@
+info:
+  name: queue_event_publish_discord
+  type: http
+  seq: 21
+  tags:
+    - events
+    - integrations
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/publish/discord"
+  body:
+    type: json
+    data: |-
+      {
+        "ping_users": true
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

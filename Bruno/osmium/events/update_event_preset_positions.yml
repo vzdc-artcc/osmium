@@ -1,0 +1,28 @@
+info:
+  name: update_event_preset_positions
+  type: http
+  seq: 18
+  tags:
+    - events
+
+http:
+  method: PUT
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/preset-positions"
+  body:
+    type: json
+    data: |-
+      {
+        "preset_positions": ["DCA_GND", "DCA_TWR", "PCT_APP"]
+      }
+  auth: inherit
+
+runtime:
+  variables:
+    - name: eventId
+      value: 0617d698-4e98-46b9-a10f-452affbea6a4
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -17,7 +17,11 @@ use crate::errors::ApiError;
 
 pub trait RsxTemplate: Send + Sync {
     fn id(&self) -> &'static str;
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError>;
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError>;
 }
 
 static RSX_TEMPLATES: &[&dyn RsxTemplate] = &[
@@ -96,10 +100,17 @@ mod tests {
         ];
 
         for id in expected {
-            assert!(find_rsx_template(id).is_some(), "missing RSX template: {id}");
+            assert!(
+                find_rsx_template(id).is_some(),
+                "missing RSX template: {id}"
+            );
         }
 
-        assert_eq!(RSX_TEMPLATES.len(), expected.len(), "template count mismatch");
+        assert_eq!(
+            RSX_TEMPLATES.len(),
+            expected.len(),
+            "template count mismatch"
+        );
     }
 
     #[test]
@@ -168,8 +179,16 @@ mod tests {
         assert!(result.html.contains("ZDC FNO"));
         assert!(result.html.contains("KDCA Ground"));
         assert!(result.html.contains("Unsubscribe"));
-        assert!(result.html.contains("href=\"https://example.com/events/123\""));
-        assert!(result.html.contains("href=\"https://unsub.example.com/token\""));
+        assert!(
+            result
+                .html
+                .contains("href=\"https://example.com/events/123\"")
+        );
+        assert!(
+            result
+                .html
+                .contains("href=\"https://unsub.example.com/token\"")
+        );
         assert!(result.html.contains("#500e0e"));
         assert!(result.html.contains("vZDC"));
         assert!(result.text.contains("Location: KDCA Ground"));

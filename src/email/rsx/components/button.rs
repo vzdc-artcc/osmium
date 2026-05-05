@@ -1,4 +1,4 @@
-use maud::{html, Markup};
+use maud::{Markup, html};
 
 pub fn cta_button(label: &str, url: &str) -> Markup {
     html! {

@@ -1,0 +1,18 @@
+info:
+  name: delete_performance_indicator_category
+  type: http
+  seq: 45
+  tags:
+    - training
+    - admin
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/training/performance-indicators/categories/{{categoryId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

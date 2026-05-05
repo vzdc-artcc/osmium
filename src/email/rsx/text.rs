@@ -40,7 +40,8 @@ impl TextBuilder {
     pub fn optional_unsubscribe(mut self, link: Option<&str>) -> Self {
         if let Some(url) = link {
             self.lines.push(String::new());
-            self.lines.push(format!("Unsubscribe from this category: {}", url));
+            self.lines
+                .push(format!("Unsubscribe from this category: {}", url));
         }
         self
     }

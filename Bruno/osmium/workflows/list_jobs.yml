@@ -1,0 +1,18 @@
+info:
+  name: list_jobs
+  type: http
+  seq: 21
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/jobs"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

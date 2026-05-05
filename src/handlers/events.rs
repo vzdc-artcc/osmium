@@ -21,6 +21,17 @@ use crate::{
     state::AppState,
 };
 
+fn validate_event_window(
+    starts_at: chrono::DateTime<chrono::Utc>,
+    ends_at: chrono::DateTime<chrono::Utc>,
+) -> Result<(), ApiError> {
+    if ends_at < starts_at {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(())
+}
+
 // List events
 #[utoipa::path(
     get,
@@ -100,6 +111,8 @@ pub async fn create_event(
         PermissionPath::from_segments(["events", "items"], PermissionAction::Create),
     )
     .await?;
+
+    validate_event_window(req.starts_at, req.ends_at)?;
 
     let event_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
@@ -185,6 +198,11 @@ pub async fn update_event(
     .await
     .map_err(|_| ApiError::Internal)?
     .ok_or(ApiError::BadRequest)?;
+
+    validate_event_window(
+        req.starts_at.unwrap_or(before.starts_at),
+        req.ends_at.unwrap_or(before.ends_at),
+    )?;
 
     let event = sqlx::query_as::<_, Event>(
         "UPDATE events.events SET
@@ -302,6 +320,34 @@ pub async fn delete_event(
     .await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+
+    use super::validate_event_window;
+    use crate::errors::ApiError;
+
+    #[test]
+    fn validate_event_window_accepts_equal_or_forward_ranges() {
+        let starts_at = Utc.with_ymd_and_hms(2026, 5, 7, 3, 0, 0).unwrap();
+        let ends_at = Utc.with_ymd_and_hms(2026, 5, 7, 5, 0, 0).unwrap();
+
+        assert!(validate_event_window(starts_at, starts_at).is_ok());
+        assert!(validate_event_window(starts_at, ends_at).is_ok());
+    }
+
+    #[test]
+    fn validate_event_window_rejects_reversed_ranges() {
+        let starts_at = Utc.with_ymd_and_hms(2026, 5, 7, 3, 0, 0).unwrap();
+        let ends_at = Utc.with_ymd_and_hms(2026, 5, 6, 23, 0, 0).unwrap();
+
+        assert!(matches!(
+            validate_event_window(starts_at, ends_at),
+            Err(ApiError::BadRequest)
+        ));
+    }
 }
 
 // List event positions

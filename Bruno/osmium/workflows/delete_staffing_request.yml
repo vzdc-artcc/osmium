@@ -1,0 +1,18 @@
+info:
+  name: delete_staffing_request
+  type: http
+  seq: 15
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/staffing-requests/{{requestId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

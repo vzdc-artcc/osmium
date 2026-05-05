@@ -1,0 +1,27 @@
+info:
+  name: create_progression_step
+  type: http
+  seq: 35
+  tags:
+    - training
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/training/progression-steps"
+  body:
+    type: json
+    data: |-
+      {
+        "progression_id": "progression_uuid",
+        "lesson_id": "lesson_uuid",
+        "sort_order": 10,
+        "optional": false
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

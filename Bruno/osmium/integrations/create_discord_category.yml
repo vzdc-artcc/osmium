@@ -1,0 +1,26 @@
+info:
+  name: create_discord_category
+  type: http
+  seq: 14
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/categories"
+  body:
+    type: json
+    data: |-
+      {
+        "discord_config_id": "config_uuid",
+        "name": "Events",
+        "category_id": "456789012345678901"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,31 @@
+info:
+  name: list_outbound_jobs
+  type: http
+  seq: 18
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/integrations/outbound-jobs"
+  params:
+    - name: status
+      value: pending
+      type: query
+      disabled: true
+    - name: limit
+      value: "50"
+      type: query
+      disabled: true
+    - name: offset
+      value: "0"
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

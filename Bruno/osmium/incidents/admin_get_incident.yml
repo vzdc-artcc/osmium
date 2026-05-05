@@ -1,0 +1,18 @@
+info:
+  name: admin_get_incident
+  type: http
+  seq: 4
+  tags:
+    - incidents
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/incidents/{{incidentId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

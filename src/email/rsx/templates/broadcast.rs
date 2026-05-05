@@ -1,4 +1,4 @@
-use maud::{html, PreEscaped};
+use maud::{PreEscaped, html};
 use serde_json::Value;
 
 use crate::email::rsx::components::EmailLayout;
@@ -51,7 +51,11 @@ impl RsxTemplate for BroadcastPostedTemplate {
         "broadcast.posted"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let title = required_string(payload, "title")?;
         let body_markdown = required_string(payload, "body_markdown")?;
         let preheader = optional_string(payload, "preheader").unwrap_or_else(|| title.clone());
@@ -81,6 +85,10 @@ impl RsxTemplate for BroadcastPostedTemplate {
 
         let text = text.optional_unsubscribe(unsubscribe_link).build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

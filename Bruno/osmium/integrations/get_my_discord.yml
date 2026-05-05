@@ -1,0 +1,17 @@
+info:
+  name: get_my_discord
+  type: http
+  seq: 1
+  tags:
+    - integrations
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/me/discord"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

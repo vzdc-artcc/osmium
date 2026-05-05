@@ -1,0 +1,18 @@
+info:
+  name: run_outbound_jobs
+  type: http
+  seq: 19
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/integrations/outbound-jobs/run"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

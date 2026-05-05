@@ -12,11 +12,10 @@ use crate::{
     errors::ApiError,
     models::{
         EmailAudienceRequest, EmailOutboxDetailResponse, EmailOutboxListItem,
-        EmailOutboxRecipientResponse, EmailPreviewResponse, EmailRecipientsRequest,
-        EmailPreferenceState, EmailPreferenceUpdateItem, EmailPreferencesResponse,
-        EmailPreferencesUpdateRequest, EmailResubscribeRequest, EmailSendRequest,
-        EmailSendResponse, EmailSuppressionRecordResponse,
-        EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
+        EmailOutboxRecipientResponse, EmailPreferenceState, EmailPreferenceUpdateItem,
+        EmailPreferencesResponse, EmailPreferencesUpdateRequest, EmailPreviewResponse,
+        EmailRecipientsRequest, EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
+        EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
     },
     repos::audit,
 };

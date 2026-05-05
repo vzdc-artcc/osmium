@@ -1,0 +1,7 @@
+info:
+  name: integrations
+  type: folder
+  seq: 11
+
+request:
+  auth: inherit
