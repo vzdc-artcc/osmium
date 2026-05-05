@@ -123,6 +123,7 @@ Audience filters only resolve first-party user rows with stored email addresses.
 Suppressions are category-scoped.
 
 - unsubscribe tokens identify the email address and linked category context
+- unsubscribe links send the user to the website UI at `/emails/unsubscribe?token=...`
 - the website UI reads all category states from the API using the token
 - the website UI submits selected subscribed/unsubscribed states back to the API
 - transactional categories are returned for display but cannot be modified
