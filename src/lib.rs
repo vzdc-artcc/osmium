@@ -250,7 +250,7 @@ mod tests {
             "/api/v1/emails/send",
             "/api/v1/emails/outbox",
             "/api/v1/emails/outbox/{id}",
-            "/api/v1/emails/unsubscribe",
+            "/api/v1/emails/preferences",
             "/api/v1/emails/resubscribe",
             "/api/v1/user",
             "/api/v1/user/visitor-application",
@@ -300,7 +300,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn email_unsubscribe_post_is_public_by_token() {
+    async fn email_preferences_get_is_public_by_token() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/emails/preferences?token=invalid")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn email_preferences_post_is_public_by_token() {
         let state = crate::state::AppState::without_db();
         let app = crate::router::build_router(state);
 
@@ -308,9 +326,11 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri("/api/v1/emails/unsubscribe")
+                    .uri("/api/v1/emails/preferences")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"token":"invalid"}"#))
+                    .body(Body::from(
+                        r#"{"token":"invalid","preferences":[{"category":"announcements","subscribed":false}]}"#,
+                    ))
                     .unwrap(),
             )
             .await

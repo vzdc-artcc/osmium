@@ -2,7 +2,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 use crate::errors::ApiError;
@@ -14,6 +14,14 @@ pub struct UnsubscribeTokenClaims {
     pub category: String,
     pub email: String,
     pub user_id: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct SuppressionCategoryRecord {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub is_transactional: bool,
 }
 
 pub fn build_unsubscribe_link(
@@ -34,7 +42,7 @@ pub fn build_unsubscribe_link(
     .ok()?;
 
     Some(format!(
-        "{}/api/v1/emails/unsubscribe?token={}",
+        "{}/emails/unsubscribe?token={}",
         base_url.trim_end_matches('/'),
         urlencoding::encode(&token)
     ))
@@ -99,6 +107,40 @@ pub async fn is_suppressed(pool: &PgPool, category: &str, email: &str) -> Result
     Ok(suppressed)
 }
 
+pub async fn list_suppression_categories(
+    pool: &PgPool,
+) -> Result<Vec<SuppressionCategoryRecord>, ApiError> {
+    sqlx::query_as::<_, SuppressionCategoryRecord>(
+        r#"
+        select id, name, description, is_transactional
+        from email.suppression_categories
+        order by is_transactional desc, id asc
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn list_active_suppressions_for_email(
+    pool: &PgPool,
+    email: &str,
+) -> Result<Vec<String>, ApiError> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        select category_id
+        from email.suppressions
+        where lower(email::text) = lower($1)
+          and revoked_at is null
+        order by category_id asc
+        "#,
+    )
+    .bind(email)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn create_suppression(
     pool: &PgPool,
     claims: &UnsubscribeTokenClaims,
@@ -155,7 +197,10 @@ pub async fn revoke_suppression(
 
 #[cfg(test)]
 mod tests {
-    use super::{UnsubscribeTokenClaims, sign_unsubscribe_token, verify_unsubscribe_token};
+    use super::{
+        UnsubscribeTokenClaims, build_unsubscribe_link, sign_unsubscribe_token,
+        verify_unsubscribe_token,
+    };
 
     #[test]
     fn token_round_trip_is_stable() {
@@ -169,5 +214,20 @@ mod tests {
         assert_eq!(decoded.category, claims.category);
         assert_eq!(decoded.email, claims.email);
         assert_eq!(decoded.user_id, claims.user_id);
+    }
+
+    #[test]
+    fn unsubscribe_link_targets_website_route() {
+        let url = build_unsubscribe_link(
+            "https://vzdc.org/",
+            "secret",
+            "announcements",
+            "user@example.com",
+            Some("user-1"),
+        )
+        .unwrap();
+
+        assert!(url.starts_with("https://vzdc.org/emails/unsubscribe?token="));
+        assert!(!url.contains("/api/v1/emails/unsubscribe"));
     }
 }

@@ -70,6 +70,223 @@ pub fn registry() -> &'static [TemplateDefinition] {
             payload_schema: system_test_schema,
             renderer: render_system_test,
         },
+        // LOA templates
+        TemplateDefinition {
+            id: "loa.approved",
+            name: "LOA Approved",
+            category: "transactional",
+            description: "Leave of Absence approval notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: loa_approved_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "loa.denied",
+            name: "LOA Denied",
+            category: "transactional",
+            description: "Leave of Absence denial notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: loa_denied_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "loa.deleted",
+            name: "LOA Deleted",
+            category: "transactional",
+            description: "Leave of Absence deletion notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: loa_deleted_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "loa.expired",
+            name: "LOA Expired",
+            category: "transactional",
+            description: "Leave of Absence expiration notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: loa_expired_schema,
+            renderer: rsx_stub,
+        },
+        // Training templates
+        TemplateDefinition {
+            id: "training.appointment_scheduled",
+            name: "Appointment Scheduled",
+            category: "training",
+            description: "Training appointment scheduled notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: appointment_scheduled_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "training.appointment_canceled",
+            name: "Appointment Canceled",
+            category: "training",
+            description: "Training appointment cancellation notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: appointment_canceled_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "training.appointment_updated",
+            name: "Appointment Updated",
+            category: "training",
+            description: "Training appointment update notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: appointment_updated_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "training.appointment_warning",
+            name: "Appointment Reminder",
+            category: "training",
+            description: "Training appointment reminder notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: appointment_warning_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "training.session_created",
+            name: "Session Recorded",
+            category: "training",
+            description: "Training session recorded notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: session_created_schema,
+            renderer: rsx_stub,
+        },
+        // Visitor templates
+        TemplateDefinition {
+            id: "visitor.accepted",
+            name: "Visitor Accepted",
+            category: "transactional",
+            description: "Visitor application acceptance notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: visitor_accepted_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "visitor.rejected",
+            name: "Visitor Rejected",
+            category: "transactional",
+            description: "Visitor application rejection notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: visitor_rejected_schema,
+            renderer: rsx_stub,
+        },
+        // Solo templates
+        TemplateDefinition {
+            id: "solo.added",
+            name: "Solo Granted",
+            category: "training",
+            description: "Solo certification granted notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: solo_added_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "solo.deleted",
+            name: "Solo Removed",
+            category: "training",
+            description: "Solo certification removed notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: solo_deleted_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "solo.expired",
+            name: "Solo Expired",
+            category: "training",
+            description: "Solo certification expiration notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: solo_expired_schema,
+            renderer: rsx_stub,
+        },
+        // Feedback template
+        TemplateDefinition {
+            id: "feedback.new",
+            name: "New Feedback",
+            category: "feedback",
+            description: "New feedback received notification",
+            is_transactional: false,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: feedback_new_schema,
+            renderer: rsx_stub,
+        },
+        // Incident template
+        TemplateDefinition {
+            id: "incident.closed",
+            name: "Incident Closed",
+            category: "transactional",
+            description: "Incident report closure notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: incident_closed_schema,
+            renderer: rsx_stub,
+        },
+        // Broadcast template
+        TemplateDefinition {
+            id: "broadcast.posted",
+            name: "Broadcast Posted",
+            category: "announcements",
+            description: "Broadcast announcement notification",
+            is_transactional: false,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: broadcast_posted_schema,
+            renderer: rsx_stub,
+        },
+        // Progression templates
+        TemplateDefinition {
+            id: "progression.assigned",
+            name: "Progression Assigned",
+            category: "training",
+            description: "Training progression assignment notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: progression_assigned_schema,
+            renderer: rsx_stub,
+        },
+        TemplateDefinition {
+            id: "progression.removed",
+            name: "Progression Removed",
+            category: "training",
+            description: "Training progression removal notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: progression_removed_schema,
+            renderer: rsx_stub,
+        },
     ]
 }
 
@@ -129,6 +346,241 @@ fn system_test_schema() -> Value {
             "requested_by": { "type": "string" }
         }
     })
+}
+
+fn loa_approved_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name", "loa_start", "loa_end"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "loa_start": { "type": "string" },
+            "loa_end": { "type": "string" }
+        }
+    })
+}
+
+fn loa_denied_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
+fn loa_deleted_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
+fn loa_expired_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name"],
+        "properties": {
+            "controller_name": { "type": "string" }
+        }
+    })
+}
+
+fn appointment_scheduled_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "trainer_name", "appointment_start"],
+        "properties": {
+            "student_name": { "type": "string" },
+            "trainer_name": { "type": "string" },
+            "appointment_start": { "type": "string" },
+            "details_url": { "type": "string" }
+        }
+    })
+}
+
+fn appointment_canceled_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "trainer_name", "appointment_start"],
+        "properties": {
+            "student_name": { "type": "string" },
+            "trainer_name": { "type": "string" },
+            "appointment_start": { "type": "string" },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
+fn appointment_updated_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "trainer_name", "appointment_start"],
+        "properties": {
+            "student_name": { "type": "string" },
+            "trainer_name": { "type": "string" },
+            "appointment_start": { "type": "string" },
+            "details_url": { "type": "string" }
+        }
+    })
+}
+
+fn appointment_warning_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "trainer_name", "appointment_start"],
+        "properties": {
+            "student_name": { "type": "string" },
+            "trainer_name": { "type": "string" },
+            "appointment_start": { "type": "string" },
+            "warning_message": { "type": "string" }
+        }
+    })
+}
+
+fn session_created_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "trainer_name", "session_date"],
+        "properties": {
+            "student_name": { "type": "string" },
+            "trainer_name": { "type": "string" },
+            "session_date": { "type": "string" },
+            "position": { "type": "string" },
+            "details_url": { "type": "string" }
+        }
+    })
+}
+
+fn visitor_accepted_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["user_name"],
+        "properties": {
+            "user_name": { "type": "string" },
+            "artcc_name": { "type": "string" },
+            "details_url": { "type": "string" }
+        }
+    })
+}
+
+fn visitor_rejected_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["user_name"],
+        "properties": {
+            "user_name": { "type": "string" },
+            "artcc_name": { "type": "string" },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
+fn solo_added_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name", "position", "expires"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "position": { "type": "string" },
+            "expires": { "type": "string" }
+        }
+    })
+}
+
+fn solo_deleted_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name", "position"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "position": { "type": "string" },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
+fn solo_expired_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name", "position"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "position": { "type": "string" }
+        }
+    })
+}
+
+fn feedback_new_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "position": { "type": "string" },
+            "rating": { "type": "string" },
+            "details_url": { "type": "string" }
+        }
+    })
+}
+
+fn incident_closed_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "incident_date": { "type": "string" },
+            "resolution": { "type": "string" }
+        }
+    })
+}
+
+fn broadcast_posted_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["title", "body_markdown"],
+        "properties": {
+            "title": { "type": "string" },
+            "body_markdown": { "type": "string" },
+            "preheader": { "type": "string" },
+            "details_url": { "type": "string" }
+        }
+    })
+}
+
+fn progression_assigned_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name", "progression_name"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "progression_name": { "type": "string" },
+            "details_url": { "type": "string" }
+        }
+    })
+}
+
+fn progression_removed_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name", "progression_name"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "progression_name": { "type": "string" },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
+fn rsx_stub(_payload: &Value, _unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    Err(ApiError::Internal)
 }
 
 fn render_announcement(
@@ -370,12 +822,33 @@ mod tests {
 
     #[test]
     fn registry_contains_expected_templates() {
-        for id in [
+        let expected = [
             "announcements.generic",
             "events.position_published",
             "events.reminder",
             "system.test_email",
-        ] {
+            "loa.approved",
+            "loa.denied",
+            "loa.deleted",
+            "loa.expired",
+            "training.appointment_scheduled",
+            "training.appointment_canceled",
+            "training.appointment_updated",
+            "training.appointment_warning",
+            "training.session_created",
+            "visitor.accepted",
+            "visitor.rejected",
+            "solo.added",
+            "solo.deleted",
+            "solo.expired",
+            "feedback.new",
+            "incident.closed",
+            "broadcast.posted",
+            "progression.assigned",
+            "progression.removed",
+        ];
+
+        for id in expected {
             assert!(find_template(id).is_some(), "missing template: {id}");
         }
     }

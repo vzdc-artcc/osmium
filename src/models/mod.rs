@@ -14,10 +14,11 @@ pub use access::{
 };
 pub use email::{
     EmailAudienceRequest, EmailOutboxDetailResponse, EmailOutboxListItem,
-    EmailOutboxRecipientResponse, EmailPreviewRequest, EmailPreviewResponse,
-    EmailRecipientsRequest, EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
-    EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, EmailUnsubscribeRequest,
-    EmailUnsubscribeResponse, ListEmailOutboxQuery,
+    EmailOutboxRecipientResponse, EmailPreferenceState, EmailPreferenceUpdateItem,
+    EmailPreferencesQuery, EmailPreferencesResponse, EmailPreferencesUpdateRequest,
+    EmailPreviewRequest, EmailPreviewResponse, EmailRecipientsRequest,
+    EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
+    EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
 };
 pub use events::{
     AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,

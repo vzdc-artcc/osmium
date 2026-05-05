@@ -96,7 +96,7 @@ Do not mix `localhost` and `127.0.0.1` during the same login flow.
 | `EMAIL_WORKER_ENABLED` | No | `true` | Enables the durable outbox delivery worker. |
 | `EMAIL_WORKER_INTERVAL_SECS` | No | `5` | Poll interval for pending email jobs. |
 | `EMAIL_WORKER_BATCH_SIZE` | No | `25` | Max outbox jobs claimed per worker pass. |
-| `EMAIL_UNSUBSCRIBE_BASE_URL` | Yes for unsubscribe links | none | Public app base URL used in category unsubscribe links. |
+| `EMAIL_UNSUBSCRIBE_BASE_URL` | Yes for unsubscribe links | none | Public website base URL used to build category unsubscribe links, for example `https://vzdc.org`. |
 | `EMAIL_UNSUBSCRIBE_SECRET` | Yes for unsubscribe links | none | HMAC secret for public unsubscribe tokens. |
 
 ## Docs Behavior

@@ -2,6 +2,7 @@ pub mod audience;
 pub mod config;
 pub mod outbox;
 pub mod render;
+pub mod rsx;
 pub mod service;
 pub mod ses;
 pub mod suppression;

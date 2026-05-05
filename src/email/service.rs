@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -10,9 +13,10 @@ use crate::{
     models::{
         EmailAudienceRequest, EmailOutboxDetailResponse, EmailOutboxListItem,
         EmailOutboxRecipientResponse, EmailPreviewResponse, EmailRecipientsRequest,
-        EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
-        EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, EmailUnsubscribeResponse,
-        ListEmailOutboxQuery,
+        EmailPreferenceState, EmailPreferenceUpdateItem, EmailPreferencesResponse,
+        EmailPreferencesUpdateRequest, EmailResubscribeRequest, EmailSendRequest,
+        EmailSendResponse, EmailSuppressionRecordResponse,
+        EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
     },
     repos::audit,
 };
@@ -24,7 +28,9 @@ use super::{
     render::render_template,
     ses::SesMailer,
     suppression::{
-        create_suppression, is_suppressed, revoke_suppression, verify_unsubscribe_token,
+        SuppressionCategoryRecord, create_suppression, is_suppressed,
+        list_active_suppressions_for_email, list_suppression_categories, revoke_suppression,
+        verify_unsubscribe_token,
     },
     templates::{find_template, registry},
 };
@@ -531,11 +537,11 @@ impl EmailService {
         })
     }
 
-    pub async fn unsubscribe(
+    pub async fn get_preferences(
         &self,
         pool: &PgPool,
         token: &str,
-    ) -> Result<EmailUnsubscribeResponse, ApiError> {
+    ) -> Result<EmailPreferencesResponse, ApiError> {
         self.ensure_available()?;
         let secret = self
             .config
@@ -543,15 +549,42 @@ impl EmailService {
             .as_deref()
             .ok_or(ApiError::ServiceUnavailable)?;
         let claims = verify_unsubscribe_token(secret, token)?;
-        if claims.category == "transactional" {
-            return Err(ApiError::BadRequest);
+        self.build_preferences_response(pool, &claims).await
+    }
+
+    pub async fn update_preferences(
+        &self,
+        pool: &PgPool,
+        request: &EmailPreferencesUpdateRequest,
+    ) -> Result<EmailPreferencesResponse, ApiError> {
+        self.ensure_available()?;
+        let secret = self
+            .config
+            .unsubscribe_secret
+            .as_deref()
+            .ok_or(ApiError::ServiceUnavailable)?;
+        let claims = verify_unsubscribe_token(secret, &request.token)?;
+        let categories = list_suppression_categories(pool).await?;
+        let updates = validate_preference_updates(&categories, &request.preferences)?;
+
+        for update in updates {
+            if update.subscribed {
+                revoke_suppression(pool, &update.category, &claims.email).await?;
+            } else {
+                create_suppression(
+                    pool,
+                    &super::suppression::UnsubscribeTokenClaims {
+                        category: update.category,
+                        email: claims.email.clone(),
+                        user_id: claims.user_id.clone(),
+                    },
+                    "token_preferences",
+                )
+                .await?;
+            }
         }
-        create_suppression(pool, &claims, "token").await?;
-        Ok(EmailUnsubscribeResponse {
-            category: claims.category,
-            email: claims.email,
-            status: "unsubscribed".to_string(),
-        })
+
+        self.build_preferences_response(pool, &claims).await
     }
 
     pub async fn resubscribe(
@@ -565,6 +598,38 @@ impl EmailService {
             category: request.category.clone(),
             email: request.email.clone(),
             status: "active".to_string(),
+        })
+    }
+
+    async fn build_preferences_response(
+        &self,
+        pool: &PgPool,
+        claims: &super::suppression::UnsubscribeTokenClaims,
+    ) -> Result<EmailPreferencesResponse, ApiError> {
+        let categories = list_suppression_categories(pool).await?;
+        let suppressed = list_active_suppressions_for_email(pool, &claims.email)
+            .await?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+
+        Ok(EmailPreferencesResponse {
+            email: claims.email.clone(),
+            linked_category: Some(claims.category.clone()),
+            categories: categories
+                .into_iter()
+                .map(|category| EmailPreferenceState {
+                    subscribed: if category.is_transactional {
+                        true
+                    } else {
+                        !suppressed.contains(&category.id)
+                    },
+                    editable: !category.is_transactional,
+                    id: category.id,
+                    name: category.name,
+                    description: category.description,
+                    is_transactional: category.is_transactional,
+                })
+                .collect(),
         })
     }
 
@@ -641,6 +706,123 @@ impl EmailService {
         } else {
             Err(ApiError::ServiceUnavailable)
         }
+    }
+}
+
+fn validate_preference_updates(
+    categories: &[SuppressionCategoryRecord],
+    preferences: &[EmailPreferenceUpdateItem],
+) -> Result<Vec<EmailPreferenceUpdateItem>, ApiError> {
+    let categories_by_id = categories
+        .iter()
+        .map(|category| (category.id.as_str(), category))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    let mut validated = Vec::with_capacity(preferences.len());
+
+    for preference in preferences {
+        let category = categories_by_id
+            .get(preference.category.as_str())
+            .ok_or(ApiError::BadRequest)?;
+        if !seen.insert(preference.category.as_str()) {
+            return Err(ApiError::BadRequest);
+        }
+        if category.is_transactional && !preference.subscribed {
+            return Err(ApiError::BadRequest);
+        }
+        validated.push(preference.clone());
+    }
+
+    Ok(validated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn category(
+        id: &str,
+        name: &str,
+        description: &str,
+        is_transactional: bool,
+    ) -> SuppressionCategoryRecord {
+        SuppressionCategoryRecord {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: description.to_string(),
+            is_transactional,
+        }
+    }
+
+    #[test]
+    fn preference_updates_reject_unknown_categories() {
+        let categories = vec![category("announcements", "Announcements", "desc", false)];
+        let err = validate_preference_updates(
+            &categories,
+            &[EmailPreferenceUpdateItem {
+                category: "missing".to_string(),
+                subscribed: false,
+            }],
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ApiError::BadRequest));
+    }
+
+    #[test]
+    fn preference_updates_reject_duplicates() {
+        let categories = vec![category("announcements", "Announcements", "desc", false)];
+        let err = validate_preference_updates(
+            &categories,
+            &[
+                EmailPreferenceUpdateItem {
+                    category: "announcements".to_string(),
+                    subscribed: false,
+                },
+                EmailPreferenceUpdateItem {
+                    category: "announcements".to_string(),
+                    subscribed: true,
+                },
+            ],
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ApiError::BadRequest));
+    }
+
+    #[test]
+    fn preference_updates_reject_transactional_unsubscribe() {
+        let categories = vec![category("transactional", "Transactional", "desc", true)];
+        let err = validate_preference_updates(
+            &categories,
+            &[EmailPreferenceUpdateItem {
+                category: "transactional".to_string(),
+                subscribed: false,
+            }],
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ApiError::BadRequest));
+    }
+
+    #[test]
+    fn preference_updates_allow_partial_non_transactional_changes() {
+        let categories = vec![
+            category("transactional", "Transactional", "desc", true),
+            category("announcements", "Announcements", "desc", false),
+        ];
+        let result = validate_preference_updates(
+            &categories,
+            &[EmailPreferenceUpdateItem {
+                category: "announcements".to_string(),
+                subscribed: false,
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].category, "announcements");
+        assert!(!result[0].subscribed);
     }
 }
 

@@ -2,8 +2,7 @@ use axum::{
     Json,
     extract::{Extension, Path, Query, State},
 };
-use http::{HeaderMap, StatusCode};
-use serde::Deserialize;
+use http::HeaderMap;
 
 use crate::{
     auth::{
@@ -14,18 +13,14 @@ use crate::{
     email::service::actor_from_context,
     errors::ApiError,
     models::{
+        EmailPreferencesQuery, EmailPreferencesResponse, EmailPreferencesUpdateRequest,
         EmailPreviewRequest, EmailPreviewResponse, EmailResubscribeRequest, EmailSendRequest,
         EmailSendResponse, EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse,
-        EmailUnsubscribeRequest, EmailUnsubscribeResponse, ListEmailOutboxQuery,
+        ListEmailOutboxQuery,
     },
     repos::audit,
     state::AppState,
 };
-
-#[derive(Debug, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
-pub struct UnsubscribeQuery {
-    pub token: String,
-}
 
 #[utoipa::path(
     get,
@@ -190,36 +185,39 @@ pub async fn get_outbox_detail(
 }
 
 #[utoipa::path(
-    post,
-    path = "/api/v1/emails/unsubscribe",
+    get,
+    path = "/api/v1/emails/preferences",
     tag = "emails",
-    request_body = EmailUnsubscribeRequest,
+    params(EmailPreferencesQuery),
     responses(
-        (status = 200, description = "Unsubscribed", body = EmailUnsubscribeResponse),
+        (status = 200, description = "Email preference state", body = EmailPreferencesResponse),
         (status = 400, description = "Invalid token")
     )
 )]
-pub async fn unsubscribe(
+pub async fn get_preferences(
     State(state): State<AppState>,
-    Json(request): Json<EmailUnsubscribeRequest>,
-) -> Result<Json<EmailUnsubscribeResponse>, ApiError> {
+    Query(query): Query<EmailPreferencesQuery>,
+) -> Result<Json<EmailPreferencesResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    Ok(Json(state.email.unsubscribe(pool, &request.token).await?))
+    Ok(Json(state.email.get_preferences(pool, &query.token).await?))
 }
 
-pub async fn unsubscribe_get(
+#[utoipa::path(
+    post,
+    path = "/api/v1/emails/preferences",
+    tag = "emails",
+    request_body = EmailPreferencesUpdateRequest,
+    responses(
+        (status = 200, description = "Updated email preference state", body = EmailPreferencesResponse),
+        (status = 400, description = "Invalid token or preferences")
+    )
+)]
+pub async fn update_preferences(
     State(state): State<AppState>,
-    Query(query): Query<UnsubscribeQuery>,
-) -> Result<(StatusCode, String), ApiError> {
+    Json(request): Json<EmailPreferencesUpdateRequest>,
+) -> Result<Json<EmailPreferencesResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let response = state.email.unsubscribe(pool, &query.token).await?;
-    Ok((
-        StatusCode::OK,
-        format!(
-            "Email {} unsubscribed from {}.",
-            response.email, response.category
-        ),
-    ))
+    Ok(Json(state.email.update_preferences(pool, &request).await?))
 }
 
 #[utoipa::path(
