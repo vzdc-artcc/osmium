@@ -1,0 +1,25 @@
+info:
+  name: update_progression_step
+  type: http
+  seq: 36
+  tags:
+    - training
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/training/progression-steps/{{stepId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "sort_order": 20,
+        "optional": true
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

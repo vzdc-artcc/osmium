@@ -16,9 +16,9 @@ pub use email::{
     EmailAudienceRequest, EmailOutboxDetailResponse, EmailOutboxListItem,
     EmailOutboxRecipientResponse, EmailPreferenceState, EmailPreferenceUpdateItem,
     EmailPreferencesQuery, EmailPreferencesResponse, EmailPreferencesUpdateRequest,
-    EmailPreviewRequest, EmailPreviewResponse, EmailRecipientsRequest,
-    EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
-    EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
+    EmailPreviewRequest, EmailPreviewResponse, EmailRecipientsRequest, EmailResubscribeRequest,
+    EmailSendRequest, EmailSendResponse, EmailSuppressionRecordResponse,
+    EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
 };
 pub use events::{
     AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,

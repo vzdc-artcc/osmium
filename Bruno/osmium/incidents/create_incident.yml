@@ -1,0 +1,27 @@
+info:
+  name: create_incident
+  type: http
+  seq: 1
+  tags:
+    - incidents
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/incidents"
+  body:
+    type: json
+    data: |-
+      {
+        "reportee_id": "user_uuid",
+        "timestamp": "2026-05-04T20:30:00Z",
+        "reason": "Observed coordination issue on frequency.",
+        "reporter_callsign": "DAL123",
+        "reportee_callsign": "PCT_APP"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

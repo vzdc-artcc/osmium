@@ -1,0 +1,17 @@
+info:
+  name: delete_sua_request
+  type: http
+  seq: 18
+  tags:
+    - workflows
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/sua/{{missionId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

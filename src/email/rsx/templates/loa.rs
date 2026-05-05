@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,7 +34,11 @@ impl RsxTemplate for LoaApprovedTemplate {
         "loa.approved"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let controller_name = required_string(payload, "controller_name")?;
         let loa_start = required_string(payload, "loa_start")?;
         let loa_end = required_string(payload, "loa_end")?;
@@ -71,7 +75,11 @@ impl RsxTemplate for LoaApprovedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -82,7 +90,11 @@ impl RsxTemplate for LoaDeniedTemplate {
         "loa.denied"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
         let reason = optional_string(payload, "reason");
 
@@ -107,8 +119,7 @@ impl RsxTemplate for LoaDeniedTemplate {
             .render(body, None)
             .into_string();
 
-        let mut text = TextBuilder::new()
-            .line("Your Leave of Absence request has been denied.");
+        let mut text = TextBuilder::new().line("Your Leave of Absence request has been denied.");
 
         if let Some(ref r) = reason {
             text = text.blank().line(&format!("Reason: {r}"));
@@ -120,7 +131,11 @@ impl RsxTemplate for LoaDeniedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -131,7 +146,11 @@ impl RsxTemplate for LoaDeletedTemplate {
         "loa.deleted"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
         let reason = optional_string(payload, "reason");
 
@@ -157,8 +176,7 @@ impl RsxTemplate for LoaDeletedTemplate {
             .render(body, None)
             .into_string();
 
-        let mut text = TextBuilder::new()
-            .line("Your Leave of Absence has been deleted by staff.");
+        let mut text = TextBuilder::new().line("Your Leave of Absence has been deleted by staff.");
 
         if let Some(ref r) = reason {
             text = text.blank().line(&format!("Reason: {r}"));
@@ -170,7 +188,11 @@ impl RsxTemplate for LoaDeletedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -181,7 +203,11 @@ impl RsxTemplate for LoaExpiredTemplate {
         "loa.expired"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
 
         let subject = "Your LOA has expired".to_string();
@@ -209,6 +235,10 @@ impl RsxTemplate for LoaExpiredTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

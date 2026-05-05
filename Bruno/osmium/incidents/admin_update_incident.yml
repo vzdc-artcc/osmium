@@ -1,0 +1,25 @@
+info:
+  name: admin_update_incident
+  type: http
+  seq: 5
+  tags:
+    - incidents
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/incidents/{{incidentId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "closed": true,
+        "resolution": "Reviewed with the controller and closed."
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,17 @@
+info:
+  name: delete_event_tmi
+  type: http
+  seq: 16
+  tags:
+    - events
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/tmis/{{tmiId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

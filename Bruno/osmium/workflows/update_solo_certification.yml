@@ -1,0 +1,25 @@
+info:
+  name: update_solo_certification
+  type: http
+  seq: 10
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/solo-certifications/{{soloId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "position": "IAD_APP",
+        "expires": "2026-06-15T00:00:00Z"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

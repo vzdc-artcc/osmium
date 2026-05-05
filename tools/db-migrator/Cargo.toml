@@ -1,0 +1,17 @@
+[package]
+name = "db-migrator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+chrono = { version = "0.4.44", features = ["serde"] }
+clap = { version = "4.5.51", features = ["derive", "env"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-native-tls", "chrono"] }
+tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
+uuid = { version = "1.23.1", features = ["v4", "serde"] }

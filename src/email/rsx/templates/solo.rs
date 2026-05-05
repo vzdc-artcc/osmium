@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,7 +34,11 @@ impl RsxTemplate for SoloAddedTemplate {
         "solo.added"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let controller_name = required_string(payload, "controller_name")?;
         let position = required_string(payload, "position")?;
         let expires = required_string(payload, "expires")?;
@@ -73,7 +77,11 @@ impl RsxTemplate for SoloAddedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -84,7 +92,11 @@ impl RsxTemplate for SoloDeletedTemplate {
         "solo.deleted"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
         let position = required_string(payload, "position")?;
         let reason = optional_string(payload, "reason");
@@ -114,8 +126,9 @@ impl RsxTemplate for SoloDeletedTemplate {
             .render(body, None)
             .into_string();
 
-        let mut text = TextBuilder::new()
-            .line(&format!("Your solo certification for {position} has been removed."));
+        let mut text = TextBuilder::new().line(&format!(
+            "Your solo certification for {position} has been removed."
+        ));
 
         if let Some(ref r) = reason {
             text = text.blank().line(&format!("Reason: {r}"));
@@ -127,7 +140,11 @@ impl RsxTemplate for SoloDeletedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -138,7 +155,11 @@ impl RsxTemplate for SoloExpiredTemplate {
         "solo.expired"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
         let position = required_string(payload, "position")?;
 
@@ -163,12 +184,20 @@ impl RsxTemplate for SoloExpiredTemplate {
             .into_string();
 
         let text = TextBuilder::new()
-            .line(&format!("Your solo certification for {position} has expired."))
+            .line(&format!(
+                "Your solo certification for {position} has expired."
+            ))
             .blank()
-            .line("Please contact your training staff to discuss next steps for your certification.")
+            .line(
+                "Please contact your training staff to discuss next steps for your certification.",
+            )
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

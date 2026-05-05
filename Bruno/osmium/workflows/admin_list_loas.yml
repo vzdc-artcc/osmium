@@ -1,0 +1,35 @@
+info:
+  name: admin_list_loas
+  type: http
+  seq: 4
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/loa"
+  params:
+    - name: limit
+      value: "25"
+      type: query
+      disabled: true
+    - name: offset
+      value: "0"
+      type: query
+      disabled: true
+    - name: status
+      value: APPROVED
+      type: query
+      disabled: true
+    - name: cid
+      value: ""
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

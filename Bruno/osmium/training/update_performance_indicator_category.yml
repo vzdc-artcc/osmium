@@ -1,0 +1,25 @@
+info:
+  name: update_performance_indicator_category
+  type: http
+  seq: 44
+  tags:
+    - training
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/training/performance-indicators/categories/{{categoryId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Coordination and Handoffs",
+        "sort_order": 20
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

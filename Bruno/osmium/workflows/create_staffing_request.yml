@@ -1,0 +1,24 @@
+info:
+  name: create_staffing_request
+  type: http
+  seq: 13
+  tags:
+    - workflows
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/staffing-requests/me"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "More evening mentors",
+        "description": "Need additional staffing for tower mentoring."
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

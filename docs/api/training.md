@@ -22,6 +22,11 @@ Lesson routes now cover:
 
 - lesson lookup for session submission
 - lesson create, update, and delete
+- progression CRUD
+- progression-step CRUD
+- performance-indicator template/category/criteria CRUD
+- manual progression assignment and removal
+- dossier reads by CID
 
 Training appointment routes now cover:
 
@@ -46,6 +51,13 @@ Training appointment routes now cover:
 - `/api/v1/training/assignment-requests/{request_id}/interest`
 - `/api/v1/training/trainer-release-requests`
 - `/api/v1/training/trainer-release-requests/{request_id}`
+- `/api/v1/admin/training/progressions`
+- `/api/v1/admin/training/progression-steps`
+- `/api/v1/admin/training/performance-indicators/templates`
+- `/api/v1/admin/training/performance-indicators/categories`
+- `/api/v1/admin/training/performance-indicators/criteria`
+- `/api/v1/admin/training/progression-assignments`
+- `/api/v1/users/{cid}/dossier`
 
 ## Permissions
 
@@ -56,6 +68,73 @@ Training appointment routes now cover:
 - moderation and destructive routes require `training.manage`
 - `training.manage` is the umbrella training permission and also satisfies the read/create/update checks above
 - a normal authenticated user can create their own assignment or release requests and mark interest where allowed
+
+## Training Admin Notes
+
+- progression routes return the current progression catalog and allow create, update, and delete operations
+- progression step routes manage lesson ordering within a progression
+- performance-indicator template, category, and criteria routes are the backend-owned config surface for scoring policy
+- progression assignment routes bind users to progressions using `user_id` and `progression_id`
+- dossier reads are exposed through `GET /api/v1/users/{cid}/dossier`
+
+Example progression create body:
+
+```json
+{
+  "name": "Tower Progression",
+  "next_progression_id": null,
+  "auto_assign_new_home_obs": true,
+  "auto_assign_new_visitor": false
+}
+```
+
+Example progression-step create body:
+
+```json
+{
+  "progression_id": "progression_uuid",
+  "lesson_id": "lesson_uuid",
+  "sort_order": 10,
+  "optional": false
+}
+```
+
+Example performance-indicator template create body:
+
+```json
+{
+  "name": "Tower Rubric v2"
+}
+```
+
+Example category create body:
+
+```json
+{
+  "template_id": "template_uuid",
+  "name": "Coordination",
+  "sort_order": 10
+}
+```
+
+Example criteria create body:
+
+```json
+{
+  "category_id": "category_uuid",
+  "name": "Completes handoff on time",
+  "sort_order": 10
+}
+```
+
+Example progression-assignment create body:
+
+```json
+{
+  "user_id": "user_uuid",
+  "progression_id": "progression_uuid"
+}
+```
 
 ## Appointment Notes
 

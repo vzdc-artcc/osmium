@@ -1,0 +1,17 @@
+info:
+  name: list_my_loas
+  type: http
+  seq: 1
+  tags:
+    - workflows
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/loa/me"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

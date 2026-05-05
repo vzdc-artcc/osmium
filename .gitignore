@@ -1,3 +1,6 @@
 /target
 .env
 .idea
+/tools/api-load-tester/target/
+/tools/api-load-tester/reports
+/tools/db-migrator/target/

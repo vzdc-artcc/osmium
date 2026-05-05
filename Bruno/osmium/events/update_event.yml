@@ -10,21 +10,22 @@ http:
   url: "{{baseUrl}}/api/v1/events/:event_id"
   params:
     - name: event_id
-      value: ""
+      value: 0617d698-4e98-46b9-a10f-452affbea6a4
       type: path
       description: Event ID
   body:
     type: json
     data: |-
       {
-        "description": "",
-        "ends_at": "",
-        "event_type": "",
-        "host": "",
-        "published": "",
-        "starts_at": "",
-        "status": "",
-        "title": ""
+        //"description": "",
+        //"ends_at": "",
+        //"event_type": "",
+        //"host": "",
+        "published": true,
+        //"starts_at": "",
+        "status": "PUBLISHED"
+        
+        //"title": ""
       }
   auth: inherit
 

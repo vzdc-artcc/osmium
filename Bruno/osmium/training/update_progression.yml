@@ -1,0 +1,25 @@
+info:
+  name: update_progression
+  type: http
+  seq: 32
+  tags:
+    - training
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/training/progressions/{{progressionId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Tower Progression Updated",
+        "auto_assign_new_home_obs": true
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

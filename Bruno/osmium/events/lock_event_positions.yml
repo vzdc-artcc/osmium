@@ -1,0 +1,17 @@
+info:
+  name: lock_event_positions
+  type: http
+  seq: 19
+  tags:
+    - events
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/positions/lock"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

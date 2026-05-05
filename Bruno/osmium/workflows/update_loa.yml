@@ -1,0 +1,25 @@
+info:
+  name: update_loa
+  type: http
+  seq: 3
+  tags:
+    - workflows
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/loa/{{loaId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "start": "2026-05-21T00:00:00Z",
+        "end": "2026-05-31T00:00:00Z",
+        "reason": "Updated travel dates"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

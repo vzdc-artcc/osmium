@@ -1,0 +1,17 @@
+info:
+  name: list_my_sua_requests
+  type: http
+  seq: 16
+  tags:
+    - workflows
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/sua/me"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

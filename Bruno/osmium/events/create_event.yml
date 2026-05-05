@@ -11,13 +11,13 @@ http:
   body:
     type: json
     data: |-
-      {  
-        "description": "string",
-        "ends_at": "2026-05-04T22:14:04.123Z",
+      {
+        "description": "description!",
+        "ends_at": "2026-05-07T07:00:00.123Z",
         "event_type": "HOME",
         "host": "ZDC",
-        "starts_at": "2026-05-04T22:14:04.123Z",
-        "title": "string"
+        "starts_at": "2026-05-07T03:00:00.123Z",
+        "title": "Raleigh Spring Festival"
       }
   auth: inherit
 

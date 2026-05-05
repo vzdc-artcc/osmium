@@ -1,0 +1,26 @@
+info:
+  name: create_discord_channel
+  type: http
+  seq: 8
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/channels"
+  body:
+    type: json
+    data: |-
+      {
+        "discord_config_id": "config_uuid",
+        "name": "announcements",
+        "channel_id": "234567890123456789"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,4 +1,4 @@
-use maud::{html, Markup};
+use maud::{Markup, html};
 
 pub fn email_footer(unsubscribe_link: Option<&str>) -> Markup {
     html! {

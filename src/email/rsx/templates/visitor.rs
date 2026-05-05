@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,9 +34,14 @@ impl RsxTemplate for VisitorAcceptedTemplate {
         "visitor.accepted"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let user_name = required_string(payload, "user_name")?;
-        let artcc_name = optional_string(payload, "artcc_name").unwrap_or_else(|| "the facility".to_string());
+        let artcc_name =
+            optional_string(payload, "artcc_name").unwrap_or_else(|| "the facility".to_string());
         let details_url = optional_string(payload, "details_url");
 
         let subject = format!("Welcome to {artcc_name}!");
@@ -60,7 +65,9 @@ impl RsxTemplate for VisitorAcceptedTemplate {
         let cta = details_url.as_deref().map(|url| ("View your profile", url));
 
         let html = EmailLayout::new(&subject)
-            .preheader(&format!("{user_name}, your visitor application was accepted"))
+            .preheader(&format!(
+                "{user_name}, your visitor application was accepted"
+            ))
             .heading("Application Accepted")
             .unsubscribe_link(unsubscribe_link)
             .render(body, cta)
@@ -79,7 +86,11 @@ impl RsxTemplate for VisitorAcceptedTemplate {
 
         let text = text.optional_unsubscribe(unsubscribe_link).build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }
 
@@ -90,9 +101,14 @@ impl RsxTemplate for VisitorRejectedTemplate {
         "visitor.rejected"
     }
 
-    fn render(&self, payload: &Value, unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let _user_name = required_string(payload, "user_name")?;
-        let artcc_name = optional_string(payload, "artcc_name").unwrap_or_else(|| "the facility".to_string());
+        let artcc_name =
+            optional_string(payload, "artcc_name").unwrap_or_else(|| "the facility".to_string());
         let reason = optional_string(payload, "reason");
 
         let subject = "Visitor application not accepted".to_string();
@@ -134,6 +150,10 @@ impl RsxTemplate for VisitorRejectedTemplate {
             .optional_unsubscribe(unsubscribe_link)
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

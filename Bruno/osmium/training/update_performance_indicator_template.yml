@@ -1,0 +1,24 @@
+info:
+  name: update_performance_indicator_template
+  type: http
+  seq: 40
+  tags:
+    - training
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/training/performance-indicators/templates/{{templateId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Tower Rubric v3"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

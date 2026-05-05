@@ -1,0 +1,18 @@
+info:
+  name: list_discord_configs
+  type: http
+  seq: 5
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/configs"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

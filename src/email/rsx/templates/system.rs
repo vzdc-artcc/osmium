@@ -1,7 +1,7 @@
 use maud::html;
 use serde_json::Value;
 
-use crate::email::rsx::components::{callout, EmailLayout};
+use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
@@ -34,7 +34,11 @@ impl RsxTemplate for SystemTestTemplate {
         "system.test_email"
     }
 
-    fn render(&self, payload: &Value, _unsubscribe_link: Option<&str>) -> Result<RenderedEmail, ApiError> {
+    fn render(
+        &self,
+        payload: &Value,
+        _unsubscribe_link: Option<&str>,
+    ) -> Result<RenderedEmail, ApiError> {
         let message = required_string(payload, "message")?;
         let requested_by = optional_string(payload, "requested_by");
 
@@ -60,6 +64,10 @@ impl RsxTemplate for SystemTestTemplate {
             .optional_section("Requested by", requested_by.as_deref())
             .build();
 
-        Ok(RenderedEmail { subject, html, text })
+        Ok(RenderedEmail {
+            subject,
+            html,
+            text,
+        })
     }
 }

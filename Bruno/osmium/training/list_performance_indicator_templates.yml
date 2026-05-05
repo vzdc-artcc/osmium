@@ -1,0 +1,18 @@
+info:
+  name: list_performance_indicator_templates
+  type: http
+  seq: 38
+  tags:
+    - training
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/training/performance-indicators/templates"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

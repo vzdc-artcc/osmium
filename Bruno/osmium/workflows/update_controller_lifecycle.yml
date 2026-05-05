@@ -1,0 +1,26 @@
+info:
+  name: update_controller_lifecycle
+  type: http
+  seq: 20
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/users/{{cid}}/controller-lifecycle"
+  body:
+    type: json
+    data: |-
+      {
+        "controller_status": "NONE",
+        "artcc": null,
+        "cleanup_on_none": true
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

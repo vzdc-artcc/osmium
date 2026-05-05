@@ -1,0 +1,18 @@
+info:
+  name: list_progressions
+  type: http
+  seq: 30
+  tags:
+    - training
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/training/progressions"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

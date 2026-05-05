@@ -1,0 +1,25 @@
+info:
+  name: create_loa
+  type: http
+  seq: 2
+  tags:
+    - workflows
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/loa/me"
+  body:
+    type: json
+    data: |-
+      {
+        "start": "2026-05-20T00:00:00Z",
+        "end": "2026-05-30T00:00:00Z",
+        "reason": "Travel"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

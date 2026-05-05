@@ -1,0 +1,18 @@
+info:
+  name: delete_discord_channel
+  type: http
+  seq: 10
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/integrations/discord/channels/{{channelId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

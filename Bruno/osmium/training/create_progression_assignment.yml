@@ -1,0 +1,25 @@
+info:
+  name: create_progression_assignment
+  type: http
+  seq: 51
+  tags:
+    - training
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/training/progression-assignments"
+  body:
+    type: json
+    data: |-
+      {
+        "user_id": "user_uuid",
+        "progression_id": "progression_uuid"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,25 @@
+info:
+  name: decide_loa
+  type: http
+  seq: 5
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/loa/{{loaId}}/decision"
+  body:
+    type: json
+    data: |-
+      {
+        "status": "APPROVED",
+        "reason": "Approved"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

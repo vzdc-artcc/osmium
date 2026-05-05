@@ -1,0 +1,17 @@
+info:
+  name: list_my_staffing_requests
+  type: http
+  seq: 12
+  tags:
+    - workflows
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/staffing-requests/me"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

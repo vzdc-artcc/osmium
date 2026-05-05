@@ -1,0 +1,27 @@
+info:
+  name: create_solo_certification
+  type: http
+  seq: 9
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/solo-certifications"
+  body:
+    type: json
+    data: |-
+      {
+        "user_id": "user_uuid",
+        "certification_type_id": "cert_type_uuid",
+        "position": "DCA_GND",
+        "expires": "2026-06-01T00:00:00Z"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

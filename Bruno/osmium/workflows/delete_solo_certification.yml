@@ -1,0 +1,18 @@
+info:
+  name: delete_solo_certification
+  type: http
+  seq: 11
+  tags:
+    - workflows
+    - admin
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/solo-certifications/{{soloId}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

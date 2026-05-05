@@ -1,0 +1,25 @@
+info:
+  name: create_event_tmi
+  type: http
+  seq: 14
+  tags:
+    - events
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/events/{{eventId}}/tmis"
+  body:
+    type: json
+    data: |-
+      {
+        "tmi_type": "MIT",
+        "start_time": "2026-05-20T18:00:00Z",
+        "notes": "Expect traffic compression after 1800Z."
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

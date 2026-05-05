@@ -1,0 +1,28 @@
+info:
+  name: queue_announcement
+  type: http
+  seq: 17
+  tags:
+    - integrations
+    - admin
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/notifications/announcements"
+  body:
+    type: json
+    data: |-
+      {
+        "title": "Training Freeze",
+        "body_markdown": "Training is paused for maintenance tonight.",
+        "details_url": "https://example.test/announcements/training-freeze",
+        "send_email": true,
+        "send_discord": true
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

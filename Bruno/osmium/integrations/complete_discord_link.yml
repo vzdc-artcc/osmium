@@ -1,0 +1,25 @@
+info:
+  name: complete_discord_link
+  type: http
+  seq: 3
+  tags:
+    - integrations
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/me/discord/link/complete"
+  body:
+    type: json
+    data: |-
+      {
+        "code": "oauth_code",
+        "state": "oauth_state_token",
+        "redirect_uri": "http://localhost:3000/discord/callback"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

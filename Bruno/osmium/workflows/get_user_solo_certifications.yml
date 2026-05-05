@@ -1,0 +1,17 @@
+info:
+  name: get_user_solo_certifications
+  type: http
+  seq: 7
+  tags:
+    - workflows
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/users/{{cid}}/solo-certifications"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

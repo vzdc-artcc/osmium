@@ -1,0 +1,18 @@
+info:
+  name: list_performance_indicator_criteria
+  type: http
+  seq: 46
+  tags:
+    - training
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/training/performance-indicators/criteria"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
