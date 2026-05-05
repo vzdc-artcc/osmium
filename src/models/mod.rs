@@ -1,4 +1,5 @@
 pub mod access;
+pub mod email;
 pub mod events;
 pub mod feedback;
 pub mod media;
@@ -7,8 +8,16 @@ pub mod users;
 pub mod web;
 
 pub use access::{
-    AccessCatalogBody, AclDebugBody, AuditLogItem, ListAuditLogsQuery, PermissionInput,
-    PermissionOverrideInput, ServiceAccountSessionBody, UpdateUserAccessRequest, UserAccessBody,
+    AccessCatalogBody, AclDebugBody, ApiKeyDetail, ApiKeyListItem, AuditLogItem,
+    CreateApiKeyRequest, CreateApiKeyResponse, ListAuditLogsQuery, ServiceAccountSessionBody,
+    UpdateApiKeyRequest, UpdateUserAccessRequest, UserAccessBody,
+};
+pub use email::{
+    EmailAudienceRequest, EmailOutboxDetailResponse, EmailOutboxListItem,
+    EmailOutboxRecipientResponse, EmailPreviewRequest, EmailPreviewResponse,
+    EmailRecipientsRequest, EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
+    EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, EmailUnsubscribeRequest,
+    EmailUnsubscribeResponse, ListEmailOutboxQuery,
 };
 pub use events::{
     AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
@@ -23,25 +32,30 @@ pub use web::{
 };
 
 pub use training::{
-    ApiMessage, CreateOrUpdateTrainingSessionResult, CreateRubricScoreRequest,
-    CreateTrainerReleaseRequestRequest, CreateTrainingAssignmentRequest,
-    CreateTrainingAssignmentRequestRequest, CreateTrainingLessonRequest,
-    CreateTrainingSessionPerformanceIndicatorCategoryRequest,
+    ApiMessage, CreateOrUpdateTrainingSessionResult, CreateOtsRecommendationRequest,
+    CreateRubricScoreRequest, CreateTrainerReleaseRequestRequest, CreateTrainingAppointmentRequest,
+    CreateTrainingAssignmentRequest, CreateTrainingAssignmentRequestRequest,
+    CreateTrainingLessonRequest, CreateTrainingSessionPerformanceIndicatorCategoryRequest,
     CreateTrainingSessionPerformanceIndicatorCriteriaRequest,
     CreateTrainingSessionPerformanceIndicatorRequest, CreateTrainingSessionRequest,
     CreateTrainingTicketRequest, DecideTrainerReleaseRequestRequest,
-    DecideTrainingAssignmentRequestRequest, LessonRosterChangeSummary, ListTrainingSessionsQuery,
-    OtsRecommendationSummary, RubricScoreDetail, TrainerReleaseRequest, TrainingAssignment,
+    DecideTrainingAssignmentRequestRequest, LessonRosterChangeSummary,
+    ListTrainingAppointmentsQuery, ListTrainingSessionsQuery, OtsRecommendationSummary,
+    RubricScoreDetail, TrainerReleaseRequest, TrainingAppointmentDetail,
+    TrainingAppointmentLessonSummary, TrainingAppointmentListItem, TrainingAssignment,
     TrainingAssignmentRequest, TrainingLesson, TrainingSessionDetail, TrainingSessionListItem,
     TrainingSessionPerformanceIndicatorCategoryDetail,
     TrainingSessionPerformanceIndicatorCriteriaDetail, TrainingSessionPerformanceIndicatorDetail,
-    TrainingTicketDetail, UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
+    TrainingTicketDetail, UpdateOtsRecommendationRequest, UpdateTrainingAppointmentRequest,
+    UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
 };
 
 pub use users::{
-    AdminUserListItem, CreateVisitorApplicationRequest, DecideVisitorApplicationRequest,
-    ListUsersQuery, ListVisitorApplicationsQuery, RosterUserRow, SetControllerStatusBody,
-    SetControllerStatusRequest, UserBasicInfo, UserDetailsResponse, UserFeedbackQuery,
-    UserFullInfo, UserListItem, UserOverviewBody, UserPrivateInfo, UserStats, VisitArtccRequest,
-    VisitArtccResponse, VisitorApplicationItem,
+    AdminUserListItem, CreateTeamSpeakUidRequest, CreateVisitorApplicationRequest,
+    DecideVisitorApplicationRequest, ListUsersQuery, ListVisitorApplicationsQuery,
+    ManualVatusaRefreshOutcome, ManualVatusaRefreshResponse, ManualVatusaRefreshResult, MeBody,
+    MeProfileBody, PatchMeRequest, RosterUserRow, SetControllerStatusBody,
+    SetControllerStatusRequest, TeamSpeakUidBody, UserBasicInfo, UserDetailsResponse,
+    UserFeedbackQuery, UserFullInfo, UserListItem, UserOverviewBody, UserPrivateInfo, UserStats,
+    VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
 };

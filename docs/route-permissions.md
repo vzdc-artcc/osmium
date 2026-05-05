@@ -1,0 +1,113 @@
+# Route Permissions
+
+Public-by-policy routes:
+
+- `GET /health`
+- `GET /ready`
+- `GET /docs`
+- `GET /docs/{section}/{page}`
+- `GET /docs/health`
+- `GET /cdn/{file_id}`
+- `GET /api/v1/events`
+- `GET /api/v1/events/{event_id}`
+- `GET /api/v1/events/{event_id}/positions`
+- `GET /api/v1/publications`
+- `GET /api/v1/publications/{publication_id}`
+- `GET /api/v1/publications/categories`
+- `GET /api/v1/stats/artcc`
+- `GET /api/v1/stats/controller-events`
+- `GET /api/v1/stats/controller/{cid}/history`
+- `GET /api/v1/stats/controller/{cid}/totals`
+
+Permission-gated routes:
+
+- `GET /api/v1/me` -> `auth.profile.read`
+- `PATCH /api/v1/me` -> `auth.profile.update`
+- `GET /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.read`
+- `POST /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.create`
+- `DELETE /api/v1/me/teamspeak-uids/{identity_id}` -> `auth.teamspeak_uids.delete`
+- `POST /api/v1/auth/logout` -> `auth.sessions.delete`
+- `GET /api/v1/auth/login/as/{cid}` -> `auth.dev_login.create` plus dev-mode gate
+- `GET /api/v1/emails/templates` -> `emails.templates.read`
+- `POST /api/v1/emails/preview` -> `emails.preview.create`
+- `POST /api/v1/emails/send` -> `emails.send.create`
+- `GET /api/v1/emails/outbox` -> `emails.outbox.read`
+- `GET /api/v1/emails/outbox/{id}` -> `emails.outbox.read`
+- `POST /api/v1/emails/resubscribe` -> `emails.suppressions.update`
+- `GET /api/v1/admin/acl` -> `access.self.read`
+- `GET /api/v1/admin/access/catalog` -> `access.catalog.read`
+- `GET /api/v1/admin/users/{cid}/access` -> `access.users.read`
+- `POST /api/v1/admin/users/{cid}/access` -> `access.users.update`
+- `GET /api/v1/admin/audit` -> `audit.logs.read`
+- `PATCH /api/v1/admin/users/{cid}/controller-status` -> `users.controller_status.update`
+- `POST /api/v1/admin/users/{cid}/refresh-vatusa` -> `users.vatusa_refresh.request`
+- `GET /api/v1/admin/visitor-applications` -> `users.visitor_applications.read`
+- `PATCH /api/v1/admin/visitor-applications/{application_id}` -> `users.visitor_applications.decide`
+- `GET /api/v1/admin/publications` -> `publications.items.read`
+- `POST /api/v1/admin/publications` -> `publications.items.create`
+- `GET /api/v1/admin/publications/{publication_id}` -> `publications.items.read`
+- `PATCH /api/v1/admin/publications/{publication_id}` -> `publications.items.update`
+- `DELETE /api/v1/admin/publications/{publication_id}` -> `publications.items.delete`
+- `GET /api/v1/admin/publications/categories` -> `publications.categories.read`
+- `POST /api/v1/admin/publications/categories` -> `publications.categories.create`
+- `PATCH /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.update`
+- `DELETE /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.delete`
+- `GET /api/v1/user` -> `users.directory.read`
+- `GET /api/v1/user/{cid}` -> `auth.profile.read` for self, `users.directory.read` for other users, `users.directory_private.read` for private fields
+- `GET /api/v1/user/{cid}/feedback` -> `feedback.items.self.read` for self, `users.directory_private.read` for other users
+- `POST /api/v1/user/refresh-vatusa` -> `users.vatusa_refresh.self.request`
+- `POST /api/v1/user/visit-artcc` -> `users.visit_artcc.request`
+- `GET /api/v1/user/visitor-application` -> `users.visitor_applications.self.read`
+- `POST /api/v1/user/visitor-application` -> `users.visitor_applications.self.request`
+- `POST /api/v1/events` -> `events.items.create`
+- `PATCH /api/v1/events/{event_id}` -> `events.items.update`
+- `DELETE /api/v1/events/{event_id}` -> `events.items.delete`
+- `POST /api/v1/events/{event_id}/positions` -> `events.positions.self.request`
+- `PATCH /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.assign`
+- `DELETE /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.delete`
+- `POST /api/v1/events/{event_id}/positions/publish` -> `events.positions.publish`
+- `POST /api/v1/feedback` -> `feedback.items.create`
+- `GET /api/v1/feedback` -> `feedback.items.read` for full list, `feedback.items.self.read` for own list
+- `PATCH /api/v1/feedback/{feedback_id}` -> `feedback.items.decide`
+- `GET /api/v1/admin/files/audit` -> `files.audit.read`
+- `GET /api/v1/files` -> `files.assets.read`
+- `POST /api/v1/files` -> `files.assets.create` and `files.content.create`
+- `GET /api/v1/files/{file_id}` -> `files.assets.read`
+- `PATCH /api/v1/files/{file_id}` -> `files.assets.update` for metadata, `files.assets.policy.update` for policy
+- `DELETE /api/v1/files/{file_id}` -> `files.assets.delete`
+- `GET /api/v1/files/{file_id}/content` -> `files.content.read`
+- `PUT /api/v1/files/{file_id}/content` -> `files.content.update`
+- `GET /api/v1/files/{file_id}/signed-url` -> `files.content.read`
+- `GET /api/v1/training/assignments` -> `training.assignments.read`
+- `POST /api/v1/training/assignments` -> `training.assignments.create`
+- `GET /api/v1/training/ots-recommendations` -> `training.ots_recommendations.read`
+- `POST /api/v1/training/ots-recommendations` -> `training.ots_recommendations.create`
+- `PATCH /api/v1/training/ots-recommendations/{recommendation_id}` -> `training.ots_recommendations.update`
+- `DELETE /api/v1/training/ots-recommendations/{recommendation_id}` -> `training.ots_recommendations.delete`
+- `GET /api/v1/training/lessons` -> `training.lessons.read`
+- `POST /api/v1/training/lessons` -> `training.lessons.create`
+- `PATCH /api/v1/training/lessons/{lesson_id}` -> `training.lessons.update`
+- `DELETE /api/v1/training/lessons/{lesson_id}` -> `training.lessons.delete`
+- `GET /api/v1/training/appointments` -> `training.appointments.read`
+- `GET /api/v1/training/appointments/{appointment_id}` -> `training.appointments.read`
+- `POST /api/v1/training/appointments` -> `training.appointments.create`
+- `PATCH /api/v1/training/appointments/{appointment_id}` -> `training.appointments.update`
+- `DELETE /api/v1/training/appointments/{appointment_id}` -> `training.appointments.delete`
+- `GET /api/v1/training/sessions` -> `training.sessions.read`
+- `GET /api/v1/training/sessions/{session_id}` -> `training.sessions.read`
+- `POST /api/v1/training/sessions` -> `training.sessions.create`
+- `PATCH /api/v1/training/sessions/{session_id}` -> `training.sessions.update`
+- `DELETE /api/v1/training/sessions/{session_id}` -> `training.sessions.delete`
+- `GET /api/v1/training/assignment-requests` -> `training.assignment_requests.read`
+- `POST /api/v1/training/assignment-requests` -> `training.assignment_requests.self.request`
+- `PATCH /api/v1/training/assignment-requests/{request_id}` -> `training.assignment_requests.decide`
+- `POST /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests.interest.request`
+- `DELETE /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests.interest.delete`
+- `GET /api/v1/training/trainer-release-requests` -> `training.release_requests.read`
+- `POST /api/v1/training/trainer-release-requests` -> `training.release_requests.self.request`
+- `PATCH /api/v1/training/trainer-release-requests/{request_id}` -> `training.release_requests.decide`
+
+Token-based public route:
+
+- `GET /api/v1/emails/unsubscribe?token=...` -> public-by-token
+- `POST /api/v1/emails/unsubscribe` -> public-by-token

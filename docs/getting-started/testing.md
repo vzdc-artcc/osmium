@@ -23,20 +23,21 @@ This covers route-level checks, auth helpers, middleware behavior, and basic non
 - hit `/ready`
 - verify one authenticated flow with a dev session
 
-## Pull Request and Release Flow
+## Branch Build Flow
 
-- normal feature pull requests should target `develop`
-- `main` is reserved for stable release promotion from `develop`
-- release promotion should happen through a `develop` -> `main` pull request
-- stable releases are published from SemVer tags on `main`, for example `v0.2.0`
-- `develop` merges publish dev container tags based on the branch and commit SHA
+- pushes to `master` publish:
+  - `ghcr.io/<owner>/<repo>:master`
+  - `ghcr.io/<owner>/<repo>:master-<sha>`
+- pushes to `develop` publish:
+  - `ghcr.io/<owner>/<repo>:develop`
+  - `ghcr.io/<owner>/<repo>:develop-<sha>`
 
-Required GitHub checks for pull requests into `develop` and `main`:
+Recommended validation before pushing:
 
-- `fmt`
-- `check`
-- `test`
-- `docker-build-smoke`
+- `cargo fmt --all -- --check`
+- `cargo check`
+- `cargo test --all-targets`
+- `docker build -f Dockerfile .`
 
 ## Docs-Specific Checks
 
@@ -60,6 +61,10 @@ The standard test suite does not fully validate:
 ## Manual Scenarios Worth Running
 
 - Dev login, then `/api/v1/me`
+- Dev login, then `PATCH /api/v1/me` with a valid timezone and verify the updated `profile` block
+- Dev login, then `PATCH /api/v1/me` with an invalid timezone and verify `bad_request`
+- Add, list, and delete a TeamSpeak UID through `/api/v1/me/teamspeak-uids`
+- Confirm first login produced a unique `profile.operating_initials`
 - File upload and signed URL generation
 - Publication category create/update/delete flow
 - Publication draft to published flow and public visibility
@@ -67,3 +72,4 @@ The standard test suite does not fully validate:
 - Training request create/approve flow
 - Event creation and position publish flow
 - Service-account introspection route with a valid bearer token
+- API key create/list/detail/update/revoke flow, including one-time secret capture and bearer-token introspection

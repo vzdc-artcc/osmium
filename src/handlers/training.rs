@@ -11,36 +11,30 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionKey, PermissionResource},
+        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
         middleware::ensure_permission,
     },
     errors::ApiError,
     models::{
-        ApiMessage, CreateOrUpdateTrainingSessionResult, CreateTrainerReleaseRequestRequest,
+        ApiMessage, CreateOrUpdateTrainingSessionResult, CreateOtsRecommendationRequest,
+        CreateTrainerReleaseRequestRequest, CreateTrainingAppointmentRequest,
         CreateTrainingAssignmentRequest, CreateTrainingAssignmentRequestRequest,
         CreateTrainingLessonRequest, CreateTrainingSessionRequest,
         DecideTrainerReleaseRequestRequest, DecideTrainingAssignmentRequestRequest,
-        LessonRosterChangeSummary, ListTrainingSessionsQuery, OtsRecommendationSummary,
-        TrainerReleaseRequest, TrainingAssignment, TrainingAssignmentRequest, TrainingLesson,
-        TrainingSessionDetail, TrainingSessionListItem,
+        LessonRosterChangeSummary, ListTrainingAppointmentsQuery, ListTrainingSessionsQuery,
+        OtsRecommendationSummary, TrainerReleaseRequest, TrainingAppointmentDetail,
+        TrainingAppointmentLessonSummary, TrainingAppointmentListItem, TrainingAssignment,
+        TrainingAssignmentRequest, TrainingLesson, TrainingSessionDetail, TrainingSessionListItem,
         TrainingSessionPerformanceIndicatorCategoryDetail,
         TrainingSessionPerformanceIndicatorCriteriaDetail,
         TrainingSessionPerformanceIndicatorDetail, TrainingTicketDetail,
+        UpdateOtsRecommendationRequest, UpdateTrainingAppointmentRequest,
         UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
     },
     repos::audit as audit_repo,
     state::AppState,
 };
-
-const TRAINING_READ_PERMISSION: PermissionKey =
-    PermissionKey::new(PermissionResource::Training, PermissionAction::Read);
-const TRAINING_CREATE_PERMISSION: PermissionKey =
-    PermissionKey::new(PermissionResource::Training, PermissionAction::Create);
-const TRAINING_UPDATE_PERMISSION: PermissionKey =
-    PermissionKey::new(PermissionResource::Training, PermissionAction::Update);
-const TRAINING_MANAGE_PERMISSION: PermissionKey =
-    PermissionKey::new(PermissionResource::Training, PermissionAction::Manage);
 
 const VALID_PI_MARKERS: &[&str] = &[
     "OBSERVED",
@@ -150,6 +144,25 @@ struct SessionExistsRow {
     instructor_id: String,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct AppointmentDetailRow {
+    id: String,
+    student_id: String,
+    trainer_id: String,
+    start: DateTime<Utc>,
+    environment: Option<String>,
+    double_booking: bool,
+    preparation_completed: bool,
+    warning_email_sent: bool,
+    atc_booking_id: Option<String>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    student_cid: i64,
+    student_name: String,
+    trainer_cid: i64,
+    trainer_name: String,
+}
+
 #[derive(Debug, Clone)]
 struct RubricRule {
     criteria_ids: HashSet<String>,
@@ -170,7 +183,7 @@ pub async fn list_assignments(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingAssignment>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["assignments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingAssignment>(
@@ -201,7 +214,7 @@ pub async fn create_assignment(
     Json(payload): Json<CreateTrainingAssignmentRequest>,
 ) -> Result<(StatusCode, Json<TrainingAssignment>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_CREATE_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["assignments"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
@@ -267,6 +280,297 @@ pub async fn create_assignment(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/training/ots-recommendations",
+    tag = "training",
+    responses(
+        (status = 200, description = "List OTS recommendations", body = [OtsRecommendationSummary]),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn list_ots_recommendations(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+) -> Result<Json<Vec<OtsRecommendationSummary>>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["ots_recommendations"],
+        PermissionAction::Read,
+    )
+    .await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let rows = sqlx::query_as::<_, OtsRecommendationSummary>(
+        r#"
+        select id, student_id, assigned_instructor_id, notes, created_at, updated_at
+        from training.ots_recommendations
+        order by created_at desc
+        "#,
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(Json(rows))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/ots-recommendations",
+    tag = "training",
+    request_body = CreateOtsRecommendationRequest,
+    responses(
+        (status = 201, description = "OTS recommendation created", body = OtsRecommendationSummary),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn create_ots_recommendation(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateOtsRecommendationRequest>,
+) -> Result<(StatusCode, Json<OtsRecommendationSummary>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["ots_recommendations"],
+        PermissionAction::Create,
+    )
+    .await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let notes = payload.notes.trim();
+    if notes.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let student_exists =
+        sqlx::query_scalar::<_, String>("select id from identity.users where id = $1 limit 1")
+            .bind(&payload.student_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| ApiError::Internal)?;
+    if student_exists.is_none() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let existing = sqlx::query_scalar::<_, String>(
+        "select id from training.ots_recommendations where student_id = $1 limit 1",
+    )
+    .bind(&payload.student_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    if existing.is_some() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let row = sqlx::query_as::<_, OtsRecommendationSummary>(
+        r#"
+        insert into training.ots_recommendations (
+            id,
+            student_id,
+            assigned_instructor_id,
+            notes,
+            created_at,
+            updated_at
+        )
+        values ($1, $2, null, $3, $4, $4)
+        returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&payload.student_id)
+    .bind(notes)
+    .bind(Utc::now())
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| ApiError::BadRequest)?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "CREATE",
+        "OTS_RECOMMENDATION",
+        Some(&row.id),
+        "training_session",
+        Some(row.student_id.as_str()),
+        None,
+        Some(audit_repo::sanitized_snapshot(&row)?),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok((StatusCode::CREATED, Json(row)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/training/ots-recommendations/{recommendation_id}",
+    tag = "training",
+    params(
+        ("recommendation_id" = String, Path, description = "OTS recommendation ID")
+    ),
+    request_body = UpdateOtsRecommendationRequest,
+    responses(
+        (status = 200, description = "OTS recommendation updated", body = OtsRecommendationSummary),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn update_ots_recommendation(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(recommendation_id): Path<String>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateOtsRecommendationRequest>,
+) -> Result<Json<OtsRecommendationSummary>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["ots_recommendations"],
+        PermissionAction::Update,
+    )
+    .await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let before = sqlx::query_as::<_, OtsRecommendationSummary>(
+        r#"
+        select id, student_id, assigned_instructor_id, notes, created_at, updated_at
+        from training.ots_recommendations
+        where id = $1
+        "#,
+    )
+    .bind(&recommendation_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
+
+    if let Some(instructor_id) = payload.assigned_instructor_id.as_deref() {
+        let instructor_exists =
+            sqlx::query_scalar::<_, String>("select id from identity.users where id = $1 limit 1")
+                .bind(instructor_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| ApiError::Internal)?;
+        if instructor_exists.is_none() {
+            return Err(ApiError::BadRequest);
+        }
+    }
+
+    let row = sqlx::query_as::<_, OtsRecommendationSummary>(
+        r#"
+        update training.ots_recommendations
+        set assigned_instructor_id = $1
+        where id = $2
+        returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
+        "#,
+    )
+    .bind(payload.assigned_instructor_id.as_deref())
+    .bind(&recommendation_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "UPDATE",
+        "OTS_RECOMMENDATION",
+        Some(&row.id),
+        "training_session",
+        Some(row.student_id.as_str()),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&row)?),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(Json(row))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/training/ots-recommendations/{recommendation_id}",
+    tag = "training",
+    params(
+        ("recommendation_id" = String, Path, description = "OTS recommendation ID")
+    ),
+    responses(
+        (status = 204, description = "OTS recommendation deleted"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn delete_ots_recommendation(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(recommendation_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["ots_recommendations"],
+        PermissionAction::Delete,
+    )
+    .await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let deleted = sqlx::query_as::<_, OtsRecommendationSummary>(
+        r#"
+        delete from training.ots_recommendations
+        where id = $1
+        returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
+        "#,
+    )
+    .bind(&recommendation_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiError::BadRequest)?
+    .ok_or(ApiError::BadRequest)?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "DELETE",
+        "OTS_RECOMMENDATION",
+        Some(&deleted.id),
+        "training_session",
+        Some(deleted.student_id.as_str()),
+        Some(audit_repo::sanitized_snapshot(&deleted)?),
+        None,
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/training/lessons",
     tag = "training",
     responses(
@@ -279,7 +583,7 @@ pub async fn list_lessons(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingLesson>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingLesson>(
@@ -330,7 +634,7 @@ pub async fn create_lesson(
     Json(payload): Json<CreateTrainingLessonRequest>,
 ) -> Result<(StatusCode, Json<TrainingLesson>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_CREATE_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     validate_training_lesson_payload(&payload.identifier, payload.location, payload.duration)?;
@@ -440,7 +744,7 @@ pub async fn update_lesson(
     Json(payload): Json<UpdateTrainingLessonRequest>,
 ) -> Result<Json<TrainingLesson>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_UPDATE_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     validate_training_lesson_payload(&payload.identifier, payload.location, payload.duration)?;
@@ -559,7 +863,7 @@ pub async fn delete_lesson(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Delete).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
@@ -627,7 +931,13 @@ pub async fn list_assignment_requests(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainingAssignmentRequest>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["assignment_requests"],
+        PermissionAction::Read,
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainingAssignmentRequest>(
@@ -657,6 +967,13 @@ pub async fn create_assignment_request(
     Json(_payload): Json<CreateTrainingAssignmentRequestRequest>,
 ) -> Result<(StatusCode, Json<TrainingAssignmentRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["assignment_requests"],
+        PermissionAction::Request,
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
@@ -718,7 +1035,13 @@ pub async fn decide_assignment_request(
     Json(payload): Json<DecideTrainingAssignmentRequestRequest>,
 ) -> Result<Json<TrainingAssignmentRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["assignment_requests"],
+        PermissionAction::Decide,
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -787,7 +1110,7 @@ pub async fn list_release_requests(
     Extension(current_user): Extension<Option<CurrentUser>>,
 ) -> Result<Json<Vec<TrainerReleaseRequest>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["release_requests"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let rows = sqlx::query_as::<_, TrainerReleaseRequest>(
@@ -817,6 +1140,13 @@ pub async fn create_release_request(
     Json(_payload): Json<CreateTrainerReleaseRequestRequest>,
 ) -> Result<(StatusCode, Json<TrainerReleaseRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["release_requests"],
+        PermissionAction::Request,
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
@@ -878,7 +1208,13 @@ pub async fn decide_release_request(
     Json(payload): Json<DecideTrainerReleaseRequestRequest>,
 ) -> Result<Json<TrainerReleaseRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["release_requests"],
+        PermissionAction::Decide,
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -953,6 +1289,13 @@ pub async fn add_assignment_request_interest(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["assignment_requests", "interest"],
+        PermissionAction::Request,
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let exists = sqlx::query_scalar::<_, String>(
@@ -1019,6 +1362,13 @@ pub async fn remove_assignment_request_interest(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(
+        &state,
+        user,
+        &["assignment_requests", "interest"],
+        PermissionAction::Delete,
+    )
+    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     sqlx::query(
@@ -1052,6 +1402,504 @@ pub async fn remove_assignment_request_interest(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/training/appointments",
+    tag = "training",
+    params(ListTrainingAppointmentsQuery),
+    responses(
+        (status = 200, description = "List training appointments", body = [TrainingAppointmentListItem]),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn list_training_appointments(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Query(query): Query<ListTrainingAppointmentsQuery>,
+) -> Result<Json<Vec<TrainingAppointmentListItem>>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Read).await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let limit = query.limit.unwrap_or(25).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+    let sort_column = match query.sort_field.as_deref() {
+        Some("created_at") => "ta.created_at",
+        Some("updated_at") => "ta.updated_at",
+        _ => "ta.start",
+    };
+    let sort_direction = match query.sort_order.as_deref() {
+        Some(value) if value.eq_ignore_ascii_case("desc") => "desc",
+        _ => "asc",
+    };
+
+    let sql = format!(
+        r#"
+        select
+            ta.id,
+            ta.student_id,
+            ta.trainer_id,
+            ta.start,
+            ta.environment,
+            ta.double_booking,
+            ta.preparation_completed,
+            ta.warning_email_sent,
+            ta.atc_booking_id,
+            ta.created_at,
+            ta.updated_at,
+            su.cid as student_cid,
+            su.full_name as student_name,
+            tu.cid as trainer_cid,
+            tu.full_name as trainer_name,
+            count(tal.lesson_id)::bigint as lesson_count,
+            case
+                when count(tal.lesson_id) = 0 then null
+                else sum(l.duration)::bigint
+            end as estimated_duration_minutes,
+            case
+                when count(tal.lesson_id) = 0 then null
+                else ta.start + make_interval(mins => sum(l.duration)::int)
+            end as estimated_end
+        from training.training_appointments ta
+        join identity.users su on su.id = ta.student_id
+        join identity.users tu on tu.id = ta.trainer_id
+        left join training.training_appointment_lessons tal on tal.appointment_id = ta.id
+        left join training.lessons l on l.id = tal.lesson_id
+        where ($1::text is null or ta.trainer_id = $1)
+          and ($2::text is null or ta.student_id = $2)
+          and ($3::text is null or (ta.trainer_id = $3 or ta.student_id = $3))
+        group by
+            ta.id, su.cid, su.full_name, tu.cid, tu.full_name
+        order by {sort_column} {sort_direction}, ta.id asc
+        limit $4 offset $5
+        "#
+    );
+
+    let items = sqlx::query_as::<_, TrainingAppointmentListItem>(&sql)
+        .bind(query.trainer_id.as_deref())
+        .bind(query.student_id.as_deref())
+        .bind(query.user_id.as_deref())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(db)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    Ok(Json(items))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/training/appointments/{appointment_id}",
+    tag = "training",
+    params(
+        ("appointment_id" = String, Path, description = "Training appointment ID")
+    ),
+    responses(
+        (status = 200, description = "Training appointment detail", body = TrainingAppointmentDetail),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn get_training_appointment(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(appointment_id): Path<String>,
+) -> Result<Json<TrainingAppointmentDetail>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Read).await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let detail = fetch_training_appointment_detail(db, &appointment_id)
+        .await?
+        .ok_or(ApiError::BadRequest)?;
+
+    Ok(Json(detail))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/appointments",
+    tag = "training",
+    request_body = CreateTrainingAppointmentRequest,
+    responses(
+        (status = 201, description = "Training appointment created", body = TrainingAppointmentDetail),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn create_training_appointment(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateTrainingAppointmentRequest>,
+) -> Result<(StatusCode, Json<TrainingAppointmentDetail>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Create).await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+    let lesson_ids = validate_appointment_lesson_ids(&payload.lesson_ids)?;
+    let student_id = validate_user_exists(&mut tx, &payload.student_id).await?;
+    resolve_appointment_lessons(&mut tx, &lesson_ids).await?;
+
+    let appointment_id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let environment = normalize_optional_text(payload.environment.as_deref());
+
+    sqlx::query(
+        r#"
+        insert into training.training_appointments (
+            id,
+            student_id,
+            trainer_id,
+            start,
+            environment,
+            created_at,
+            updated_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $6)
+        "#,
+    )
+    .bind(&appointment_id)
+    .bind(&student_id)
+    .bind(&user.id)
+    .bind(payload.start)
+    .bind(environment.as_deref())
+    .bind(now)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::BadRequest)?;
+
+    replace_appointment_lessons(&mut tx, &appointment_id, &lesson_ids).await?;
+
+    let created_snapshot = serde_json::json!({
+        "id": appointment_id,
+        "student_id": student_id,
+        "trainer_id": user.id,
+        "start": payload.start,
+        "environment": environment,
+        "lesson_ids": lesson_ids,
+        "double_booking": false,
+        "preparation_completed": false,
+        "warning_email_sent": false,
+        "atc_booking_id": null
+    });
+    let created_scope_key = created_snapshot["student_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let created_resource_id = created_snapshot["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "CREATE",
+        "TRAINING_APPOINTMENT",
+        Some(&created_resource_id),
+        "training_session",
+        Some(&created_scope_key),
+        None,
+        Some(created_snapshot),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    let detail = fetch_training_appointment_detail(db, &appointment_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
+
+    Ok((StatusCode::CREATED, Json(detail)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/training/appointments/{appointment_id}",
+    tag = "training",
+    params(
+        ("appointment_id" = String, Path, description = "Training appointment ID")
+    ),
+    request_body = UpdateTrainingAppointmentRequest,
+    responses(
+        (status = 200, description = "Training appointment updated", body = TrainingAppointmentDetail),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn update_training_appointment(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(appointment_id): Path<String>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateTrainingAppointmentRequest>,
+) -> Result<Json<TrainingAppointmentDetail>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Update).await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let existing = sqlx::query_as::<_, AppointmentDetailRow>(
+        r#"
+        select
+            ta.id,
+            ta.student_id,
+            ta.trainer_id,
+            ta.start,
+            ta.environment,
+            ta.double_booking,
+            ta.preparation_completed,
+            ta.warning_email_sent,
+            ta.atc_booking_id,
+            ta.created_at,
+            ta.updated_at,
+            su.cid as student_cid,
+            su.full_name as student_name,
+            tu.cid as trainer_cid,
+            tu.full_name as trainer_name
+        from training.training_appointments ta
+        join identity.users su on su.id = ta.student_id
+        join identity.users tu on tu.id = ta.trainer_id
+        where ta.id = $1
+        "#,
+    )
+    .bind(&appointment_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
+
+    let existing_lesson_ids = sqlx::query_scalar::<_, String>(
+        r#"
+        select lesson_id
+        from training.training_appointment_lessons
+        where appointment_id = $1
+        order by lesson_id asc
+        "#,
+    )
+    .bind(&appointment_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let lesson_ids = validate_appointment_lesson_ids(&payload.lesson_ids)?;
+    let student_id = validate_user_exists(&mut tx, &payload.student_id).await?;
+    resolve_appointment_lessons(&mut tx, &lesson_ids).await?;
+
+    let environment = normalize_optional_text(payload.environment.as_deref());
+    let atc_booking_id = payload
+        .atc_booking_id
+        .as_ref()
+        .map(|value| normalize_optional_text(value.as_deref()));
+
+    sqlx::query(
+        r#"
+        update training.training_appointments
+        set
+            student_id = $2,
+            start = $3,
+            environment = $4,
+            double_booking = $5,
+            preparation_completed = $6,
+            warning_email_sent = $7,
+            atc_booking_id = $8,
+            updated_at = $9
+        where id = $1
+        "#,
+    )
+    .bind(&appointment_id)
+    .bind(&student_id)
+    .bind(payload.start)
+    .bind(environment.as_deref())
+    .bind(payload.double_booking.unwrap_or(existing.double_booking))
+    .bind(
+        payload
+            .preparation_completed
+            .unwrap_or(existing.preparation_completed),
+    )
+    .bind(
+        payload
+            .warning_email_sent
+            .unwrap_or(existing.warning_email_sent),
+    )
+    .bind(
+        atc_booking_id
+            .as_ref()
+            .map(|value| value.as_deref())
+            .unwrap_or(existing.atc_booking_id.as_deref()),
+    )
+    .bind(Utc::now())
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    replace_appointment_lessons(&mut tx, &appointment_id, &lesson_ids).await?;
+
+    let before_snapshot = serde_json::json!({
+        "id": existing.id,
+        "student_id": existing.student_id,
+        "trainer_id": existing.trainer_id,
+        "start": existing.start,
+        "environment": existing.environment,
+        "double_booking": existing.double_booking,
+        "preparation_completed": existing.preparation_completed,
+        "warning_email_sent": existing.warning_email_sent,
+        "atc_booking_id": existing.atc_booking_id,
+        "lesson_ids": existing_lesson_ids
+    });
+    let after_snapshot = serde_json::json!({
+        "id": appointment_id,
+        "student_id": student_id,
+        "trainer_id": existing.trainer_id,
+        "start": payload.start,
+        "environment": environment,
+        "double_booking": payload.double_booking.unwrap_or(existing.double_booking),
+        "preparation_completed": payload.preparation_completed.unwrap_or(existing.preparation_completed),
+        "warning_email_sent": payload.warning_email_sent.unwrap_or(existing.warning_email_sent),
+        "atc_booking_id": atc_booking_id.unwrap_or(existing.atc_booking_id),
+        "lesson_ids": lesson_ids
+    });
+    let update_scope_key = after_snapshot["student_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "UPDATE",
+        "TRAINING_APPOINTMENT",
+        Some(&appointment_id),
+        "training_session",
+        Some(&update_scope_key),
+        Some(before_snapshot),
+        Some(after_snapshot),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    let detail = fetch_training_appointment_detail(db, &appointment_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
+
+    Ok(Json(detail))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/training/appointments/{appointment_id}",
+    tag = "training",
+    params(
+        ("appointment_id" = String, Path, description = "Training appointment ID")
+    ),
+    responses(
+        (status = 204, description = "Training appointment deleted"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn delete_training_appointment(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(appointment_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Delete).await?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let lesson_ids = sqlx::query_scalar::<_, String>(
+        r#"
+        select lesson_id
+        from training.training_appointment_lessons
+        where appointment_id = $1
+        order by lesson_id asc
+        "#,
+    )
+    .bind(&appointment_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let deleted = sqlx::query_as::<_, AppointmentDetailRow>(
+        r#"
+        delete from training.training_appointments ta
+        using identity.users su, identity.users tu
+        where ta.id = $1
+          and su.id = ta.student_id
+          and tu.id = ta.trainer_id
+        returning
+            ta.id,
+            ta.student_id,
+            ta.trainer_id,
+            ta.start,
+            ta.environment,
+            ta.double_booking,
+            ta.preparation_completed,
+            ta.warning_email_sent,
+            ta.atc_booking_id,
+            ta.created_at,
+            ta.updated_at,
+            su.cid as student_cid,
+            su.full_name as student_name,
+            tu.cid as trainer_cid,
+            tu.full_name as trainer_name
+        "#,
+    )
+    .bind(&appointment_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?
+    .ok_or(ApiError::BadRequest)?;
+
+    let deleted_snapshot = serde_json::json!({
+        "id": deleted.id,
+        "student_id": deleted.student_id,
+        "trainer_id": deleted.trainer_id,
+        "start": deleted.start,
+        "environment": deleted.environment,
+        "double_booking": deleted.double_booking,
+        "preparation_completed": deleted.preparation_completed,
+        "warning_email_sent": deleted.warning_email_sent,
+        "atc_booking_id": deleted.atc_booking_id,
+        "lesson_ids": lesson_ids
+    });
+    let delete_scope_key = deleted_snapshot["student_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "DELETE",
+        "TRAINING_APPOINTMENT",
+        Some(&appointment_id),
+        "training_session",
+        Some(&delete_scope_key),
+        Some(deleted_snapshot),
+        None,
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/training/sessions",
     tag = "training",
     params(ListTrainingSessionsQuery),
@@ -1066,7 +1914,7 @@ pub async fn list_training_sessions(
     Query(query): Query<ListTrainingSessionsQuery>,
 ) -> Result<Json<Vec<TrainingSessionListItem>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let limit = query.limit.unwrap_or(25).clamp(1, 200);
@@ -1238,7 +2086,7 @@ pub async fn get_training_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<TrainingSessionDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_READ_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let detail = fetch_training_session_detail(db, &session_id)
@@ -1265,7 +2113,7 @@ pub async fn create_training_session(
     Json(payload): Json<CreateTrainingSessionRequest>,
 ) -> Result<(StatusCode, Json<CreateOrUpdateTrainingSessionResult>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_CREATE_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, None, payload.into_update_request()).await? {
@@ -1295,7 +2143,7 @@ pub async fn update_training_session(
     Json(payload): Json<UpdateTrainingSessionRequest>,
 ) -> Result<Json<CreateOrUpdateTrainingSessionResult>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_UPDATE_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, Some(session_id), payload).await? {
@@ -1324,7 +2172,7 @@ pub async fn delete_training_session(
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, TRAINING_MANAGE_PERMISSION).await?;
+    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Delete).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
@@ -1362,23 +2210,120 @@ pub async fn delete_training_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn fetch_training_appointment_detail(
+    db: &sqlx::PgPool,
+    appointment_id: &str,
+) -> Result<Option<TrainingAppointmentDetail>, ApiError> {
+    let appointment = sqlx::query_as::<_, AppointmentDetailRow>(
+        r#"
+        select
+            ta.id,
+            ta.student_id,
+            ta.trainer_id,
+            ta.start,
+            ta.environment,
+            ta.double_booking,
+            ta.preparation_completed,
+            ta.warning_email_sent,
+            ta.atc_booking_id,
+            ta.created_at,
+            ta.updated_at,
+            su.cid as student_cid,
+            su.full_name as student_name,
+            tu.cid as trainer_cid,
+            tu.full_name as trainer_name
+        from training.training_appointments ta
+        join identity.users su on su.id = ta.student_id
+        join identity.users tu on tu.id = ta.trainer_id
+        where ta.id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let Some(appointment) = appointment else {
+        return Ok(None);
+    };
+
+    let lessons = sqlx::query_as::<_, TrainingAppointmentLessonSummary>(
+        r#"
+        select
+            l.id,
+            l.identifier,
+            l.name,
+            l.location,
+            l.duration
+        from training.training_appointment_lessons tal
+        join training.lessons l on l.id = tal.lesson_id
+        where tal.appointment_id = $1
+        order by l.location asc, l.identifier asc, l.name asc, l.id asc
+        "#,
+    )
+    .bind(appointment_id)
+    .fetch_all(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let (estimated_duration_minutes, estimated_end) =
+        estimate_appointment_end(appointment.start, &lessons);
+
+    Ok(Some(TrainingAppointmentDetail {
+        id: appointment.id,
+        student_id: appointment.student_id,
+        trainer_id: appointment.trainer_id,
+        start: appointment.start,
+        environment: appointment.environment,
+        double_booking: appointment.double_booking,
+        preparation_completed: appointment.preparation_completed,
+        warning_email_sent: appointment.warning_email_sent,
+        atc_booking_id: appointment.atc_booking_id,
+        created_at: appointment.created_at,
+        updated_at: appointment.updated_at,
+        student_cid: appointment.student_cid,
+        student_name: appointment.student_name,
+        trainer_cid: appointment.trainer_cid,
+        trainer_name: appointment.trainer_name,
+        estimated_duration_minutes,
+        estimated_end,
+        lessons,
+    }))
+}
+
 async fn ensure_training_permission(
     state: &AppState,
     user: &CurrentUser,
-    required_permission: PermissionKey,
+    segments: &[&str],
+    action: PermissionAction,
 ) -> Result<(), ApiError> {
-    if ensure_permission(state, Some(user), None, required_permission)
-        .await
-        .is_ok()
-    {
-        return Ok(());
-    }
+    let path = match segments {
+        ["assignments"] => PermissionPath::from_segments(["training", "assignments"], action),
+        ["ots_recommendations"] => {
+            PermissionPath::from_segments(["training", "ots_recommendations"], action)
+        }
+        ["lessons"] => PermissionPath::from_segments(["training", "lessons"], action),
+        ["appointments"] => PermissionPath::from_segments(["training", "appointments"], action),
+        ["sessions"] => PermissionPath::from_segments(["training", "sessions"], action),
+        ["assignment_requests"] => match action {
+            PermissionAction::Request => {
+                PermissionPath::from_segments(["training", "assignment_requests", "self"], action)
+            }
+            _ => PermissionPath::from_segments(["training", "assignment_requests"], action),
+        },
+        ["assignment_requests", "interest"] => {
+            PermissionPath::from_segments(["training", "assignment_requests", "interest"], action)
+        }
+        ["release_requests"] => match action {
+            PermissionAction::Request => {
+                PermissionPath::from_segments(["training", "release_requests", "self"], action)
+            }
+            _ => PermissionPath::from_segments(["training", "release_requests"], action),
+        },
+        _ => return Err(ApiError::Internal),
+    };
 
-    if required_permission != TRAINING_MANAGE_PERMISSION {
-        return ensure_permission(state, Some(user), None, TRAINING_MANAGE_PERMISSION).await;
-    }
-
-    Err(ApiError::Unauthorized)
+    ensure_permission(state, Some(user), None, path).await
 }
 
 fn validate_training_lesson_payload(
@@ -1393,6 +2338,123 @@ fn validate_training_lesson_payload(
         || duration > 12 * 60
     {
         return Err(ApiError::BadRequest);
+    }
+
+    Ok(())
+}
+
+fn validate_appointment_lesson_ids(lesson_ids: &[String]) -> Result<Vec<String>, ApiError> {
+    if lesson_ids.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::with_capacity(lesson_ids.len());
+    for lesson_id in lesson_ids {
+        let lesson_id = lesson_id.trim();
+        if lesson_id.is_empty() || !seen.insert(lesson_id.to_string()) {
+            return Err(ApiError::BadRequest);
+        }
+
+        normalized.push(lesson_id.to_string());
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value.and_then(|item| {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn estimate_appointment_end(
+    start: DateTime<Utc>,
+    lessons: &[TrainingAppointmentLessonSummary],
+) -> (Option<i64>, Option<DateTime<Utc>>) {
+    if lessons.is_empty() {
+        return (None, None);
+    }
+
+    let total_minutes = lessons
+        .iter()
+        .map(|lesson| i64::from(lesson.duration))
+        .sum();
+    (
+        Some(total_minutes),
+        Some(start + chrono::Duration::minutes(total_minutes)),
+    )
+}
+
+async fn validate_user_exists(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+) -> Result<String, ApiError> {
+    let normalized = user_id.trim();
+    if normalized.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let exists = sqlx::query_scalar::<_, String>("select id from identity.users where id = $1")
+        .bind(normalized)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    exists.ok_or(ApiError::BadRequest)
+}
+
+async fn resolve_appointment_lessons(
+    tx: &mut Transaction<'_, Postgres>,
+    lesson_ids: &[String],
+) -> Result<Vec<TrainingAppointmentLessonSummary>, ApiError> {
+    let lessons = sqlx::query_as::<_, TrainingAppointmentLessonSummary>(
+        r#"
+        select id, identifier, name, location, duration
+        from training.lessons
+        where id = any($1)
+        "#,
+    )
+    .bind(lesson_ids)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    if lessons.len() != lesson_ids.len() {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(lessons)
+}
+
+async fn replace_appointment_lessons(
+    tx: &mut Transaction<'_, Postgres>,
+    appointment_id: &str,
+    lesson_ids: &[String],
+) -> Result<(), ApiError> {
+    sqlx::query("delete from training.training_appointment_lessons where appointment_id = $1")
+        .bind(appointment_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    for lesson_id in lesson_ids {
+        sqlx::query(
+            r#"
+            insert into training.training_appointment_lessons (appointment_id, lesson_id)
+            values ($1, $2)
+            "#,
+        )
+        .bind(appointment_id)
+        .bind(lesson_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
     }
 
     Ok(())
@@ -2284,6 +3346,17 @@ async fn sync_ots_recommendations(
     for lesson in passed_lessons {
         if !lesson.notify_instructor_on_pass || old_passed_lesson_ids.contains(&lesson.id) {
             continue;
+        }
+
+        let existing = sqlx::query_scalar::<_, String>(
+            "select id from training.ots_recommendations where student_id = $1 limit 1",
+        )
+        .bind(student_user_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+        if existing.is_some() {
+            return Ok(None);
         }
 
         let now = Utc::now();

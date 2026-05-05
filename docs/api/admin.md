@@ -13,6 +13,7 @@ Administrative access and roster-control operations.
 - `GET /api/v1/admin/users/{cid}/access`
 - `POST /api/v1/admin/users/{cid}/access`
 - `PATCH /api/v1/admin/users/{cid}/controller-status`
+- `POST /api/v1/admin/users/{cid}/refresh-vatusa`
 - `GET /api/v1/admin/publications`
 - `GET /api/v1/admin/publications/{publication_id}`
 - `POST /api/v1/admin/publications`
@@ -29,6 +30,8 @@ Most admin routes on this page currently require `users.update`.
 
 Publication and publication-category management requires `web.update`.
 
+Manual VATUSA refresh requires `users.vatusa_refresh.request`.
+
 ## Permission Payloads
 
 - access responses return grouped permissions such as `{ "users": ["read", "update"] }`
@@ -38,5 +41,6 @@ Publication and publication-category management requires `web.update`.
 - visitor application review supports `PENDING`, `APPROVED`, and `DENIED` workflow states
 - visitor application approval is further restricted to users with one of the explicit approver roles: `ATM`, `DATM`, `TA`, or `ATA`
 - approving a visitor application also calls the VATUSA `manageVisitor` endpoint with the configured `VATUSA_API_KEY`; if that external call fails, the local approval does not complete
+- `POST /api/v1/admin/users/{cid}/refresh-vatusa` refreshes one local user against the configured VATUSA facility rosters and applies the same membership upsert or off-roster demotion rules as roster sync
 
 If a user is the current `SERVER_ADMIN`, the normal access endpoints still return that role and the full grouped effective permission set.

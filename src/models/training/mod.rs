@@ -53,6 +53,17 @@ pub struct DecideTrainerReleaseRequestRequest {
     pub status: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateOtsRecommendationRequest {
+    pub student_id: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateOtsRecommendationRequest {
+    pub assigned_instructor_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
 pub struct ListTrainingSessionsQuery {
     pub limit: Option<i64>,
@@ -64,6 +75,17 @@ pub struct ListTrainingSessionsQuery {
     pub filter_value: Option<String>,
     pub student_id: Option<String>,
     pub instructor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ListTrainingAppointmentsQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub sort_field: Option<String>,
+    pub sort_order: Option<String>,
+    pub trainer_id: Option<String>,
+    pub student_id: Option<String>,
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -120,6 +142,26 @@ pub struct UpdateTrainingSessionRequest {
     pub enable_markdown: Option<bool>,
     pub tickets: Vec<CreateTrainingTicketRequest>,
     pub performance_indicator: Option<CreateTrainingSessionPerformanceIndicatorRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateTrainingAppointmentRequest {
+    pub student_id: String,
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub lesson_ids: Vec<String>,
+    pub environment: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateTrainingAppointmentRequest {
+    pub student_id: String,
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub lesson_ids: Vec<String>,
+    pub environment: Option<String>,
+    pub double_booking: Option<bool>,
+    pub preparation_completed: Option<bool>,
+    pub warning_email_sent: Option<bool>,
+    pub atc_booking_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -220,6 +262,59 @@ pub struct TrainingSessionDetail {
     pub instructor_name: String,
     pub tickets: Vec<TrainingTicketDetail>,
     pub performance_indicator: Option<TrainingSessionPerformanceIndicatorDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct TrainingAppointmentLessonSummary {
+    pub id: String,
+    pub identifier: String,
+    pub name: String,
+    pub location: i32,
+    pub duration: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct TrainingAppointmentListItem {
+    pub id: String,
+    pub student_id: String,
+    pub trainer_id: String,
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub environment: Option<String>,
+    pub double_booking: bool,
+    pub preparation_completed: bool,
+    pub warning_email_sent: bool,
+    pub atc_booking_id: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub student_cid: i64,
+    pub student_name: String,
+    pub trainer_cid: i64,
+    pub trainer_name: String,
+    pub lesson_count: i64,
+    pub estimated_duration_minutes: Option<i64>,
+    pub estimated_end: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TrainingAppointmentDetail {
+    pub id: String,
+    pub student_id: String,
+    pub trainer_id: String,
+    pub start: chrono::DateTime<chrono::Utc>,
+    pub environment: Option<String>,
+    pub double_booking: bool,
+    pub preparation_completed: bool,
+    pub warning_email_sent: bool,
+    pub atc_booking_id: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub student_cid: i64,
+    pub student_name: String,
+    pub trainer_cid: i64,
+    pub trainer_name: String,
+    pub estimated_duration_minutes: Option<i64>,
+    pub estimated_end: Option<chrono::DateTime<chrono::Utc>>,
+    pub lessons: Vec<TrainingAppointmentLessonSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

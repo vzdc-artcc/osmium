@@ -1,50 +1,31 @@
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 #[derive(Serialize, ToSchema)]
 pub struct AclDebugBody {
     pub user_id: String,
-    pub role: Option<String>,
-    pub roles: Vec<String>,
-    pub permissions: BTreeMap<String, Vec<String>>,
+    pub server_admin: bool,
+    pub permissions: serde_json::Value,
 }
 
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateUserAccessRequest {
-    pub role: Option<String>,
-    pub roles: Option<Vec<String>>,
-    pub permissions: Option<PermissionInput>,
-    pub permission_overrides: Option<crate::auth::acl::PermissionOverrideGroups>,
-}
-
-#[derive(Deserialize, ToSchema)]
-#[serde(untagged)]
-pub enum PermissionInput {
-    Grouped(BTreeMap<String, Vec<String>>),
-    Legacy(Vec<PermissionOverrideInput>),
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct PermissionOverrideInput {
-    pub name: String,
-    pub granted: bool,
+    pub permissions: serde_json::Value,
 }
 
 #[derive(Serialize, ToSchema)]
 pub struct UserAccessBody {
     pub id: String,
     pub cid: i64,
-    pub role: Option<String>,
-    pub roles: Vec<String>,
-    pub permissions: BTreeMap<String, Vec<String>>,
+    pub server_admin: bool,
+    pub permissions: serde_json::Value,
 }
 
 #[derive(Serialize, ToSchema)]
 pub struct AccessCatalogBody {
-    pub roles: Vec<String>,
-    pub permissions: BTreeMap<String, Vec<String>>,
+    pub service_account_roles: Vec<String>,
+    pub permissions: serde_json::Value,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -53,7 +34,7 @@ pub struct ServiceAccountSessionBody {
     pub key: String,
     pub name: String,
     pub roles: Vec<String>,
-    pub permissions: BTreeMap<String, Vec<String>>,
+    pub permissions: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
@@ -86,4 +67,68 @@ pub struct AuditLogItem {
     pub after_state: Option<serde_json::Value>,
     pub ip_address: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissions: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateApiKeyRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub permissions: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ApiKeyListItem {
+    pub id: String,
+    pub key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub prefix: Option<String>,
+    pub last_four: Option<String>,
+    pub created_by_user_id: Option<String>,
+    pub created_by_display_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ApiKeyDetail {
+    pub id: String,
+    pub key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub prefix: Option<String>,
+    pub last_four: Option<String>,
+    pub created_by_user_id: Option<String>,
+    pub created_by_display_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissions: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CreateApiKeyResponse {
+    pub key: ApiKeyDetail,
+    /// Plaintext API key secret. Returned exactly once at creation time.
+    pub secret: String,
 }

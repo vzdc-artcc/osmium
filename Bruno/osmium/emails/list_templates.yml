@@ -1,0 +1,17 @@
+info:
+  name: list_templates
+  type: http
+  seq: 1
+  tags:
+    - emails
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/emails/templates"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

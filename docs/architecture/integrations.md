@@ -18,6 +18,7 @@ Service accounts are the preferred model for bots and internal machine clients. 
 Expected integration expansion:
 
 - richer bot write paths
+- event-driven email enqueue paths through the internal `EmailService`
 - explicit webhook ingestion flows
 - external sync mapping tables
 - app-specific credentials scoped by role and permission

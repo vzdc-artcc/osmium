@@ -21,6 +21,7 @@ pub struct ReadyBody {
 pub struct JobsHealthBody {
     stats_sync: StatsSyncHealthBody,
     roster_sync: RosterSyncHealthBody,
+    email_worker: EmailWorkerHealthBody,
 }
 
 #[derive(Serialize)]
@@ -58,6 +59,17 @@ pub struct RosterSyncHealthBody {
     updated: Option<usize>,
     demoted: Option<usize>,
     skipped: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct EmailWorkerHealthBody {
+    enabled: bool,
+    last_started_at: Option<DateTime<Utc>>,
+    last_finished_at: Option<DateTime<Utc>>,
+    last_success_at: Option<DateTime<Utc>>,
+    last_result_ok: Option<bool>,
+    last_error: Option<String>,
+    pending_count: Option<i64>,
 }
 
 pub async fn health() -> Json<HealthBody> {
@@ -111,6 +123,12 @@ pub async fn ready(State(state): State<AppState>) -> Json<ReadyBody> {
         .ok()
         .map(|health| roster_health_body(&health.roster_sync))
         .unwrap_or_else(poisoned_roster_health_body);
+    let email_worker = state
+        .email_health
+        .read()
+        .ok()
+        .map(|health| email_health_body(&health.worker))
+        .unwrap_or_else(poisoned_email_health_body);
 
     Json(ReadyBody {
         status: if database_ready && !live_stale {
@@ -123,6 +141,7 @@ pub async fn ready(State(state): State<AppState>) -> Json<ReadyBody> {
         jobs: JobsHealthBody {
             stats_sync,
             roster_sync,
+            email_worker,
         },
     })
 }
@@ -192,5 +211,29 @@ fn poisoned_roster_health_body() -> RosterSyncHealthBody {
         updated: None,
         demoted: None,
         skipped: None,
+    }
+}
+
+fn email_health_body(stats: &crate::email::EmailWorkerHealth) -> EmailWorkerHealthBody {
+    EmailWorkerHealthBody {
+        enabled: stats.enabled,
+        last_started_at: stats.last_started_at,
+        last_finished_at: stats.last_finished_at,
+        last_success_at: stats.last_success_at,
+        last_result_ok: stats.last_result_ok,
+        last_error: stats.last_error.clone(),
+        pending_count: stats.pending_count,
+    }
+}
+
+fn poisoned_email_health_body() -> EmailWorkerHealthBody {
+    EmailWorkerHealthBody {
+        enabled: false,
+        last_started_at: None,
+        last_finished_at: None,
+        last_success_at: None,
+        last_result_ok: None,
+        last_error: Some("email health lock poisoned".to_string()),
+        pending_count: None,
     }
 }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionKey, PermissionResource},
+        acl::{PermissionAction, PermissionPath},
         context::{CurrentServiceAccount, CurrentUser},
         middleware::ensure_permission,
     },
@@ -154,10 +154,11 @@ pub async fn admin_list_publication_categories(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
 ) -> Result<Json<Vec<PublicationCategory>>, ApiError> {
-    ensure_web_update(
+    ensure_publication_category_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Read,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -183,10 +184,11 @@ pub async fn create_publication_category(
     headers: HeaderMap,
     Json(payload): Json<CreatePublicationCategoryRequest>,
 ) -> Result<(StatusCode, Json<PublicationCategory>), ApiError> {
-    ensure_web_update(
+    ensure_publication_category_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Create,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -252,10 +254,11 @@ pub async fn update_publication_category(
     headers: HeaderMap,
     Json(payload): Json<UpdatePublicationCategoryRequest>,
 ) -> Result<Json<PublicationCategory>, ApiError> {
-    ensure_web_update(
+    ensure_publication_category_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Update,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -334,10 +337,11 @@ pub async fn delete_publication_category(
     Path(category_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
-    ensure_web_update(
+    ensure_publication_category_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Delete,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -388,10 +392,11 @@ pub async fn admin_list_publications(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
 ) -> Result<Json<Vec<Publication>>, ApiError> {
-    ensure_web_update(
+    ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Read,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -418,10 +423,11 @@ pub async fn admin_get_publication(
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(publication_id): Path<String>,
 ) -> Result<Json<Publication>, ApiError> {
-    ensure_web_update(
+    ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Read,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -449,10 +455,11 @@ pub async fn create_publication(
     headers: HeaderMap,
     Json(payload): Json<CreatePublicationRequest>,
 ) -> Result<(StatusCode, Json<Publication>), ApiError> {
-    ensure_web_update(
+    ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Create,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -560,10 +567,11 @@ pub async fn update_publication(
     headers: HeaderMap,
     Json(payload): Json<UpdatePublicationRequest>,
 ) -> Result<Json<Publication>, ApiError> {
-    ensure_web_update(
+    ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Update,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -697,10 +705,11 @@ pub async fn delete_publication(
     Path(publication_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
-    ensure_web_update(
+    ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
         current_service_account.as_ref(),
+        PermissionAction::Delete,
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -744,16 +753,32 @@ pub async fn delete_publication(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn ensure_web_update(
+async fn ensure_publication_item_permission(
     state: &AppState,
     current_user: Option<&CurrentUser>,
     current_service_account: Option<&CurrentServiceAccount>,
+    action: PermissionAction,
 ) -> Result<(), ApiError> {
     ensure_permission(
         state,
         current_user,
         current_service_account,
-        PermissionKey::new(PermissionResource::Web, PermissionAction::Update),
+        PermissionPath::from_segments(["publications", "items"], action),
+    )
+    .await
+}
+
+async fn ensure_publication_category_permission(
+    state: &AppState,
+    current_user: Option<&CurrentUser>,
+    current_service_account: Option<&CurrentServiceAccount>,
+    action: PermissionAction,
+) -> Result<(), ApiError> {
+    ensure_permission(
+        state,
+        current_user,
+        current_service_account,
+        PermissionPath::from_segments(["publications", "categories"], action),
     )
     .await
 }

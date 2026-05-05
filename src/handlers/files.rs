@@ -20,10 +20,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{
-            PermissionAction, PermissionKey, PermissionResource, fetch_access_catalog,
-            fetch_user_access,
-        },
+        acl::{PermissionAction, PermissionPath, fetch_access_catalog, fetch_user_access},
         context::CurrentUser,
         middleware::ensure_permission,
     },
@@ -132,7 +129,7 @@ pub async fn list_file_audit_logs(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Files, PermissionAction::Update),
+        PermissionPath::from_segments(["files", "audit"], PermissionAction::Read),
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -188,88 +185,54 @@ pub async fn list_files(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-
-    let can_manage_files = permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
-        PermissionAction::Update,
-    ));
-    let can_read_files = permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
+    let can_read_metadata = permissions.contains(&PermissionPath::from_segments(
+        ["files", "assets"],
         PermissionAction::Read,
     ));
-
-    if !can_manage_files && !can_read_files {
+    if !can_read_metadata {
         return Err(ApiError::Unauthorized);
     }
 
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let offset = query.offset.unwrap_or(0).max(0);
 
-    let rows = if can_manage_files {
-        sqlx::query_as::<_, FileAssetRow>(
-            r#"
-            select
-                id,
-                filename,
-                content_type,
-                size_bytes,
-                etag,
-                storage_key,
-                is_public,
-                uploaded_by,
-                owner_user_id,
-                viewer_roles,
-                created_at,
-                updated_at
-            from media.file_assets
-            order by created_at desc
-            limit $1 offset $2
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
-    } else {
-        sqlx::query_as::<_, FileAssetRow>(
-            r#"
-            select
-                fa.id,
-                fa.filename,
-                fa.content_type,
-                fa.size_bytes,
-                fa.etag,
-                fa.storage_key,
-                fa.is_public,
-                fa.uploaded_by,
-                fa.owner_user_id,
-                fa.viewer_roles,
-                fa.created_at,
-                fa.updated_at
-            from media.file_assets fa
-            where fa.is_public
-               or fa.uploaded_by = $1
-               or fa.owner_user_id = $1
-               or fa.viewer_roles && $2::text[]
-               or exists (
-                    select 1
-                    from media.file_asset_allowed_users au
-                    where au.file_id = fa.id
-                      and au.user_id = $1
-               )
-            order by fa.created_at desc
-            limit $3 offset $4
-            "#,
-        )
-        .bind(&user.id)
-        .bind(&roles)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
-    };
+    let rows = sqlx::query_as::<_, FileAssetRow>(
+        r#"
+        select
+            fa.id,
+            fa.filename,
+            fa.content_type,
+            fa.size_bytes,
+            fa.etag,
+            fa.storage_key,
+            fa.is_public,
+            fa.uploaded_by,
+            fa.owner_user_id,
+            fa.viewer_roles,
+            fa.created_at,
+            fa.updated_at
+        from media.file_assets fa
+        where fa.is_public
+           or fa.uploaded_by = $1
+           or fa.owner_user_id = $1
+           or fa.viewer_roles && $2::text[]
+           or exists (
+                select 1
+                from media.file_asset_allowed_users au
+                where au.file_id = fa.id
+                  and au.user_id = $1
+           )
+        order by fa.created_at desc
+        limit $3 offset $4
+        "#,
+    )
+    .bind(&user.id)
+    .bind(&roles)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
 
     Ok(Json(rows.into_iter().map(FileAsset::from).collect()))
 }
@@ -474,7 +437,7 @@ pub async fn get_file_metadata(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    ensure_can_read_file(&state, current_user.as_ref(), &row).await?;
+    ensure_can_read_file_metadata(&state, current_user.as_ref(), &row).await?;
 
     Ok(Json(row.into()))
 }
@@ -505,7 +468,7 @@ pub async fn download_file_content(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    ensure_can_read_file(&state, current_user.as_ref(), &row).await?;
+    ensure_can_read_file_content(&state, current_user.as_ref(), &row).await?;
     let response = stream_file_response(&row, headers.get(header::RANGE)).await?;
 
     record_file_audit(
@@ -552,7 +515,7 @@ pub async fn get_signed_download_url(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    ensure_can_read_file(&state, Some(user), &row).await?;
+    ensure_can_read_file_content(&state, Some(user), &row).await?;
 
     let never_expire = query.never_expire.unwrap_or(false);
     let (expires, expires_at) = if never_expire {
@@ -622,7 +585,7 @@ pub async fn cdn_download_file(
 
     let token_valid = token_is_valid(&row.id, query.expires, query.sig.as_deref())?;
     if !row.is_public && !token_valid {
-        ensure_can_read_file(&state, current_user.as_ref(), &row).await?;
+        ensure_can_read_file_content(&state, current_user.as_ref(), &row).await?;
     }
 
     let response = stream_file_response(&row, headers.get(header::RANGE)).await?;
@@ -675,9 +638,9 @@ pub async fn update_file_metadata(
         || payload.viewer_roles.is_some();
 
     if changing_access_policy {
-        ensure_can_update_file_policy(&state, user, &existing).await?;
+        ensure_can_update_file_policy(&state, user).await?;
     } else {
-        ensure_can_mutate_file(&state, user, &existing).await?;
+        ensure_can_update_file_metadata(&state, user).await?;
     }
 
     let filename = payload
@@ -830,7 +793,7 @@ pub async fn replace_file_content(
         .await?
         .ok_or(ApiError::BadRequest)?;
     let existing_asset: FileAsset = existing.clone().into();
-    ensure_can_mutate_file(&state, user, &existing).await?;
+    ensure_can_replace_file_content(&state, user).await?;
 
     let filename = query
         .filename
@@ -924,7 +887,7 @@ pub async fn delete_file(
         .await?
         .ok_or(ApiError::BadRequest)?;
     let existing_asset: FileAsset = existing.clone().into();
-    ensure_can_mutate_file(&state, user, &existing).await?;
+    ensure_can_delete_file(&state, user).await?;
 
     let storage_key = sqlx::query_scalar::<_, String>(
         "delete from media.file_assets where id = $1 returning storage_key",
@@ -1114,12 +1077,30 @@ async fn fetch_file_row(
 
 async fn ensure_can_upload(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {
     let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    if permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
-        PermissionAction::Update,
-    )) || permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
+    let can_create_asset = permissions.contains(&PermissionPath::from_segments(
+        ["files", "assets"],
         PermissionAction::Create,
+    ));
+    let can_create_content = permissions.contains(&PermissionPath::from_segments(
+        ["files", "content"],
+        PermissionAction::Create,
+    ));
+
+    if can_create_asset && can_create_content {
+        Ok(())
+    } else {
+        Err(ApiError::Unauthorized)
+    }
+}
+
+async fn ensure_can_update_file_metadata(
+    state: &AppState,
+    user: &CurrentUser,
+) -> Result<(), ApiError> {
+    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+    if permissions.contains(&PermissionPath::from_segments(
+        ["files", "assets"],
+        PermissionAction::Update,
     )) {
         Ok(())
     } else {
@@ -1127,106 +1108,96 @@ async fn ensure_can_upload(state: &AppState, user: &CurrentUser) -> Result<(), A
     }
 }
 
-async fn ensure_can_mutate_file(
+async fn ensure_can_replace_file_content(
     state: &AppState,
     user: &CurrentUser,
-    row: &FileAssetRow,
 ) -> Result<(), ApiError> {
     let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-
-    if permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
+    if permissions.contains(&PermissionPath::from_segments(
+        ["files", "content"],
         PermissionAction::Update,
     )) {
-        return Ok(());
+        Ok(())
+    } else {
+        Err(ApiError::Unauthorized)
     }
-
-    if row.uploaded_by == user.id
-        && permissions.contains(&PermissionKey::new(
-            PermissionResource::Files,
-            PermissionAction::Create,
-        ))
-    {
-        return Ok(());
-    }
-
-    Err(ApiError::Unauthorized)
 }
 
 async fn ensure_can_update_file_policy(
     state: &AppState,
     user: &CurrentUser,
-    row: &FileAssetRow,
 ) -> Result<(), ApiError> {
-    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    if permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
+    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+    if permissions.contains(&PermissionPath::from_segments(
+        ["files", "assets", "policy"],
         PermissionAction::Update,
-    )) || row.uploaded_by == user.id
-        || row.owner_user_id.as_deref() == Some(user.id.as_str())
-        || roles
-            .iter()
-            .any(|role| row.viewer_roles.iter().any(|allowed| allowed == role))
-    {
-        return Ok(());
-    }
-
-    let Some(pool) = state.db.as_ref() else {
-        return Err(ApiError::Unauthorized);
-    };
-
-    let has_direct_user_access = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from media.file_asset_allowed_users
-        where file_id = $1 and user_id = $2
-        "#,
-    )
-    .bind(&row.id)
-    .bind(&user.id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    if has_direct_user_access > 0 {
+    )) {
         return Ok(());
     }
 
     Err(ApiError::Unauthorized)
 }
 
-async fn ensure_can_read_file(
-    state: &AppState,
-    current_user: Option<&CurrentUser>,
-    row: &FileAssetRow,
-) -> Result<(), ApiError> {
-    let user = current_user.ok_or(ApiError::Unauthorized)?;
-    if user_can_read_file(state, user, row).await? {
+async fn ensure_can_delete_file(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {
+    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+    if permissions.contains(&PermissionPath::from_segments(
+        ["files", "assets"],
+        PermissionAction::Delete,
+    )) {
         Ok(())
     } else {
         Err(ApiError::Unauthorized)
     }
 }
 
-async fn user_can_read_file(
+async fn ensure_can_read_file_metadata(
+    state: &AppState,
+    current_user: Option<&CurrentUser>,
+    row: &FileAssetRow,
+) -> Result<(), ApiError> {
+    let user = current_user.ok_or(ApiError::Unauthorized)?;
+    if user_can_access_file(
+        state,
+        user,
+        row,
+        PermissionPath::from_segments(["files", "assets"], PermissionAction::Read),
+    )
+    .await?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::Unauthorized)
+    }
+}
+
+async fn ensure_can_read_file_content(
+    state: &AppState,
+    current_user: Option<&CurrentUser>,
+    row: &FileAssetRow,
+) -> Result<(), ApiError> {
+    let user = current_user.ok_or(ApiError::Unauthorized)?;
+    if user_can_access_file(
+        state,
+        user,
+        row,
+        PermissionPath::from_segments(["files", "content"], PermissionAction::Read),
+    )
+    .await?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::Unauthorized)
+    }
+}
+
+async fn user_can_access_file(
     state: &AppState,
     user: &CurrentUser,
     row: &FileAssetRow,
+    permission: PermissionPath,
 ) -> Result<bool, ApiError> {
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    let can_manage_files = permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
-        PermissionAction::Update,
-    ));
-    if can_manage_files {
-        return Ok(true);
-    }
-
-    let can_read_files = permissions.contains(&PermissionKey::new(
-        PermissionResource::Files,
-        PermissionAction::Read,
-    ));
-    if !can_read_files {
+    if !permissions.contains(&permission) {
         return Ok(false);
     }
 

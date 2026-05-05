@@ -1,0 +1,50 @@
+info:
+  name: add_teamspeak_uid
+  type: http
+  seq: 8
+  tags:
+    - auth
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/me/teamspeak-uids"
+  auth: inherit
+  body:
+    mode: json
+    json: |-
+      {
+        "uid": "AbCdEf123"
+      }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Added TeamSpeak UID
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids"
+      method: POST
+    response:
+      status: 200
+      statusText: OK
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids"
+      method: POST
+    response:
+      status: 400
+      statusText: Bad Request
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids"
+      method: POST
+    response:
+      status: 401
+      statusText: Unauthorized
+--- 
