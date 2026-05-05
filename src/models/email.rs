@@ -137,16 +137,38 @@ pub struct ListEmailOutboxQuery {
     pub template_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct EmailUnsubscribeRequest {
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+pub struct EmailPreferencesQuery {
     pub token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct EmailUnsubscribeResponse {
-    pub category: String,
+pub struct EmailPreferenceState {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub is_transactional: bool,
+    pub editable: bool,
+    pub subscribed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmailPreferencesResponse {
     pub email: String,
-    pub status: String,
+    pub linked_category: Option<String>,
+    pub categories: Vec<EmailPreferenceState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmailPreferenceUpdateItem {
+    pub category: String,
+    pub subscribed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmailPreferencesUpdateRequest {
+    pub token: String,
+    pub preferences: Vec<EmailPreferenceUpdateItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

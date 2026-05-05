@@ -207,10 +207,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/send", post(emails::send_email))
         .route("/outbox", get(emails::list_outbox))
         .route("/outbox/{id}", get(emails::get_outbox_detail))
-        .route(
-            "/unsubscribe",
-            post(emails::unsubscribe).get(emails::unsubscribe_get),
-        )
+        .route("/preferences", get(emails::get_preferences).post(emails::update_preferences))
         .route("/resubscribe", post(emails::resubscribe));
 
     let mut api = Router::new()

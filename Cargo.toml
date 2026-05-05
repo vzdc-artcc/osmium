@@ -28,6 +28,7 @@ hmac = "0.13.0"
 aes-gcm = "0.10.3"
 getrandom = "0.4.2"
 pulldown-cmark = "0.13.3"
+maud = "0.26"
 utoipa = { version = "5.3.1", features = ["axum_extras", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 base64 = "0.22.1"

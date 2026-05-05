@@ -2,7 +2,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 use crate::errors::ApiError;
@@ -14,6 +14,14 @@ pub struct UnsubscribeTokenClaims {
     pub category: String,
     pub email: String,
     pub user_id: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct SuppressionCategoryRecord {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub is_transactional: bool,
 }
 
 pub fn build_unsubscribe_link(
@@ -97,6 +105,40 @@ pub async fn is_suppressed(pool: &PgPool, category: &str, email: &str) -> Result
     .map_err(|_| ApiError::Internal)?;
 
     Ok(suppressed)
+}
+
+pub async fn list_suppression_categories(
+    pool: &PgPool,
+) -> Result<Vec<SuppressionCategoryRecord>, ApiError> {
+    sqlx::query_as::<_, SuppressionCategoryRecord>(
+        r#"
+        select id, name, description, is_transactional
+        from email.suppression_categories
+        order by is_transactional desc, id asc
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn list_active_suppressions_for_email(
+    pool: &PgPool,
+    email: &str,
+) -> Result<Vec<String>, ApiError> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        select category_id
+        from email.suppressions
+        where lower(email::text) = lower($1)
+          and revoked_at is null
+        order by category_id asc
+        "#,
+    )
+    .bind(email)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
 }
 
 pub async fn create_suppression(

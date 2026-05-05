@@ -5,6 +5,10 @@ on:
     branches:
       - master
       - develop
+  pull_request:
+    branches:
+      - master
+      - develop
   workflow_dispatch:
 
 permissions:
@@ -27,8 +31,27 @@ jobs:
         id: meta
         shell: bash
         run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            branch_name="${GITHUB_BASE_REF}"
+          else
+            branch_name="${GITHUB_REF_NAME}"
+          fi
+
+          case "${branch_name}" in
+            develop)
+              stable_tag="dev"
+              ;;
+            master)
+              stable_tag="latest"
+              ;;
+            *)
+              echo "Unsupported branch for publish workflow: ${branch_name}" >&2
+              exit 1
+              ;;
+          esac
+
           echo "image_name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-          echo "branch_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "stable_tag=${stable_tag}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
@@ -36,6 +59,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -47,10 +71,10 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.branch_name }}
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.branch_name }}-${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.stable_tag }}
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.stable_tag }}-${{ steps.meta.outputs.short_sha }}
           labels: |
             org.opencontainers.image.created=${{ steps.meta.outputs.created }}
             org.opencontainers.image.revision=${{ github.sha }}
