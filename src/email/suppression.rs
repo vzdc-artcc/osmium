@@ -42,7 +42,7 @@ pub fn build_unsubscribe_link(
     .ok()?;
 
     Some(format!(
-        "{}/api/v1/emails/unsubscribe?token={}",
+        "{}/emails/unsubscribe?token={}",
         base_url.trim_end_matches('/'),
         urlencoding::encode(&token)
     ))
@@ -197,7 +197,10 @@ pub async fn revoke_suppression(
 
 #[cfg(test)]
 mod tests {
-    use super::{UnsubscribeTokenClaims, sign_unsubscribe_token, verify_unsubscribe_token};
+    use super::{
+        UnsubscribeTokenClaims, build_unsubscribe_link, sign_unsubscribe_token,
+        verify_unsubscribe_token,
+    };
 
     #[test]
     fn token_round_trip_is_stable() {
@@ -211,5 +214,20 @@ mod tests {
         assert_eq!(decoded.category, claims.category);
         assert_eq!(decoded.email, claims.email);
         assert_eq!(decoded.user_id, claims.user_id);
+    }
+
+    #[test]
+    fn unsubscribe_link_targets_website_route() {
+        let url = build_unsubscribe_link(
+            "https://vzdc.org/",
+            "secret",
+            "announcements",
+            "user@example.com",
+            Some("user-1"),
+        )
+        .unwrap();
+
+        assert!(url.starts_with("https://vzdc.org/emails/unsubscribe?token="));
+        assert!(!url.contains("/api/v1/emails/unsubscribe"));
     }
 }
