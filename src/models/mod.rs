@@ -1,4 +1,5 @@
 pub mod access;
+pub mod email;
 pub mod events;
 pub mod feedback;
 pub mod media;
@@ -7,8 +8,16 @@ pub mod users;
 pub mod web;
 
 pub use access::{
-    AccessCatalogBody, AclDebugBody, AuditLogItem, ListAuditLogsQuery, ServiceAccountSessionBody,
-    UpdateUserAccessRequest, UserAccessBody,
+    AccessCatalogBody, AclDebugBody, ApiKeyDetail, ApiKeyListItem, AuditLogItem,
+    CreateApiKeyRequest, CreateApiKeyResponse, ListAuditLogsQuery, ServiceAccountSessionBody,
+    UpdateApiKeyRequest, UpdateUserAccessRequest, UserAccessBody,
+};
+pub use email::{
+    EmailAudienceRequest, EmailOutboxDetailResponse, EmailOutboxListItem,
+    EmailOutboxRecipientResponse, EmailPreviewRequest, EmailPreviewResponse,
+    EmailRecipientsRequest, EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
+    EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, EmailUnsubscribeRequest,
+    EmailUnsubscribeResponse, ListEmailOutboxQuery,
 };
 pub use events::{
     AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
@@ -43,7 +52,8 @@ pub use training::{
 
 pub use users::{
     AdminUserListItem, CreateTeamSpeakUidRequest, CreateVisitorApplicationRequest,
-    DecideVisitorApplicationRequest, ListUsersQuery, ListVisitorApplicationsQuery, MeBody,
+    DecideVisitorApplicationRequest, ListUsersQuery, ListVisitorApplicationsQuery,
+    ManualVatusaRefreshOutcome, ManualVatusaRefreshResponse, ManualVatusaRefreshResult, MeBody,
     MeProfileBody, PatchMeRequest, RosterUserRow, SetControllerStatusBody,
     SetControllerStatusRequest, TeamSpeakUidBody, UserBasicInfo, UserDetailsResponse,
     UserFeedbackQuery, UserFullInfo, UserListItem, UserOverviewBody, UserPrivateInfo, UserStats,

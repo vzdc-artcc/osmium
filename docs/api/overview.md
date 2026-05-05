@@ -5,6 +5,7 @@ The generated API reference lives at `/docs/api/v1`. This page explains how to r
 ## Main Route Groups
 
 - auth
+- api-keys
 - users
 - admin
 - training
@@ -41,6 +42,7 @@ The training group now includes:
 
 - session cookie auth for human clients
 - bearer token auth for service accounts
+- bearer token auth also covers user-created API keys because they resolve through the same machine-auth path
 
 The auth group now also owns self-service profile mutation and TeamSpeak UID management:
 
@@ -48,6 +50,14 @@ The auth group now also owns self-service profile mutation and TeamSpeak UID man
 - `GET /api/v1/me/teamspeak-uids`
 - `POST /api/v1/me/teamspeak-uids`
 - `DELETE /api/v1/me/teamspeak-uids/{identity_id}`
+
+The API-keys group owns human-managed machine credentials:
+
+- `GET /api/v1/api-keys`
+- `GET /api/v1/api-keys/{key_id}`
+- `POST /api/v1/api-keys`
+- `PATCH /api/v1/api-keys/{key_id}`
+- `DELETE /api/v1/api-keys/{key_id}`
 
 ## Error Patterns
 

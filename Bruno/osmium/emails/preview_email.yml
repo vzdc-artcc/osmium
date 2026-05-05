@@ -1,0 +1,27 @@
+info:
+  name: preview_email
+  type: http
+  seq: 2
+  tags:
+    - emails
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/emails/preview"
+  auth: inherit
+  body:
+    mode: json
+    json: |-
+      {
+        "template_id": "announcements.generic",
+        "payload": {
+          "headline": "Facility update",
+          "body_markdown": "Hello team"
+        }
+      }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

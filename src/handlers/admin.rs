@@ -15,11 +15,15 @@ use crate::{
         middleware::ensure_permission,
     },
     errors::ApiError,
+    jobs::roster_sync,
     models::{
         AccessCatalogBody, AclDebugBody, AdminUserListItem, AuditLogItem,
         DecideVisitorApplicationRequest, ListAuditLogsQuery, ListUsersQuery,
-        ListVisitorApplicationsQuery, SetControllerStatusBody, SetControllerStatusRequest,
-        UpdateUserAccessRequest, UserAccessBody, UserOverviewBody, VisitorApplicationItem,
+        ListVisitorApplicationsQuery,
+        ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
+        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, SetControllerStatusBody,
+        SetControllerStatusRequest, UpdateUserAccessRequest, UserAccessBody, UserOverviewBody,
+        VisitorApplicationItem,
     },
     repos::{access as access_repo, audit as audit_repo, users as user_repo},
     state::AppState,
@@ -252,6 +256,89 @@ pub async fn set_user_controller_status(
             actor_id: actor.actor_id,
             action: "UPDATE".to_string(),
             resource_type: "USER_CONTROLLER_STATUS".to_string(),
+            resource_id: before.as_ref().map(|row| row.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(cid.to_string()),
+            before_state: before
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
+            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/users/{cid}/refresh-vatusa",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID")
+    ),
+    responses(
+        (status = 200, description = "User refreshed from VATUSA", body = ManualVatusaRefreshResponseBody),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 503, description = "VATUSA or database unavailable")
+    )
+)]
+pub async fn refresh_user_vatusa(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path(cid): Path<i64>,
+    headers: HeaderMap,
+) -> Result<Json<ManualVatusaRefreshResponseBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        current_service_account.as_ref(),
+        PermissionPath::from_segments(["users", "vatusa_refresh"], PermissionAction::Request),
+    )
+    .await?;
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let before = user_repo::find_roster_user_by_cid(pool, cid).await?;
+    let refreshed = roster_sync::refresh_single_user_from_vatusa(pool, cid).await?;
+    let response = ManualVatusaRefreshResponseBody {
+        user: crate::handlers::users::build_user_details_response(
+            &state,
+            user,
+            refreshed.user.clone(),
+        )
+        .await?,
+        refresh_result: ManualVatusaRefreshResultBody {
+            cid: refreshed.cid,
+            membership_outcome: match refreshed.membership_outcome {
+                roster_sync::ManualVatusaRefreshOutcome::Home => {
+                    crate::models::ManualVatusaRefreshOutcome::Home
+                }
+                roster_sync::ManualVatusaRefreshOutcome::Visitor => {
+                    crate::models::ManualVatusaRefreshOutcome::Visitor
+                }
+                roster_sync::ManualVatusaRefreshOutcome::OffRoster => {
+                    crate::models::ManualVatusaRefreshOutcome::OffRoster
+                }
+            },
+            detail_refreshed: refreshed.detail_refreshed,
+            membership_updated: refreshed.membership_updated,
+            message: refreshed.message.clone(),
+        },
+    };
+
+    let actor =
+        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "USER_VATUSA_REFRESH".to_string(),
             resource_id: before.as_ref().map(|row| row.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),

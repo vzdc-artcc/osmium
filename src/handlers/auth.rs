@@ -663,6 +663,7 @@ async fn ensure_user_login_access(
                     "auth.teamspeak_uids.create".to_string(),
                     "auth.teamspeak_uids.delete".to_string(),
                     "auth.sessions.delete".to_string(),
+                    "users.vatusa_refresh.self.request".to_string(),
                     "users.visit_artcc.request".to_string(),
                     "users.visitor_applications.self.read".to_string(),
                     "users.visitor_applications.self.request".to_string(),

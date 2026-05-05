@@ -26,6 +26,7 @@ Machine auth:
 - `Authorization: Bearer <token>`
 - credential lookup: `access.service_account_credentials`
 - service account lookup: `access.service_accounts`
+- API keys use the same lookup path and are distinguished by `access.service_accounts.kind = 'api_key'`
 
 ## Permission Resolution
 

@@ -68,3 +68,67 @@ pub struct AuditLogItem {
     pub ip_address: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissions: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateApiKeyRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub permissions: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ApiKeyListItem {
+    pub id: String,
+    pub key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub prefix: Option<String>,
+    pub last_four: Option<String>,
+    pub created_by_user_id: Option<String>,
+    pub created_by_display_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ApiKeyDetail {
+    pub id: String,
+    pub key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub prefix: Option<String>,
+    pub last_four: Option<String>,
+    pub created_by_user_id: Option<String>,
+    pub created_by_display_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissions: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CreateApiKeyResponse {
+    pub key: ApiKeyDetail,
+    /// Plaintext API key secret. Returned exactly once at creation time.
+    pub secret: String,
+}

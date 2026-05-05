@@ -2,9 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use sqlx::{FromRow, Postgres, Transaction};
+use serde::Serialize;
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 
-use crate::{errors::ApiError, state::AppState};
+use crate::{errors::ApiError, models::RosterUserRow, repos::users as user_repo, state::AppState};
 
 const DEFAULT_INTERVAL_SECS: u64 = 900;
 const DEFAULT_API_BASE_URL: &str = "https://api.vatusa.net/v2";
@@ -32,6 +33,24 @@ struct RosterSyncRunResult {
     warning: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ManualVatusaRefreshOutcome {
+    Home,
+    Visitor,
+    OffRoster,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ManualVatusaRefreshResult {
+    pub user: RosterUserRow,
+    pub cid: i64,
+    pub membership_outcome: ManualVatusaRefreshOutcome,
+    pub detail_refreshed: bool,
+    pub membership_updated: bool,
+    pub message: Option<String>,
+}
+
 enum RosterSyncError {
     DatabaseUnavailable,
     Api(ApiError),
@@ -54,6 +73,15 @@ impl MembershipStatus {
         match self {
             Self::Home => "HOME",
             Self::Visitor => "VISITOR",
+        }
+    }
+}
+
+impl MembershipStatus {
+    fn manual_refresh_outcome(&self) -> ManualVatusaRefreshOutcome {
+        match self {
+            Self::Home => ManualVatusaRefreshOutcome::Home,
+            Self::Visitor => ManualVatusaRefreshOutcome::Visitor,
         }
     }
 }
@@ -97,6 +125,13 @@ struct LocalRosterUser {
 struct DesiredMembership {
     status: MembershipStatus,
     roster_user: VatusaRosterUser,
+}
+
+#[derive(Debug, Clone)]
+struct SingleUserRosterResolution {
+    desired: Option<DesiredMembership>,
+    found_in_home: bool,
+    found_in_visit: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -262,10 +297,7 @@ async fn run_roster_sync(
         .db
         .as_ref()
         .ok_or(RosterSyncError::DatabaseUnavailable)?;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|_| RosterSyncError::Api(ApiError::Internal))?;
+    let client = build_vatusa_client().map_err(RosterSyncError::Api)?;
 
     let home_roster = fetch_roster(&client, config, "home").await.map_err(|err| {
         tracing::warn!(
@@ -486,6 +518,80 @@ async fn run_roster_sync(
     })
 }
 
+pub async fn refresh_single_user_from_vatusa(
+    pool: &PgPool,
+    cid: i64,
+) -> Result<ManualVatusaRefreshResult, ApiError> {
+    let config = roster_sync_config_from_env()
+        .map_err(|message| {
+            tracing::warn!(cid, message, "manual vatusa refresh unavailable");
+            ApiError::ServiceUnavailable
+        })?
+        .ok_or(ApiError::ServiceUnavailable)?;
+    let client = build_vatusa_client()?;
+    let before = fetch_local_sync_candidate(pool, cid)
+        .await?
+        .ok_or(ApiError::BadRequest)?;
+    let resolution = resolve_single_user_membership(&client, &config, cid).await?;
+
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+    let (membership_outcome, detail_refreshed, membership_updated, message) = match resolution
+        .desired
+        .as_ref()
+    {
+        Some(desired) => {
+            let detail = fetch_user_detail(&client, &config, cid)
+                .await
+                .map_err(map_user_detail_fetch_error)?;
+            let update = build_matched_update(&before, desired, detail);
+            let change_summary = summarize_membership_change(&before, &update);
+            apply_matched_update(&mut tx, &update, &config.facility_id).await?;
+            let message = if resolution.found_in_home && resolution.found_in_visit {
+                Some("cid found in both home and visiting rosters; preferred HOME".to_string())
+            } else {
+                None
+            };
+
+            (
+                desired.status.manual_refresh_outcome(),
+                true,
+                change_summary.has_meaningful_change(),
+                message,
+            )
+        }
+        None if before.has_membership => {
+            let update = build_off_roster_update(&before);
+            apply_off_roster_update(&mut tx, &update).await?;
+            (
+                ManualVatusaRefreshOutcome::OffRoster,
+                false,
+                true,
+                Some("user not found on VATUSA facility roster; membership demoted".to_string()),
+            )
+        }
+        None => (
+            ManualVatusaRefreshOutcome::OffRoster,
+            false,
+            false,
+            Some("user not found on VATUSA facility roster".to_string()),
+        ),
+    };
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+    let user = user_repo::find_roster_user_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::BadRequest)?;
+
+    Ok(ManualVatusaRefreshResult {
+        user,
+        cid,
+        membership_outcome,
+        detail_refreshed,
+        membership_updated,
+        message,
+    })
+}
+
 fn roster_sync_config_from_env() -> Result<Option<RosterSyncConfig>, String> {
     if !roster_sync_enabled() {
         return Ok(None);
@@ -510,6 +616,13 @@ fn roster_sync_config_from_env() -> Result<Option<RosterSyncConfig>, String> {
             .unwrap_or_else(|| DEFAULT_API_BASE_URL.to_string()),
         interval_secs: roster_sync_interval_secs(),
     }))
+}
+
+fn build_vatusa_client() -> Result<reqwest::Client, ApiError> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|_| ApiError::Internal)
 }
 
 fn roster_sync_enabled() -> bool {
@@ -545,6 +658,18 @@ async fn fetch_roster(
             tracing::warn!(membership, ?error, "failed to parse vatusa roster response");
             ApiError::ServiceUnavailable
         })
+}
+
+async fn fetch_single_roster_membership(
+    client: &reqwest::Client,
+    config: &RosterSyncConfig,
+    membership: &str,
+    cid: i64,
+) -> Result<Option<VatusaRosterUser>, ApiError> {
+    Ok(fetch_roster(client, config, membership)
+        .await?
+        .into_iter()
+        .find(|user| user.cid == cid))
 }
 
 async fn fetch_user_detail(
@@ -589,6 +714,39 @@ async fn send_vatusa_request(
     }
 
     Ok(response)
+}
+
+async fn resolve_single_user_membership(
+    client: &reqwest::Client,
+    config: &RosterSyncConfig,
+    cid: i64,
+) -> Result<SingleUserRosterResolution, ApiError> {
+    let visit = fetch_single_roster_membership(client, config, "visit", cid).await?;
+    let home = fetch_single_roster_membership(client, config, "home", cid).await?;
+
+    if visit.is_some() && home.is_some() {
+        tracing::warn!(cid, "cid found in both home and visiting rosters");
+    }
+
+    let found_in_home = home.is_some();
+    let found_in_visit = visit.is_some();
+    let desired = home
+        .map(|roster_user| DesiredMembership {
+            status: MembershipStatus::Home,
+            roster_user,
+        })
+        .or_else(|| {
+            visit.clone().map(|roster_user| DesiredMembership {
+                status: MembershipStatus::Visitor,
+                roster_user,
+            })
+        });
+
+    Ok(SingleUserRosterResolution {
+        desired,
+        found_in_home,
+        found_in_visit,
+    })
 }
 
 fn build_desired_memberships(
@@ -650,6 +808,34 @@ async fn fetch_local_sync_candidates(
         "#,
     )
     .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+async fn fetch_local_sync_candidate(
+    pool: &sqlx::PgPool,
+    cid: i64,
+) -> Result<Option<LocalRosterUser>, ApiError> {
+    sqlx::query_as::<_, LocalRosterUser>(
+        r#"
+        select
+            u.id as user_id,
+            u.cid,
+            (m.user_id is not null) as has_membership,
+            m.rating,
+            m.controller_status,
+            m.membership_status,
+            m.home_facility,
+            m.visitor_home_facility
+        from identity.users u
+        left join org.memberships m on m.user_id = u.id
+        left join identity.user_flags f on f.user_id = u.id
+        where u.cid = $1
+          and coalesce(f.excluded_from_roster_sync, false) = false
+        "#,
+    )
+    .bind(cid)
+    .fetch_optional(pool)
     .await
     .map_err(|_| ApiError::Internal)
 }
@@ -924,6 +1110,16 @@ fn format_roster_sync_error(err: &ApiError) -> String {
         ApiError::Unauthorized => "unauthorized".to_string(),
         ApiError::ServiceUnavailable => "service unavailable".to_string(),
         ApiError::Internal => "internal error".to_string(),
+    }
+}
+
+fn map_user_detail_fetch_error(err: UserDetailFetchError) -> ApiError {
+    match err {
+        UserDetailFetchError::Http(error) => error,
+        UserDetailFetchError::Decode(error) => {
+            tracing::warn!(?error, "failed to decode vatusa user response");
+            ApiError::ServiceUnavailable
+        }
     }
 }
 
@@ -1323,5 +1519,20 @@ mod tests {
             .expect("config lookup should succeed")
             .expect("config should exist");
         assert_eq!(config.interval_secs, DEFAULT_INTERVAL_SECS);
+    }
+
+    #[test]
+    fn single_user_membership_prefers_home_when_both_present() {
+        let desired = build_desired_memberships(
+            vec![roster_user(1001, "ZDC", None)],
+            vec![roster_user(1001, "ZNY", None)],
+        );
+
+        assert_eq!(
+            desired
+                .get(&1001)
+                .map(|entry| entry.status.manual_refresh_outcome()),
+            Some(ManualVatusaRefreshOutcome::Home)
+        );
     }
 }

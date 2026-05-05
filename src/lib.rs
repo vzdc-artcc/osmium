@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod docs;
+pub mod email;
 pub mod errors;
 pub mod handlers;
 pub mod jobs;
@@ -19,6 +20,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = state::AppState::from_env().await?;
     run_startup_migrations(&state).await?;
+    jobs::email_delivery::start_email_delivery_worker(state.clone());
     jobs::stats_sync::start_stats_sync_worker(state.clone());
     jobs::roster_sync::start_roster_sync_worker(state.clone());
 
@@ -172,6 +174,7 @@ mod tests {
         let body_text = std::str::from_utf8(&body).unwrap();
         assert!(body_text.contains("stats_sync"));
         assert!(body_text.contains("roster_sync"));
+        assert!(body_text.contains("email_worker"));
         assert!(body_text.contains("docs"));
     }
 
@@ -242,6 +245,13 @@ mod tests {
             "/api/v1/me/teamspeak-uids",
             "/api/v1/me/teamspeak-uids/{identity_id}",
             "/api/v1/auth/service-account/me",
+            "/api/v1/emails/templates",
+            "/api/v1/emails/preview",
+            "/api/v1/emails/send",
+            "/api/v1/emails/outbox",
+            "/api/v1/emails/outbox/{id}",
+            "/api/v1/emails/unsubscribe",
+            "/api/v1/emails/resubscribe",
             "/api/v1/user",
             "/api/v1/user/visitor-application",
             "/api/v1/admin/acl",
@@ -269,6 +279,44 @@ mod tests {
                 "missing OpenAPI path: {expected}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn email_template_list_requires_auth() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/emails/templates")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn email_unsubscribe_post_is_public_by_token() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/emails/unsubscribe")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"token":"invalid"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[test]
@@ -517,6 +565,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_refresh_user_vatusa_endpoint_requires_staff_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/admin/users/10000010/refresh-vatusa")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn admin_list_visitor_applications_endpoint_requires_staff_session() {
         let state = crate::state::AppState::without_db();
         let app = crate::router::build_router(state);
@@ -620,6 +687,25 @@ mod tests {
                     .uri("/api/v1/user/visit-artcc")
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .body(Body::from("{\"artcc\":\"ZDC\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn user_refresh_vatusa_endpoint_requires_session() {
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/user/refresh-vatusa")
+                    .body(Body::empty())
                     .unwrap(),
             )
             .await

@@ -72,3 +72,4 @@ The standard test suite does not fully validate:
 - Training request create/approve flow
 - Event creation and position publish flow
 - Service-account introspection route with a valid bearer token
+- API key create/list/detail/update/revoke flow, including one-time secret capture and bearer-token introspection

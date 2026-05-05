@@ -11,10 +11,13 @@ use crate::{
         middleware::ensure_permission,
     },
     errors::ApiError,
+    jobs::roster_sync,
     models::{
-        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery, RosterUserRow,
-        UserBasicInfo, UserDetailsResponse, UserFeedbackQuery, UserFullInfo, UserListItem,
-        UserPrivateInfo, VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
+        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery,
+        ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
+        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, RosterUserRow, UserBasicInfo,
+        UserDetailsResponse, UserFeedbackQuery, UserFullInfo, UserListItem, UserPrivateInfo,
+        VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
     },
     repos::{audit as audit_repo, users as user_repo},
     state::AppState,
@@ -95,44 +98,9 @@ pub async fn get_user(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    let basic = basic_info_from_row(&row);
-    let is_self = row.cid == viewer.cid;
-    if is_self {
-        ensure_permission(
-            &state,
-            Some(viewer),
-            None,
-            PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-        )
-        .await?;
-    } else {
-        ensure_permission(
-            &state,
-            Some(viewer),
-            None,
-            PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
-        )
-        .await?;
-    }
-    let can_view_private = can_view_private_directory(&state, viewer).await?;
-    let can_view_full = can_view_private || is_self;
-
-    if !can_view_full {
-        return Ok(Json(UserDetailsResponse { basic, full: None }));
-    }
-
-    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &row.id).await?;
-    let stats = user_repo::fetch_user_stats(pool, &row.id).await?;
-
-    Ok(Json(UserDetailsResponse {
-        basic,
-        full: Some(UserFullInfo {
-            profile: private_info_from_row(&row),
-            roles,
-            permissions: permission_tree_from_paths(&permissions),
-            stats,
-        }),
-    }))
+    Ok(Json(
+        build_user_details_response(&state, viewer, row).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -191,6 +159,81 @@ pub async fn visit_artcc(
             action: "UPDATE".to_string(),
             resource_type: "VISITOR_MEMBERSHIP".to_string(),
             resource_id: Some(viewer.id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(viewer.cid.to_string()),
+            before_state: before
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
+            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/user/refresh-vatusa",
+    tag = "users",
+    responses(
+        (status = 200, description = "Current user refreshed from VATUSA", body = ManualVatusaRefreshResponseBody),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated"),
+        (status = 503, description = "VATUSA or database unavailable")
+    )
+)]
+pub async fn refresh_my_vatusa(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    headers: HeaderMap,
+) -> Result<Json<ManualVatusaRefreshResponseBody>, ApiError> {
+    let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(viewer),
+        None,
+        PermissionPath::from_segments(
+            ["users", "vatusa_refresh", "self"],
+            PermissionAction::Request,
+        ),
+    )
+    .await?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let before = user_repo::find_roster_user_by_cid(pool, viewer.cid).await?;
+    let refreshed = roster_sync::refresh_single_user_from_vatusa(pool, viewer.cid).await?;
+    let response = ManualVatusaRefreshResponseBody {
+        user: build_user_details_response(&state, viewer, refreshed.user.clone()).await?,
+        refresh_result: ManualVatusaRefreshResultBody {
+            cid: refreshed.cid,
+            membership_outcome: match refreshed.membership_outcome {
+                roster_sync::ManualVatusaRefreshOutcome::Home => {
+                    crate::models::ManualVatusaRefreshOutcome::Home
+                }
+                roster_sync::ManualVatusaRefreshOutcome::Visitor => {
+                    crate::models::ManualVatusaRefreshOutcome::Visitor
+                }
+                roster_sync::ManualVatusaRefreshOutcome::OffRoster => {
+                    crate::models::ManualVatusaRefreshOutcome::OffRoster
+                }
+            },
+            detail_refreshed: refreshed.detail_refreshed,
+            membership_updated: refreshed.membership_updated,
+            message: refreshed.message.clone(),
+        },
+    };
+
+    let actor = audit_repo::resolve_audit_actor(pool, Some(viewer), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "USER_VATUSA_REFRESH".to_string(),
+            resource_id: before.as_ref().map(|row| row.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(viewer.cid.to_string()),
             before_state: before
@@ -413,6 +456,51 @@ async fn can_view_private_directory(
         ["users", "directory_private"],
         PermissionAction::Read,
     )))
+}
+
+pub(crate) async fn build_user_details_response(
+    state: &AppState,
+    viewer: &CurrentUser,
+    row: RosterUserRow,
+) -> Result<UserDetailsResponse, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let basic = basic_info_from_row(&row);
+    let is_self = row.cid == viewer.cid;
+    if is_self {
+        ensure_permission(
+            state,
+            Some(viewer),
+            None,
+            PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
+        )
+        .await?;
+    } else {
+        ensure_permission(
+            state,
+            Some(viewer),
+            None,
+            PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
+        )
+        .await?;
+    }
+
+    let can_view_private = can_view_private_directory(state, viewer).await?;
+    if !can_view_private && !is_self {
+        return Ok(UserDetailsResponse { basic, full: None });
+    }
+
+    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &row.id).await?;
+    let stats = user_repo::fetch_user_stats(pool, &row.id).await?;
+
+    Ok(UserDetailsResponse {
+        basic,
+        full: Some(UserFullInfo {
+            profile: private_info_from_row(&row),
+            roles,
+            permissions: permission_tree_from_paths(&permissions),
+            stats,
+        }),
+    })
 }
 
 fn basic_info_from_row(row: &RosterUserRow) -> UserBasicInfo {

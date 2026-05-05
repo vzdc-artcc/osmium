@@ -152,9 +152,15 @@ fn default_permission_names() -> Vec<String> {
         "access.catalog.read",
         "access.users.read",
         "access.users.update",
+        "api_keys.read",
+        "api_keys.create",
+        "api_keys.update",
+        "api_keys.delete",
         "users.directory.read",
         "users.directory_private.read",
         "users.controller_status.update",
+        "users.vatusa_refresh.self.request",
+        "users.vatusa_refresh.request",
         "users.visit_artcc.request",
         "users.visitor_applications.self.read",
         "users.visitor_applications.self.request",
@@ -198,6 +204,12 @@ fn default_permission_names() -> Vec<String> {
         "events.positions.assign",
         "events.positions.delete",
         "events.positions.publish",
+        "emails.templates.read",
+        "emails.preview.create",
+        "emails.send.create",
+        "emails.outbox.read",
+        "emails.suppressions.read",
+        "emails.suppressions.update",
         "files.audit.read",
         "files.assets.read",
         "files.assets.create",
@@ -436,6 +448,22 @@ mod tests {
     fn has_non_empty_default_access_catalog() {
         assert!(default_roles().contains(&SERVER_ADMIN_ROLE.to_string()));
         assert!(!default_permission_names().is_empty());
+    }
+
+    #[test]
+    fn default_permission_names_includes_api_keys_perms() {
+        let permissions = default_permission_names();
+        for required in [
+            "api_keys.read",
+            "api_keys.create",
+            "api_keys.update",
+            "api_keys.delete",
+        ] {
+            assert!(
+                permissions.iter().any(|name| name == required),
+                "missing default permission: {required}"
+            );
+        }
     }
 
     #[test]

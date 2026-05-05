@@ -28,12 +28,19 @@ Permission-gated routes:
 - `DELETE /api/v1/me/teamspeak-uids/{identity_id}` -> `auth.teamspeak_uids.delete`
 - `POST /api/v1/auth/logout` -> `auth.sessions.delete`
 - `GET /api/v1/auth/login/as/{cid}` -> `auth.dev_login.create` plus dev-mode gate
+- `GET /api/v1/emails/templates` -> `emails.templates.read`
+- `POST /api/v1/emails/preview` -> `emails.preview.create`
+- `POST /api/v1/emails/send` -> `emails.send.create`
+- `GET /api/v1/emails/outbox` -> `emails.outbox.read`
+- `GET /api/v1/emails/outbox/{id}` -> `emails.outbox.read`
+- `POST /api/v1/emails/resubscribe` -> `emails.suppressions.update`
 - `GET /api/v1/admin/acl` -> `access.self.read`
 - `GET /api/v1/admin/access/catalog` -> `access.catalog.read`
 - `GET /api/v1/admin/users/{cid}/access` -> `access.users.read`
 - `POST /api/v1/admin/users/{cid}/access` -> `access.users.update`
 - `GET /api/v1/admin/audit` -> `audit.logs.read`
 - `PATCH /api/v1/admin/users/{cid}/controller-status` -> `users.controller_status.update`
+- `POST /api/v1/admin/users/{cid}/refresh-vatusa` -> `users.vatusa_refresh.request`
 - `GET /api/v1/admin/visitor-applications` -> `users.visitor_applications.read`
 - `PATCH /api/v1/admin/visitor-applications/{application_id}` -> `users.visitor_applications.decide`
 - `GET /api/v1/admin/publications` -> `publications.items.read`
@@ -48,6 +55,7 @@ Permission-gated routes:
 - `GET /api/v1/user` -> `users.directory.read`
 - `GET /api/v1/user/{cid}` -> `auth.profile.read` for self, `users.directory.read` for other users, `users.directory_private.read` for private fields
 - `GET /api/v1/user/{cid}/feedback` -> `feedback.items.self.read` for self, `users.directory_private.read` for other users
+- `POST /api/v1/user/refresh-vatusa` -> `users.vatusa_refresh.self.request`
 - `POST /api/v1/user/visit-artcc` -> `users.visit_artcc.request`
 - `GET /api/v1/user/visitor-application` -> `users.visitor_applications.self.read`
 - `POST /api/v1/user/visitor-application` -> `users.visitor_applications.self.request`
@@ -98,3 +106,8 @@ Permission-gated routes:
 - `GET /api/v1/training/trainer-release-requests` -> `training.release_requests.read`
 - `POST /api/v1/training/trainer-release-requests` -> `training.release_requests.self.request`
 - `PATCH /api/v1/training/trainer-release-requests/{request_id}` -> `training.release_requests.decide`
+
+Token-based public route:
+
+- `GET /api/v1/emails/unsubscribe?token=...` -> public-by-token
+- `POST /api/v1/emails/unsubscribe` -> public-by-token

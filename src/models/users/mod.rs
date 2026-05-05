@@ -135,6 +135,29 @@ pub struct UserDetailsResponse {
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ManualVatusaRefreshOutcome {
+    Home,
+    Visitor,
+    OffRoster,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ManualVatusaRefreshResult {
+    pub cid: i64,
+    pub membership_outcome: ManualVatusaRefreshOutcome,
+    pub detail_refreshed: bool,
+    pub membership_updated: bool,
+    pub message: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ManualVatusaRefreshResponse {
+    pub user: UserDetailsResponse,
+    pub refresh_result: ManualVatusaRefreshResult,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct UserFullInfo {
     pub profile: UserPrivateInfo,
     pub roles: Vec<String>,

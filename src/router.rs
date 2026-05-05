@@ -8,8 +8,8 @@ use crate::{
     auth::middleware::resolve_current_user,
     docs,
     handlers::{
-        admin, auth, dev, docs as docs_handlers, events, feedback, files, health, publications,
-        stats, training, users,
+        admin, api_keys, auth, dev, docs as docs_handlers, emails, events, feedback, files, health,
+        publications, stats, training, users,
     },
     state::AppState,
 };
@@ -34,6 +34,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/users/{cid}/controller-status",
             patch(admin::set_user_controller_status),
+        )
+        .route(
+            "/users/{cid}/refresh-vatusa",
+            post(admin::refresh_user_vatusa),
         )
         .nest(
             "/publications",
@@ -63,6 +67,7 @@ pub fn build_router(state: AppState) -> Router {
 
     let user_routes = Router::new()
         .route("/visit-artcc", post(users::visit_artcc))
+        .route("/refresh-vatusa", post(users::refresh_my_vatusa))
         .route(
             "/visitor-application",
             get(users::get_my_visitor_application).post(users::create_visitor_application),
@@ -184,6 +189,30 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(publications::list_publications))
         .route("/{publication_id}", get(publications::get_publication));
 
+    let api_keys_routes = Router::new()
+        .route(
+            "/",
+            get(api_keys::list_api_keys).post(api_keys::create_api_key),
+        )
+        .route(
+            "/{key_id}",
+            get(api_keys::get_api_key)
+                .patch(api_keys::update_api_key)
+                .delete(api_keys::revoke_api_key),
+        );
+
+    let email_routes = Router::new()
+        .route("/templates", get(emails::list_templates))
+        .route("/preview", post(emails::preview_email))
+        .route("/send", post(emails::send_email))
+        .route("/outbox", get(emails::list_outbox))
+        .route("/outbox/{id}", get(emails::get_outbox_detail))
+        .route(
+            "/unsubscribe",
+            post(emails::unsubscribe).get(emails::unsubscribe_get),
+        )
+        .route("/resubscribe", post(emails::resubscribe));
+
     let mut api = Router::new()
         .route("/me", get(auth::me).patch(auth::patch_me))
         .route(
@@ -213,6 +242,8 @@ pub fn build_router(state: AppState) -> Router {
             get(stats::get_controller_totals),
         )
         .nest("/admin", admin_routes)
+        .nest("/api-keys", api_keys_routes)
+        .nest("/emails", email_routes)
         .nest("/events", event_routes)
         .nest("/feedback", feedback_routes)
         .nest("/files", file_routes)

@@ -75,6 +75,19 @@ Current machine-facing introspection route:
 GET /api/v1/auth/service-account/me
 ```
 
+## API Keys
+
+User-managed API keys are a specialized kind of service account.
+
+- API keys are stored as `access.service_accounts.kind = 'api_key'`
+- the raw secret is shown only once at creation time
+- the bearer token path is identical to other machine credentials
+- keys carry explicit permission grants through `access.service_account_permissions`
+- non-admin creators may assign only permissions they already hold effectively
+- owners can always read, update, and revoke their own keys
+- cross-user management is controlled by `api_keys.read`, `api_keys.update`, and `api_keys.delete`
+- creation requires `api_keys.create`
+
 ## Access Model
 
 - roles define default capabilities
@@ -103,6 +116,10 @@ GET /api/v1/auth/service-account/me
   This is no longer part of the default `USER` role. Uploads require elevated access.
 - `files.update`
 - `events.update`
+- `api_keys.read`
+- `api_keys.create`
+- `api_keys.update`
+- `api_keys.delete`
 
 ## Default Human Access
 
