@@ -1,0 +1,87 @@
+info:
+  name: update_ots_recommendation
+  type: http
+  seq: 10
+  tags:
+    - training
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/training/ots-recommendations/{{recommendationId}}"
+  body:
+    type: json
+    data: |-
+      {
+        "assigned_instructor_id": ""
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: OTS recommendation updated
+    request:
+      url: "{{baseUrl}}/api/v1/training/ots-recommendations/{{recommendationId}}"
+      method: PATCH
+      body:
+        type: json
+        data: |-
+          {
+            "assigned_instructor_id": ""
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "assigned_instructor_id": "",
+            "created_at": "",
+            "id": "",
+            "notes": "",
+            "student_id": "",
+            "updated_at": ""
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/ots-recommendations/{{recommendationId}}"
+      method: PATCH
+      body:
+        type: json
+        data: |-
+          {
+            "assigned_instructor_id": ""
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/ots-recommendations/{{recommendationId}}"
+      method: PATCH
+      body:
+        type: json
+        data: |-
+          {
+            "assigned_instructor_id": ""
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

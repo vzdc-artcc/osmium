@@ -1,0 +1,35 @@
+info:
+  name: send_email
+  type: http
+  seq: 3
+  tags:
+    - emails
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/emails/send"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |+
+      {
+        "template_id": "system.test_email",
+        "payload": {
+          "message": "SES test from the API"
+        },
+        "reply_to_address": "support@carsonberget.com",
+        "recipients": {
+          "emails": ["test@carsonberget.com"]
+        },
+        "dry_run": false
+      }
+
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

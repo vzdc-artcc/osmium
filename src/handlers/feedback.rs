@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionKey, PermissionResource},
+        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
         middleware::ensure_permission,
     },
@@ -44,6 +44,13 @@ pub async fn create_feedback(
     Json(payload): Json<CreateFeedbackRequest>,
 ) -> Result<(StatusCode, Json<FeedbackItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_permission(
+        &state,
+        Some(user),
+        None,
+        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Create),
+    )
+    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     if payload.rating < 1 || payload.rating > 5 {
@@ -151,10 +158,18 @@ pub async fn list_feedback(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let (_, permissions) = crate::auth::acl::fetch_user_access(state.db.as_ref(), &user.id).await?;
-    let can_manage = permissions.contains(&PermissionKey::new(
-        PermissionResource::Feedback,
-        PermissionAction::Update,
+    let can_read_all = permissions.contains(&PermissionPath::from_segments(
+        ["feedback", "items"],
+        PermissionAction::Read,
     ));
+    let can_read_self = permissions.contains(&PermissionPath::from_segments(
+        ["feedback", "items", "self"],
+        PermissionAction::Read,
+    ));
+
+    if !can_read_all && !can_read_self {
+        return Err(ApiError::Unauthorized);
+    }
 
     let limit = query.limit.unwrap_or(50).clamp(1, 500);
     let offset = query.offset.unwrap_or(0).max(0);
@@ -172,7 +187,7 @@ pub async fn list_feedback(
             }
         })?;
 
-    let items = if can_manage {
+    let items = if can_read_all {
         sqlx::query_as::<_, FeedbackItem>(
             r#"
             select
@@ -261,7 +276,7 @@ pub async fn decide_feedback(
         &state,
         Some(user),
         None,
-        PermissionKey::new(PermissionResource::Feedback, PermissionAction::Update),
+        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Decide),
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;

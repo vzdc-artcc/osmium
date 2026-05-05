@@ -1,0 +1,36 @@
+info:
+  name: list_teamspeak_uids
+  type: http
+  seq: 7
+  tags:
+    - auth
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/me/teamspeak-uids"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Current user's TeamSpeak UIDs
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/me/teamspeak-uids"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+--- 

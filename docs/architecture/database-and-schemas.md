@@ -18,6 +18,26 @@ Osmium uses one Postgres database with multiple schemas.
 - `training.v_active_assignments`
 - `events.v_event_staffing_summary`
 
+`org.v_user_roster_profile` now also carries profile-adjacent roster data used by user and staff detail views, including:
+
+- `operating_initials`
+- `bio`
+- `timezone`
+- `new_event_notifications`
+
+## Identity And Membership Notes
+
+Recent self-service profile work relies on these storage points:
+
+- `identity.users.preferred_name`
+- `identity.user_profiles.bio`
+- `identity.user_profiles.timezone`
+- `identity.user_profiles.new_event_notifications`
+- `identity.user_identities` with `provider = 'TEAMSPEAK'`
+- `org.memberships.operating_initials`
+
+`org.memberships.operating_initials` is protected by a unique partial index so first-login generation can rely on the database to break collisions safely.
+
 ## Website Content Tables In Active Use
 
 The website/public-content domain now actively uses:

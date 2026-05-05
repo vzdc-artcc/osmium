@@ -32,14 +32,30 @@ examples:
         type: json
         data: |-
           {
-            "cid": 0,
-            "display_name": "",
-            "email": "",
             "id": "",
-            "permissions": {},
+            "cid": 0,
+            "email": "",
+            "display_name": "",
             "rating": "",
             "role": "",
-            "roles": []
+            "roles": [],
+            "permissions": {},
+            "profile": {
+              "first_name": "",
+              "last_name": "",
+              "preferred_name": "",
+              "bio": "",
+              "timezone": "America/Chicago",
+              "receive_event_notifications": false,
+              "operating_initials": "JC"
+            },
+            "teamspeak_uids": [
+              {
+                "id": "",
+                "uid": "",
+                "linked_at": "2026-05-04T12:00:00Z"
+              }
+            ]
           }
   - name: 401 Response
     description: Not authenticated

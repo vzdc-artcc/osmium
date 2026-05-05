@@ -3,7 +3,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     auth::{
-        acl::{PermissionKey, SERVER_ADMIN_ROLE, normalize_legacy_permission_name},
+        acl::{PermissionPath, SERVER_ADMIN_ROLE},
         context::{CurrentServiceAccount, CurrentUser},
     },
     errors::ApiError,
@@ -200,58 +200,31 @@ pub async fn find_user_id_by_cid(pool: &PgPool, cid: i64) -> Result<Option<Strin
         .map_err(|_| ApiError::Internal)
 }
 
-pub async fn replace_user_access(
+pub async fn replace_user_permissions(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
-    roles: &[String],
-    permissions: &[(String, bool)],
+    permissions: &[String],
 ) -> Result<(), ApiError> {
-    if !roles.is_empty() {
-        sqlx::query("delete from access.user_roles where user_id = $1")
-            .bind(user_id)
-            .execute(&mut **tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+    sqlx::query("delete from access.user_permissions where user_id = $1")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
 
-        for role in roles {
-            sqlx::query(
-                r#"
-                insert into access.user_roles (user_id, role_name)
-                values ($1, $2)
-                on conflict (user_id, role_name) do nothing
-                "#,
-            )
-            .bind(user_id)
-            .bind(role)
-            .execute(&mut **tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-        }
-    }
-
-    if !permissions.is_empty() {
-        sqlx::query("delete from access.user_permissions where user_id = $1")
-            .bind(user_id)
-            .execute(&mut **tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-
-        for (permission_name, granted) in permissions {
-            sqlx::query(
-                r#"
-                insert into access.user_permissions (user_id, permission_name, granted)
-                values ($1, $2, $3)
-                on conflict (user_id, permission_name) do update
-                set granted = excluded.granted
-                "#,
-            )
-            .bind(user_id)
-            .bind(permission_name)
-            .bind(*granted)
-            .execute(&mut **tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-        }
+    for permission_name in permissions {
+        sqlx::query(
+            r#"
+            insert into access.user_permissions (user_id, permission_name, granted)
+            values ($1, $2, true)
+            on conflict (user_id, permission_name) do update
+            set granted = true
+            "#,
+        )
+        .bind(user_id)
+        .bind(permission_name)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
     }
 
     Ok(())
@@ -297,13 +270,12 @@ pub async fn assign_server_admin(
 
 pub fn permission_names_to_permissions(
     permission_names: Vec<String>,
-) -> Result<Vec<PermissionKey>, ApiError> {
+) -> Result<Vec<PermissionPath>, ApiError> {
     let mut permissions = Vec::with_capacity(permission_names.len());
 
     for name in permission_names {
-        let canonical_name = normalize_legacy_permission_name(&name).unwrap_or(name);
-        let Some(permission) = PermissionKey::from_db_value(&canonical_name) else {
-            tracing::error!(permission_name = %canonical_name, "invalid permission value loaded from database");
+        let Some(permission) = PermissionPath::from_db_value(&name) else {
+            tracing::error!(permission_name = %name, "invalid permission value loaded from database");
             return Err(ApiError::Internal);
         };
         permissions.push(permission);
@@ -312,7 +284,7 @@ pub fn permission_names_to_permissions(
     Ok(permissions)
 }
 
-fn sha256_hex(input: &str) -> String {
+pub fn sha256_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let digest = hasher.finalize();

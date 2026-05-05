@@ -1,7 +1,9 @@
 pub mod admin;
+pub mod api_keys;
 pub mod auth;
 pub mod dev;
 pub mod docs;
+pub mod emails;
 pub mod events;
 pub mod feedback;
 pub mod files;

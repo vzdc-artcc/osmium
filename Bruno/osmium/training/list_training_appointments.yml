@@ -1,0 +1,95 @@
+info:
+  name: list_training_appointments
+  type: http
+  seq: 30
+  tags:
+    - training
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/training/appointments"
+  params:
+    - name: limit
+      value: ""
+      type: query
+      disabled: true
+    - name: offset
+      value: ""
+      type: query
+      disabled: true
+    - name: sort_field
+      value: ""
+      type: query
+      disabled: true
+    - name: sort_order
+      value: ""
+      type: query
+      disabled: true
+    - name: trainer_id
+      value: ""
+      type: query
+      disabled: true
+    - name: student_id
+      value: ""
+      type: query
+      disabled: true
+    - name: user_id
+      value: ""
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: List training appointments
+    request:
+      url: "{{baseUrl}}/api/v1/training/appointments"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          [
+            {
+              "atc_booking_id": "",
+              "created_at": "",
+              "double_booking": false,
+              "environment": "",
+              "estimated_duration_minutes": 60,
+              "estimated_end": "",
+              "id": "",
+              "lesson_count": 1,
+              "preparation_completed": false,
+              "start": "",
+              "student_cid": 0,
+              "student_id": "",
+              "student_name": "",
+              "trainer_cid": 0,
+              "trainer_id": "",
+              "trainer_name": "",
+              "updated_at": "",
+              "warning_email_sent": false
+            }
+          ]
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/training/appointments"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

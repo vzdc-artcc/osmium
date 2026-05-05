@@ -14,6 +14,7 @@ Osmium is the shared backend and API platform for vZDC applications, bots, publi
 - files, metadata, and CDN delivery
 - statistics and sync status
 - service-account auth for internal machine clients
+- user-managed API keys for machine clients
 
 ## Quick Local Start
 
@@ -64,6 +65,7 @@ If OAuth callback fails with `oauth callback missing state cookie`, the browser 
 - Docs home: `GET /docs`
 - Interactive API reference: `GET /docs/api/v1`
 - OpenAPI JSON: `GET /docs/api/v1/openapi.json`
+- Narrative API keys docs: `GET /docs/api/api-keys`
 
 ## High-Level Architecture
 

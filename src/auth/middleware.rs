@@ -1,15 +1,12 @@
 use axum::{
     extract::{Request, State},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 
 use crate::{
     auth::{
-        acl::{
-            PermissionAction, PermissionKey, PermissionResource, fetch_service_account_access,
-            fetch_user_access,
-        },
+        acl::{PermissionPath, fetch_service_account_access, fetch_user_access},
         context::{CurrentServiceAccount, CurrentUser},
     },
     errors::ApiError,
@@ -60,7 +57,7 @@ pub async fn ensure_permission(
     state: &AppState,
     current_user: Option<&CurrentUser>,
     current_service_account: Option<&CurrentServiceAccount>,
-    permission: PermissionKey,
+    permission: PermissionPath,
 ) -> Result<(), ApiError> {
     if let Some(user) = current_user {
         let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
@@ -82,37 +79,6 @@ pub async fn ensure_permission(
     }
 
     Err(ApiError::Unauthorized)
-}
-
-pub async fn require_staff(
-    State(state): State<AppState>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let current_user = request
-        .extensions()
-        .get::<Option<CurrentUser>>()
-        .cloned()
-        .flatten();
-    let current_service_account = request
-        .extensions()
-        .get::<Option<CurrentServiceAccount>>()
-        .cloned()
-        .flatten();
-
-    if ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionKey::new(PermissionResource::Users, PermissionAction::Update),
-    )
-    .await
-    .is_err()
-    {
-        return ApiError::Unauthorized.into_response();
-    }
-
-    next.run(request).await
 }
 
 fn parse_cookie(cookie_header: Option<&http::HeaderValue>, cookie_name: &str) -> Option<String> {

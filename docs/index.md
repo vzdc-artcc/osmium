@@ -45,6 +45,7 @@ Osmium is the shared backend and API platform for vZDC apps, bots, files, traini
 ## API Docs
 
 - Narrative API overview: [/docs/api/overview](/docs/api/overview)
+- API keys API: [/docs/api/api-keys](/docs/api/api-keys)
 - Publications API: [/docs/api/publications](/docs/api/publications)
 - Interactive OpenAPI reference: [/docs/api/v1](/docs/api/v1)
 

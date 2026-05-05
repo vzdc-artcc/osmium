@@ -80,6 +80,25 @@ Do not mix `localhost` and `127.0.0.1` during the same login flow.
 | `VATUSA_FACILITY_ID` | No | `ZDC` | Facility id to sync from VATUSA. |
 | `VATUSA_API_BASE_URL` | No | `https://api.vatusa.net/v2` | Base URL for VATUSA API requests. |
 
+## Email / AWS SES
+
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `EMAIL_ENABLED` | No | `true` | Master switch for email APIs and delivery worker. |
+| `AWS_REGION` | Yes for email | none | AWS region for SES. |
+| `AWS_ACCESS_KEY_ID` | Yes for email | none | AWS access key for SES. |
+| `AWS_SECRET_ACCESS_KEY` | Yes for email | none | AWS secret key for SES. |
+| `AWS_SESSION_TOKEN` | No | unset | Optional session token for temporary AWS credentials. |
+| `EMAIL_SES_ENDPOINT` | No | unset | Optional endpoint override for LocalStack or testing. |
+| `EMAIL_FROM_ADDRESS` | Yes for email | none | Verified SES sender address. |
+| `EMAIL_FROM_NAME` | No | unset | Friendly sender display name. |
+| `EMAIL_REPLY_TO_ADDRESS` | No | unset | Optional fallback reply-to header when the send request does not provide one. |
+| `EMAIL_WORKER_ENABLED` | No | `true` | Enables the durable outbox delivery worker. |
+| `EMAIL_WORKER_INTERVAL_SECS` | No | `5` | Poll interval for pending email jobs. |
+| `EMAIL_WORKER_BATCH_SIZE` | No | `25` | Max outbox jobs claimed per worker pass. |
+| `EMAIL_UNSUBSCRIBE_BASE_URL` | Yes for unsubscribe links | none | Public app base URL used in category unsubscribe links. |
+| `EMAIL_UNSUBSCRIBE_SECRET` | Yes for unsubscribe links | none | HMAC secret for public unsubscribe tokens. |
+
 ## Docs Behavior
 
 There are no separate runtime variables for the markdown docs set in this pass. Docs pages are compiled into the binary with `include_str!`, and the OpenAPI reference is generated from handler metadata at runtime.

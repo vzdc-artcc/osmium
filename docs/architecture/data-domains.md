@@ -6,6 +6,14 @@ Osmium uses domain-separated schemas inside one database.
 
 Owns users, profiles, flags, linked identities, sessions, and verification state.
 
+Identity ownership includes:
+
+- `identity.users.preferred_name`
+- `identity.user_profiles.bio`
+- `identity.user_profiles.timezone`
+- `identity.user_profiles.new_event_notifications`
+- `identity.user_identities` rows for linked TeamSpeak UIDs
+
 ## access
 
 Owns roles, permissions, direct overrides, service accounts, credentials, and audit.
@@ -13,6 +21,8 @@ Owns roles, permissions, direct overrides, service accounts, credentials, and au
 ## org
 
 Owns ARTCC membership, controller status, staff positions, certifications, and related roster state.
+
+Org ownership includes `org.memberships.operating_initials`, even though those initials are bootstrapped during login from the auth flow.
 
 ## training
 

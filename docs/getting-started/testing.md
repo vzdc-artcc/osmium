@@ -61,6 +61,10 @@ The standard test suite does not fully validate:
 ## Manual Scenarios Worth Running
 
 - Dev login, then `/api/v1/me`
+- Dev login, then `PATCH /api/v1/me` with a valid timezone and verify the updated `profile` block
+- Dev login, then `PATCH /api/v1/me` with an invalid timezone and verify `bad_request`
+- Add, list, and delete a TeamSpeak UID through `/api/v1/me/teamspeak-uids`
+- Confirm first login produced a unique `profile.operating_initials`
 - File upload and signed URL generation
 - Publication category create/update/delete flow
 - Publication draft to published flow and public visibility
@@ -68,3 +72,4 @@ The standard test suite does not fully validate:
 - Training request create/approve flow
 - Event creation and position publish flow
 - Service-account introspection route with a valid bearer token
+- API key create/list/detail/update/revoke flow, including one-time secret capture and bearer-token introspection

@@ -4,12 +4,20 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::sync::broadcast;
 
-use crate::jobs::stats_sync::ControllerLifecycleEvent;
+use crate::{
+    email::{EmailWorkerHealth, service::EmailService},
+    jobs::stats_sync::ControllerLifecycleEvent,
+};
 
 #[derive(Clone, Default)]
 pub struct JobHealth {
     pub stats_sync: StatsSyncHealth,
     pub roster_sync: RosterSyncHealth,
+}
+
+#[derive(Clone, Default)]
+pub struct EmailHealth {
+    pub worker: EmailWorkerHealth,
 }
 
 #[derive(Clone, Default)]
@@ -71,11 +79,14 @@ impl StatsSyncHealth {
 pub struct AppState {
     pub db: Option<PgPool>,
     pub job_health: Arc<RwLock<JobHealth>>,
+    pub email_health: Arc<RwLock<EmailHealth>>,
+    pub email: Arc<EmailService>,
     pub controller_events: broadcast::Sender<ControllerLifecycleEvent>,
 }
 
 impl AppState {
     pub async fn from_env() -> Result<Self, sqlx::Error> {
+        let email = Arc::new(EmailService::from_env().await);
         let (controller_events, _) = broadcast::channel(1024);
         if let Ok(database_url) = std::env::var("DATABASE_URL") {
             let pool = PgPoolOptions::new()
@@ -85,6 +96,8 @@ impl AppState {
             return Ok(Self {
                 db: Some(pool),
                 job_health: Arc::new(RwLock::new(JobHealth::default())),
+                email_health: Arc::new(RwLock::new(EmailHealth::default())),
+                email,
                 controller_events,
             });
         }
@@ -92,15 +105,20 @@ impl AppState {
         Ok(Self {
             db: None,
             job_health: Arc::new(RwLock::new(JobHealth::default())),
+            email_health: Arc::new(RwLock::new(EmailHealth::default())),
+            email,
             controller_events,
         })
     }
 
     pub fn without_db() -> Self {
+        let email = Arc::new(EmailService::disabled());
         let (controller_events, _) = broadcast::channel(1024);
         Self {
             db: None,
             job_health: Arc::new(RwLock::new(JobHealth::default())),
+            email_health: Arc::new(RwLock::new(EmailHealth::default())),
+            email,
             controller_events,
         }
     }

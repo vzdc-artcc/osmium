@@ -10,8 +10,42 @@ Primary human auth flow:
 - `GET /api/v1/auth/vatsim/callback`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/me`
+- `PATCH /api/v1/me`
+- `GET /api/v1/me/teamspeak-uids`
+- `POST /api/v1/me/teamspeak-uids`
+- `DELETE /api/v1/me/teamspeak-uids/{identity_id}`
 
-The callback upserts the user and creates a session row in `identity.sessions`.
+The callback now bootstraps the user in a single transaction before creating a session row in `identity.sessions`.
+
+Bootstrap steps:
+
+- upsert `identity.users`
+- ensure `identity.user_profiles`
+- ensure `org.memberships`
+- generate `org.memberships.operating_initials` if it is still null
+
+The dev login route follows the same bootstrap path.
+
+## Self-Service Identity Data
+
+The authenticated self-service surface under `/api/v1/me` owns:
+
+- `preferred_name`
+- `bio`
+- `timezone`
+- `receive_event_notifications`
+- self-visible TeamSpeak UID linkage
+
+TeamSpeak UIDs are modeled as linked identities in `identity.user_identities` with `provider = 'TEAMSPEAK'`.
+
+## Operating Initials
+
+Operating initials live on `org.memberships.operating_initials`.
+
+- they are generated automatically on first login when absent
+- generation is deterministic and two-letter only
+- uniqueness is enforced at the database layer
+- once present, login does not regenerate or overwrite them
 
 For local development, the code still supports `auth-dev.vatsim.net` when `VATSIM_DEV_MODE=true`. In that mode, `post` client authentication should be used, and the login origin must exactly match `VATSIM_REDIRECT_URI` so the OAuth state cookie survives the round trip.
 
@@ -41,6 +75,19 @@ Current machine-facing introspection route:
 GET /api/v1/auth/service-account/me
 ```
 
+## API Keys
+
+User-managed API keys are a specialized kind of service account.
+
+- API keys are stored as `access.service_accounts.kind = 'api_key'`
+- the raw secret is shown only once at creation time
+- the bearer token path is identical to other machine credentials
+- keys carry explicit permission grants through `access.service_account_permissions`
+- non-admin creators may assign only permissions they already hold effectively
+- owners can always read, update, and revoke their own keys
+- cross-user management is controlled by `api_keys.read`, `api_keys.update`, and `api_keys.delete`
+- creation requires `api_keys.create`
+
 ## Access Model
 
 - roles define default capabilities
@@ -69,6 +116,10 @@ GET /api/v1/auth/service-account/me
   This is no longer part of the default `USER` role. Uploads require elevated access.
 - `files.update`
 - `events.update`
+- `api_keys.read`
+- `api_keys.create`
+- `api_keys.update`
+- `api_keys.delete`
 
 ## Default Human Access
 
