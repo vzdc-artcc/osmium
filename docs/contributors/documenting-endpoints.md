@@ -12,6 +12,7 @@ Every meaningful API change should update both:
 - auth requirements are stated
 - permission requirements are stated
 - major success and failure cases are described
+- collection routes either use the shared pagination contract or explicitly document why they are intentionally bounded and unpaginated
 
 ## Drift Prevention
 

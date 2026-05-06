@@ -8,8 +8,10 @@ use utoipa::{
     },
 };
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ListUsersQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -50,7 +52,7 @@ pub struct RosterUserRow {
     pub is_active: Option<bool>,
 }
 
-#[derive(Serialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
 pub struct AdminUserListItem {
     pub id: String,
     pub cid: i64,
@@ -65,7 +67,7 @@ pub struct AdminUserListItem {
     pub status: Option<String>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserBasicInfo {
     pub cid: i64,
     pub name: String,
@@ -103,7 +105,7 @@ pub struct MeBody {
     pub teamspeak_uids: Vec<TeamSpeakUidBody>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserPrivateInfo {
     pub id: String,
     pub email: String,
@@ -122,10 +124,21 @@ pub struct UserPrivateInfo {
     pub is_active: Option<bool>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserListItem {
     pub basic: UserBasicInfo,
     pub full: Option<UserPrivateInfo>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserListResponse {
+    pub items: Vec<UserListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -200,11 +213,24 @@ pub struct VisitArtccResponse {
     pub roster_added: bool,
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct UserFeedbackQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub status: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserFeedbackListResponse {
+    pub items: Vec<crate::models::FeedbackItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -243,9 +269,33 @@ pub struct CreateVisitorApplicationRequest {
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ListVisitorApplicationsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub status: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct VisitorApplicationListResponse {
+    pub items: Vec<VisitorApplicationItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdminUserListResponse {
+    pub items: Vec<AdminUserListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

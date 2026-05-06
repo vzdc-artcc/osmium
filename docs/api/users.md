@@ -24,6 +24,7 @@ Expose roster, user detail, visitor membership, visitor application, and user fe
 
 ## Notes
 
+- `GET /api/v1/user` and `GET /api/v1/user/{cid}/feedback` now use the shared pagination envelope.
 - `POST /api/v1/user/visitor-application` is the primary visitor workflow and upserts one current application per user
 - `GET /api/v1/user/visitor-application` returns the caller's current application or `null` when none exists
 - `POST /api/v1/user/visit-artcc` remains available as a legacy/manual compatibility shortcut

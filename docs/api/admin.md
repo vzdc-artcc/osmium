@@ -91,9 +91,10 @@ Integration and outbound-job operations use the existing integrations management
 
 ## Workflow Notes
 
+- admin list routes that can grow large now use the shared pagination envelope
 - `GET /api/v1/admin/jobs` and `GET /api/v1/admin/jobs/{job_name}` expose persisted job-run state for backend automations
 - `PATCH /api/v1/admin/users/{cid}/controller-lifecycle` is the backend-owned controller transition and cleanup endpoint
-- LOA, solo-certification, staffing-request, and SUA admin routes all support backend-native pagination fields instead of website grid semantics
+- LOA, solo-certification, staffing-request, SUA, visitor-application, audit, admin-user, and outbound-job admin list routes all support backend-native pagination fields instead of website grid semantics
 - training admin routes are grouped under `/api/v1/admin/training/*` and use read or update variants of the training lesson permission path
 
 ## Permission Payloads

@@ -43,6 +43,8 @@ Admin update:
 
 List query parameters:
 
+- `page`
+- `page_size`
 - `limit`
 - `offset`
 - `closed`
@@ -51,6 +53,7 @@ List query parameters:
 
 - incident creation is user-driven and requires an authenticated session
 - self-service incident reads return incidents where the caller is either the reporter or the reportee
+- incident list responses now use the shared pagination envelope
 - admin updates currently focus on closure workflow and can trigger the existing `incident.closed` email template
 - incident records are stored in `feedback.incident_reports`
 - repeated close attempts are rejected when the incident is already closed

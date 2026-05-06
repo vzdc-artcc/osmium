@@ -30,6 +30,61 @@ pub struct TrainerReleaseRequest {
     pub decided_by: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingAssignmentListResponse {
+    pub items: Vec<TrainingAssignment>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OtsRecommendationListResponse {
+    pub items: Vec<OtsRecommendationSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingLessonListResponse {
+    pub items: Vec<TrainingLesson>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingAssignmentRequestListResponse {
+    pub items: Vec<TrainingAssignmentRequest>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainerReleaseRequestListResponse {
+    pub items: Vec<TrainerReleaseRequest>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateTrainingAssignmentRequest {
     pub student_id: String,
@@ -66,6 +121,8 @@ pub struct UpdateOtsRecommendationRequest {
 
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
 pub struct ListTrainingSessionsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub sort_field: Option<String>,
@@ -79,6 +136,8 @@ pub struct ListTrainingSessionsQuery {
 
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
 pub struct ListTrainingAppointmentsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub sort_field: Option<String>,
@@ -271,6 +330,28 @@ pub struct TrainingAppointmentLessonSummary {
     pub name: String,
     pub location: i32,
     pub duration: i32,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingAppointmentListResponse {
+    pub items: Vec<TrainingAppointmentListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingSessionListResponse {
+    pub items: Vec<TrainingSessionListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]

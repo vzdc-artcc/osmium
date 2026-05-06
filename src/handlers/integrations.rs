@@ -18,6 +18,7 @@ use crate::{
     },
     email::service::actor_from_context,
     errors::ApiError,
+    models::{PaginationMeta, PaginationQuery},
     repos::audit as audit_repo,
     state::AppState,
 };
@@ -165,9 +166,11 @@ pub struct DiscordUnlinkRequest {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct OutboundJobsQuery {
-    pub status: Option<String>,
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -181,6 +184,17 @@ pub struct DiscordConfigBundle {
     pub channels: Vec<DiscordChannelItem>,
     pub roles: Vec<DiscordRoleItem>,
     pub categories: Vec<DiscordCategoryItem>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OutboundJobListResponse {
+    pub items: Vec<OutboundJobItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[utoipa::path(get, path = "/api/v1/me/discord", tag = "integrations", responses((status = 200, description = "Current Discord link state", body = DiscordLinkStateBody), (status = 401, description = "Not authenticated")))]
@@ -733,27 +747,36 @@ pub async fn queue_event_publish_discord(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/integrations/outbound-jobs", tag = "integrations", params(OutboundJobsQuery), responses((status = 200, description = "Outbound integration jobs", body = [OutboundJobItem]), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/integrations/outbound-jobs", tag = "integrations", params(PaginationQuery, ("status" = Option<String>, Query, description = "Optional outbound job status")), responses((status = 200, description = "Outbound integration jobs", body = OutboundJobListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_outbound_jobs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<OutboundJobsQuery>,
-) -> Result<Json<Vec<OutboundJobItem>>, ApiError> {
+) -> Result<Json<OutboundJobListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let limit = query.limit.unwrap_or(50).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 200);
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from integration.outbound_jobs where ($1::text is null or status = $1)",
+    )
+    .bind(query.status.as_deref())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, OutboundJobItem>(
         r#"
         select id, job_type, subject_type, subject_id, status, attempt_count, last_attempt_at, next_attempt_at, payload, error, created_at, updated_at
         from integration.outbound_jobs
         where ($1::text is null or status = $1)
-        order by created_at desc
+        order by created_at desc, id asc
         limit $2 offset $3
         "#,
-    ).bind(query.status.as_deref()).bind(limit).bind(offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
-    Ok(Json(rows))
+    ).bind(query.status.as_deref()).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(Json(OutboundJobListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/integrations/outbound-jobs/run", tag = "integrations", responses((status = 200, description = "Attempted outbound integration job deliveries", body = [OutboundJobItem]), (status = 401, description = "Not authenticated")))]

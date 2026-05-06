@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct PublicationCategory {
@@ -77,6 +77,25 @@ pub struct UpdatePublicationCategoryRequest {
     pub description: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_i32")]
     pub sort_order: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ListPublicationsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PublicationListResponse {
+    pub items: Vec<Publication>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 fn deserialize_optional_i32<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>

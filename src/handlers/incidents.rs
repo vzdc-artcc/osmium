@@ -17,6 +17,7 @@ use crate::{
     },
     email::service::actor_from_context,
     errors::ApiError,
+    models::{PaginationMeta, PaginationQuery},
     repos::audit as audit_repo,
     state::AppState,
 };
@@ -56,6 +57,8 @@ pub struct UpdateIncidentRequest {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListIncidentsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub closed: Option<bool>,
@@ -65,8 +68,11 @@ pub struct ListIncidentsQuery {
 pub struct IncidentListResponse {
     pub items: Vec<IncidentItem>,
     pub total: i64,
-    pub limit: i64,
-    pub offset: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -176,7 +182,7 @@ pub async fn create_incident(
     get,
     path = "/api/v1/incidents",
     tag = "incidents",
-    params(ListIncidentsQuery),
+    params(PaginationQuery, ("closed" = Option<bool>, Query, description = "Optional closed-state filter")),
     responses(
         (status = 200, description = "Incidents involving the current user", body = IncidentListResponse),
         (status = 401, description = "Not authenticated")
@@ -196,8 +202,9 @@ pub async fn list_my_incidents(
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let limit = query.limit.unwrap_or(25).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
 
     let total = sqlx::query_scalar::<_, i64>(
         r#"
@@ -235,31 +242,27 @@ pub async fn list_my_incidents(
         join identity.users tu on tu.id = i.reportee_id
         where (i.reporter_id = $1 or i.reportee_id = $1)
           and ($2::bool is null or i.closed = $2)
-        order by i.timestamp desc, i.created_at desc
+        order by i.timestamp desc, i.created_at desc, i.id asc
         limit $3 offset $4
         "#,
     )
     .bind(&user.id)
     .bind(query.closed)
-    .bind(limit)
-    .bind(offset)
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(IncidentListResponse {
-        items,
-        total,
-        limit,
-        offset,
-    }))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(Json(IncidentListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
 }
 
 #[utoipa::path(
     get,
     path = "/api/v1/admin/incidents",
     tag = "incidents",
-    params(ListIncidentsQuery),
+    params(PaginationQuery, ("closed" = Option<bool>, Query, description = "Optional closed-state filter")),
     responses(
         (status = 200, description = "Incident list for staff review", body = IncidentListResponse),
         (status = 401, description = "Not authenticated")
@@ -279,8 +282,9 @@ pub async fn admin_list_incidents(
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let limit = query.limit.unwrap_or(25).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
 
     let total = sqlx::query_scalar::<_, i64>(
         "select count(*)::bigint from feedback.incident_reports where ($1::bool is null or closed = $1)",
@@ -311,23 +315,19 @@ pub async fn admin_list_incidents(
         join identity.users ru on ru.id = i.reporter_id
         join identity.users tu on tu.id = i.reportee_id
         where ($1::bool is null or i.closed = $1)
-        order by i.timestamp desc, i.created_at desc
+        order by i.timestamp desc, i.created_at desc, i.id asc
         limit $2 offset $3
         "#,
     )
     .bind(query.closed)
-    .bind(limit)
-    .bind(offset)
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(IncidentListResponse {
-        items,
-        total,
-        limit,
-        offset,
-    }))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(Json(IncidentListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
 }
 
 #[utoipa::path(

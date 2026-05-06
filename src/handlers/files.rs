@@ -15,7 +15,7 @@ use hmac::digest::KeyInit as HmacKeyInit;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::{
@@ -25,7 +25,10 @@ use crate::{
         middleware::ensure_permission,
     },
     errors::ApiError,
-    models::{FileAsset, ListFilesQuery, UpdateFileMetadataRequest, UploadFileQuery},
+    models::{
+        FileAsset, FileAssetListResponse, ListFilesQuery, PaginationMeta, PaginationQuery,
+        UpdateFileMetadataRequest, UploadFileQuery,
+    },
     repos::audit as audit_repo,
     state::AppState,
 };
@@ -50,9 +53,11 @@ struct FileAssetRow {
     updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct FileAuditQuery {
     file_id: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
     limit: Option<i64>,
     offset: Option<i64>,
 }
@@ -67,6 +72,17 @@ pub struct FileAuditLogItem {
     outcome: String,
     details: serde_json::Value,
     created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FileAuditLogListResponse {
+    items: Vec<FileAuditLogItem>,
+    total: i64,
+    page: i64,
+    page_size: i64,
+    total_pages: i64,
+    has_next: bool,
+    has_prev: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -110,12 +126,11 @@ impl From<FileAssetRow> for FileAsset {
     path = "/api/v1/admin/files/audit",
     tag = "files",
     params(
-        ("file_id" = Option<String>, Query, description = "Optional file ID filter"),
-        ("limit" = Option<i64>, Query, description = "Maximum rows"),
-        ("offset" = Option<i64>, Query, description = "Pagination offset")
+        PaginationQuery,
+        ("file_id" = Option<String>, Query, description = "Optional file ID filter")
     ),
     responses(
-        (status = 200, description = "File audit log rows", body = [FileAuditLogItem]),
+        (status = 200, description = "File audit log rows", body = FileAuditLogListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
@@ -123,7 +138,7 @@ pub async fn list_file_audit_logs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<FileAuditQuery>,
-) -> Result<Json<Vec<FileAuditLogItem>>, ApiError> {
+) -> Result<Json<FileAuditLogListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -134,8 +149,16 @@ pub async fn list_file_audit_logs(
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let limit = query.limit.unwrap_or(50).clamp(1, 250);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 250);
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from media.file_audit_logs where ($1::text is null or file_id = $1)",
+    )
+    .bind(query.file_id.as_deref())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
 
     let rows = sqlx::query_as::<_, FileAuditLogItem>(
         r#"
@@ -150,30 +173,37 @@ pub async fn list_file_audit_logs(
             created_at
         from media.file_audit_logs
         where ($1::text is null or file_id = $1)
-        order by created_at desc
+        order by created_at desc, id asc
         limit $2 offset $3
         "#,
     )
     .bind(query.file_id.as_deref())
-    .bind(limit)
-    .bind(offset)
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(rows))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(FileAuditLogListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
     get,
     path = "/api/v1/files",
     tag = "files",
-    params(
-        ("limit" = Option<i64>, Query, description = "Maximum rows"),
-        ("offset" = Option<i64>, Query, description = "Pagination offset")
-    ),
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List file assets", body = [FileAsset]),
+        (status = 200, description = "List file assets", body = FileAssetListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
@@ -181,7 +211,7 @@ pub async fn list_files(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListFilesQuery>,
-) -> Result<Json<Vec<FileAsset>>, ApiError> {
+) -> Result<Json<FileAssetListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
@@ -193,8 +223,30 @@ pub async fn list_files(
         return Err(ApiError::Unauthorized);
     }
 
-    let limit = query.limit.unwrap_or(50).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 200);
+    let total = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from media.file_assets fa
+        where fa.is_public
+           or fa.uploaded_by = $1
+           or fa.owner_user_id = $1
+           or fa.viewer_roles && $2::text[]
+           or exists (
+                select 1
+                from media.file_asset_allowed_users au
+                where au.file_id = fa.id
+                  and au.user_id = $1
+           )
+        "#,
+    )
+    .bind(&user.id)
+    .bind(&roles)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
 
     let rows = sqlx::query_as::<_, FileAssetRow>(
         r#"
@@ -222,19 +274,29 @@ pub async fn list_files(
                 where au.file_id = fa.id
                   and au.user_id = $1
            )
-        order by fa.created_at desc
+        order by fa.created_at desc, fa.id asc
         limit $3 offset $4
         "#,
     )
     .bind(&user.id)
     .bind(&roles)
-    .bind(limit)
-    .bind(offset)
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(rows.into_iter().map(FileAsset::from).collect()))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(FileAssetListResponse {
+        items: rows.into_iter().map(FileAsset::from).collect(),
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(

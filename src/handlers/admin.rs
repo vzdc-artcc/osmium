@@ -17,13 +17,14 @@ use crate::{
     errors::ApiError,
     jobs::roster_sync,
     models::{
-        AccessCatalogBody, AclDebugBody, AdminUserListItem, AuditLogItem,
+        AccessCatalogBody, AclDebugBody, AdminUserListResponse, AuditLogListResponse,
         DecideVisitorApplicationRequest, ListAuditLogsQuery, ListUsersQuery,
         ListVisitorApplicationsQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
-        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, SetControllerStatusBody,
-        SetControllerStatusRequest, UpdateUserAccessRequest, UserAccessBody, UserOverviewBody,
-        VisitorApplicationItem,
+        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
+        PaginationQuery, SetControllerStatusBody, SetControllerStatusRequest,
+        UpdateUserAccessRequest, UserAccessBody, UserOverviewBody, VisitorApplicationItem,
+        VisitorApplicationListResponse,
     },
     repos::{access as access_repo, audit as audit_repo, users as user_repo},
     state::AppState,
@@ -137,9 +138,18 @@ pub async fn get_access_catalog(
     get,
     path = "/api/v1/admin/audit",
     tag = "admin",
-    params(ListAuditLogsQuery),
+    params(
+        PaginationQuery,
+        ("resource_type" = Option<String>, Query, description = "Filter by resource type"),
+        ("resource_id" = Option<String>, Query, description = "Filter by resource id"),
+        ("actor_id" = Option<String>, Query, description = "Filter by actor id"),
+        ("actor_type" = Option<String>, Query, description = "Filter by actor type"),
+        ("scope_type" = Option<String>, Query, description = "Filter by scope type"),
+        ("scope_key" = Option<String>, Query, description = "Filter by scope key"),
+        ("action" = Option<String>, Query, description = "Filter by action")
+    ),
     responses(
-        (status = 200, description = "Audit log rows", body = [AuditLogItem]),
+        (status = 200, description = "Audit log rows", body = AuditLogListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
@@ -148,7 +158,7 @@ pub async fn list_audit_logs(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListAuditLogsQuery>,
-) -> Result<Json<Vec<AuditLogItem>>, ApiError> {
+) -> Result<Json<AuditLogListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -159,6 +169,40 @@ pub async fn list_audit_logs(
     .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 250);
+    let normalized_action = query
+        .action
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase());
+    let total = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from access.audit_logs l
+        left join access.actors a on a.id = l.actor_id
+        where ($1::text is null or l.resource_type = $1)
+          and ($2::text is null or l.resource_id = $2)
+          and ($3::text is null or l.actor_id = $3)
+          and ($4::text is null or a.actor_type = $4)
+          and ($5::text is null or l.scope_type = $5)
+          and ($6::text is null or l.scope_key = $6)
+          and ($7::text is null or l.action = $7)
+        "#,
+    )
+    .bind(query.resource_type.as_deref())
+    .bind(query.resource_id.as_deref())
+    .bind(query.actor_id.as_deref())
+    .bind(query.actor_type.as_deref())
+    .bind(query.scope_type.as_deref())
+    .bind(query.scope_key.as_deref())
+    .bind(normalized_action.as_deref())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
     let rows = audit_repo::fetch_audit_logs(
         pool,
         &audit_repo::AuditLogFilters {
@@ -168,14 +212,24 @@ pub async fn list_audit_logs(
             actor_type: query.actor_type,
             scope_type: query.scope_type,
             scope_key: query.scope_key,
-            action: query.action.map(|value| value.trim().to_ascii_uppercase()),
-            limit: query.limit.unwrap_or(50).clamp(1, 250),
-            offset: query.offset.unwrap_or(0).max(0),
+            action: normalized_action,
+            limit: pagination.page_size,
+            offset: pagination.offset,
         },
     )
     .await?;
 
-    Ok(Json(rows))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(AuditLogListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -359,9 +413,12 @@ pub async fn refresh_user_vatusa(
     get,
     path = "/api/v1/admin/visitor-applications",
     tag = "admin",
-    params(ListVisitorApplicationsQuery),
+    params(
+        PaginationQuery,
+        ("status" = Option<String>, Query, description = "Filter by application status")
+    ),
     responses(
-        (status = 200, description = "Visitor applications", body = [VisitorApplicationItem]),
+        (status = 200, description = "Visitor applications", body = VisitorApplicationListResponse),
         (status = 400, description = "Invalid request"),
         (status = 401, description = "Not authorized")
     )
@@ -371,7 +428,7 @@ pub async fn list_visitor_applications(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListVisitorApplicationsQuery>,
-) -> Result<Json<Vec<VisitorApplicationItem>>, ApiError> {
+) -> Result<Json<VisitorApplicationListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -382,14 +439,41 @@ pub async fn list_visitor_applications(
     .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let limit = query.limit.unwrap_or(25).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
     let normalized_status = normalize_visitor_application_status_filter(query.status.as_deref())?;
+    let total = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from training.visitor_applications
+        where ($1::text is null or status = $1)
+        "#,
+    )
+    .bind(normalized_status.as_deref())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let items =
-        user_repo::list_visitor_applications(pool, normalized_status.as_deref(), limit, offset)
-            .await?;
+        user_repo::list_visitor_applications(
+            pool,
+            normalized_status.as_deref(),
+            pagination.page_size,
+            pagination.offset,
+        )
+        .await?;
 
-    Ok(Json(items))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(VisitorApplicationListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -488,7 +572,7 @@ pub async fn list_users(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListUsersQuery>,
-) -> Result<Json<Vec<AdminUserListItem>>, ApiError> {
+) -> Result<Json<AdminUserListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -502,11 +586,26 @@ pub async fn list_users(
         return Err(ApiError::ServiceUnavailable);
     };
 
-    let limit = query.limit.unwrap_or(25).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
-    let users = user_repo::list_admin_users(pool, limit, offset).await?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    let users = user_repo::list_admin_users(pool, pagination.page_size, pagination.offset).await?;
 
-    Ok(Json(users))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(AdminUserListResponse {
+        items: users,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 pub async fn get_user_overview(

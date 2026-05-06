@@ -39,6 +39,10 @@ pub struct ServiceAccountSessionBody {
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ListAuditLogsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
     pub resource_type: Option<String>,
     pub resource_id: Option<String>,
     pub actor_id: Option<String>,
@@ -46,8 +50,6 @@ pub struct ListAuditLogsQuery {
     pub scope_type: Option<String>,
     pub scope_key: Option<String>,
     pub action: Option<String>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
@@ -67,6 +69,28 @@ pub struct AuditLogItem {
     pub after_state: Option<serde_json::Value>,
     pub ip_address: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditLogListResponse {
+    pub items: Vec<AuditLogItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ApiKeyListResponse {
+    pub items: Vec<ApiKeyListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

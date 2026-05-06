@@ -13,10 +13,11 @@ use crate::{
     email::service::actor_from_context,
     errors::ApiError,
     models::{
-        EmailPreferencesQuery, EmailPreferencesResponse, EmailPreferencesUpdateRequest,
-        EmailPreviewRequest, EmailPreviewResponse, EmailResubscribeRequest, EmailSendRequest,
-        EmailSendResponse, EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse,
-        ListEmailOutboxQuery,
+        EmailOutboxListResponse, EmailPreferencesQuery, EmailPreferencesResponse,
+        EmailPreferencesUpdateRequest, EmailPreviewRequest, EmailPreviewResponse,
+        EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
+        EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
+        PaginationMeta, PaginationQuery,
     },
     repos::audit,
     state::AppState,
@@ -132,9 +133,13 @@ pub async fn send_email(
     get,
     path = "/api/v1/emails/outbox",
     tag = "emails",
-    params(ListEmailOutboxQuery),
+    params(
+        PaginationQuery,
+        ("status" = Option<String>, Query, description = "Optional outbox status filter"),
+        ("template_id" = Option<String>, Query, description = "Optional template filter")
+    ),
     responses(
-        (status = 200, description = "Email outbox", body = [crate::models::EmailOutboxListItem]),
+        (status = 200, description = "Email outbox", body = EmailOutboxListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
@@ -143,7 +148,7 @@ pub async fn list_outbox(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListEmailOutboxQuery>,
-) -> Result<Json<Vec<crate::models::EmailOutboxListItem>>, ApiError> {
+) -> Result<Json<EmailOutboxListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     ensure_permission(
         &state,
@@ -153,7 +158,34 @@ pub async fn list_outbox(
     )
     .await?;
 
-    Ok(Json(state.email.list_outbox(pool, &query).await?))
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 200);
+    let total = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from email.outbox o
+        where ($1::text is null or o.status = $1)
+          and ($2::text is null or o.template_id = $2)
+        "#,
+    )
+    .bind(query.status.as_deref())
+    .bind(query.template_id.as_deref())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    let items = state.email.list_outbox(pool, &query).await?;
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(EmailOutboxListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(

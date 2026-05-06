@@ -162,17 +162,41 @@ pub async fn list_api_keys(
     pool: &PgPool,
     viewer_user_id: &str,
     viewer_can_read_all: bool,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<ApiKeyRow>, ApiError> {
     let query = format!(
-        "{API_KEY_SELECT_BODY}\n      and ($1::bool or sa.created_by_user_id = $2)\n   order by sa.created_at desc"
+        "{API_KEY_SELECT_BODY}\n      and ($1::bool or sa.created_by_user_id = $2)\n   order by sa.created_at desc, sa.id asc\n   limit $3 offset $4"
     );
 
     sqlx::query_as::<_, ApiKeyRow>(&query)
         .bind(viewer_can_read_all)
         .bind(viewer_user_id)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(pool)
         .await
         .map_err(|_| ApiError::Internal)
+}
+
+pub async fn count_api_keys(
+    pool: &PgPool,
+    viewer_user_id: &str,
+    viewer_can_read_all: bool,
+) -> Result<i64, ApiError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from access.service_accounts sa
+        where sa.kind = 'api_key'
+          and ($1::bool or sa.created_by_user_id = $2)
+        "#,
+    )
+    .bind(viewer_can_read_all)
+    .bind(viewer_user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
 }
 
 pub async fn fetch_api_key(pool: &PgPool, key_id: &str) -> Result<Option<ApiKeyRow>, ApiError> {

@@ -28,6 +28,8 @@ Lesson routes now cover:
 - manual progression assignment and removal
 - dossier reads by CID
 
+All training list routes that can grow large now use the shared pagination envelope. Canonical query params are `page` and `page_size`, with `limit` and `offset` still accepted for compatibility.
+
 Training appointment routes now cover:
 
 - appointment create, update, delete, list, and detail reads

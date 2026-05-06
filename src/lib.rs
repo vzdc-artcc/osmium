@@ -361,6 +361,70 @@ mod tests {
         );
     }
 
+    #[test]
+    fn openapi_paginated_routes_use_envelopes_and_page_params() {
+        use utoipa::OpenApi;
+
+        let openapi = serde_json::to_value(crate::docs::ApiDoc::openapi()).unwrap();
+
+        for path in [
+            "/api/v1/user",
+            "/api/v1/events",
+            "/api/v1/publications",
+            "/api/v1/training/sessions",
+            "/api/v1/admin/audit",
+            "/api/v1/admin/loa",
+        ] {
+            let operation = &openapi["paths"][path]["get"];
+            let parameters = operation["parameters"].as_array().unwrap();
+            let parameter_names: Vec<_> = parameters
+                .iter()
+                .filter_map(|param| param["name"].as_str())
+                .collect();
+
+            assert!(parameter_names.contains(&"page"), "missing `page` for {path}");
+            assert!(
+                parameter_names.contains(&"page_size"),
+                "missing `page_size` for {path}"
+            );
+            assert!(
+                parameter_names.contains(&"limit"),
+                "missing legacy `limit` alias for {path}"
+            );
+            assert!(
+                parameter_names.contains(&"offset"),
+                "missing legacy `offset` alias for {path}"
+            );
+
+            let schema_ref = operation["responses"]["200"]["content"]["application/json"]["schema"]
+                ["$ref"]
+                .as_str()
+                .unwrap();
+            let schema_name = schema_ref.rsplit('/').next().unwrap();
+            let schema = &openapi["components"]["schemas"][schema_name];
+
+            assert!(schema["properties"]["items"].is_object(), "missing items for {path}");
+            assert!(schema["properties"]["total"].is_object(), "missing total for {path}");
+            assert!(schema["properties"]["page"].is_object(), "missing page for {path}");
+            assert!(
+                schema["properties"]["page_size"].is_object(),
+                "missing page_size for {path}"
+            );
+            assert!(
+                schema["properties"]["total_pages"].is_object(),
+                "missing total_pages for {path}"
+            );
+            assert!(
+                schema["properties"]["has_next"].is_object(),
+                "missing has_next for {path}"
+            );
+            assert!(
+                schema["properties"]["has_prev"].is_object(),
+                "missing has_prev for {path}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn swagger_ui_route_renders() {
         let state = crate::state::AppState::without_db();

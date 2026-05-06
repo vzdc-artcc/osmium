@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::Extension,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use uuid::Uuid;
@@ -15,7 +15,8 @@ use crate::{
     errors::ApiError,
     models::{
         AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
-        EventPosition, UpdateEventRequest,
+        EventListResponse, EventPosition, EventPositionListResponse, ListEventsQuery,
+        PaginationMeta, PaginationQuery, UpdateEventRequest,
     },
     repos::audit as audit_repo,
     state::AppState,
@@ -37,21 +38,44 @@ fn validate_event_window(
     get,
     path = "/api/v1/events",
     tag = "events",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List events", body = [Event])
+        (status = 200, description = "List events", body = EventListResponse)
     )
 )]
-pub async fn list_events(State(state): State<AppState>) -> Result<Json<Vec<Event>>, ApiError> {
+pub async fn list_events(
+    State(state): State<AppState>,
+    Query(query): Query<ListEventsQuery>,
+) -> Result<Json<EventListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from events.events")
+        .fetch_one(db)
+        .await
+        .map_err(|_| ApiError::Internal)?;
 
     let events = sqlx::query_as::<_, Event>(
-        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events ORDER BY starts_at DESC"
+        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events ORDER BY starts_at DESC, id ASC LIMIT $1 OFFSET $2"
     )
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(db)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(events))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(EventListResponse {
+        items: events,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 // Get single event
@@ -356,28 +380,52 @@ mod tests {
     path = "/api/v1/events/{event_id}/positions",
     tag = "events",
     params(
-        ("event_id" = String, Path, description = "Event ID")
+        ("event_id" = String, Path, description = "Event ID"),
+        PaginationQuery
     ),
     responses(
-        (status = 200, description = "List event positions", body = [EventPosition]),
+        (status = 200, description = "List event positions", body = EventPositionListResponse),
         (status = 400, description = "Invalid event ID")
     )
 )]
 pub async fn list_event_positions(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
-) -> Result<Json<Vec<EventPosition>>, ApiError> {
+    Query(query): Query<ListEventsQuery>,
+) -> Result<Json<EventPositionListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-
-    let positions = sqlx::query_as::<_, EventPosition>(
-        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST"
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*)::bigint FROM events.event_positions WHERE event_id = $1",
     )
     .bind(&event_id)
+    .fetch_one(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let positions = sqlx::query_as::<_, EventPosition>(
+        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST, id ASC LIMIT $2 OFFSET $3"
+    )
+    .bind(&event_id)
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(db)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(positions))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(EventPositionListResponse {
+        items: positions,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 // Create event position (user signup)

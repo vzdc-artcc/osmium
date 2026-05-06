@@ -118,6 +118,8 @@ Audience filters only resolve first-party user rows with stored email addresses.
 
 `GET /api/v1/emails/preferences?token=...` and `POST /api/v1/emails/preferences` are public-by-token and do not require auth.
 
+`GET /api/v1/emails/outbox` now uses the shared pagination envelope with canonical `page` and `page_size` inputs plus compatibility aliases for `limit` and `offset`.
+
 ## Unsubscribe Model
 
 Suppressions are category-scoped.

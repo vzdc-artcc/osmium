@@ -10,6 +10,7 @@ When adding a new route:
 6. Add the DTO to the OpenAPI components list if needed.
 7. Update the relevant markdown docs page.
 8. Add or update tests.
+9. If the route returns a collection, use the shared pagination contract unless the route is intentionally bounded and that choice is documented.
 
 ## Rule
 

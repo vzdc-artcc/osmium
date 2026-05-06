@@ -82,12 +82,15 @@ Event publish:
 Outbound-job list query parameters:
 
 - `status`
+- `page`
+- `page_size`
 - `limit`
 - `offset`
 
 ## Notes
 
 - Discord delivery is durable and queue-backed through `integration.outbound_jobs`
+- outbound-job list responses now use the shared pagination envelope
 - `link/start` now creates a stored OAuth state record and `link/complete` exchanges the code with Discord and finalizes the identity mapping
 - announcement fan-out can use both the email platform and Discord outbound jobs from one backend request
 - Discord config bundle responses return configs, channels, roles, and categories together
