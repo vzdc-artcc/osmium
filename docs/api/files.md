@@ -19,6 +19,7 @@ Manage file assets, file metadata, content replacement, signed URLs, and file au
 
 ## Notes
 
+- `GET /api/v1/files` and `GET /api/v1/admin/files/audit` now use the shared pagination envelope
 - upload uses raw request bytes
 - signed URLs depend on `FILE_SIGNING_SECRET`
 - the CDN route can be used for public files or signed-token access

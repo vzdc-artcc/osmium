@@ -86,3 +86,12 @@ Business routes live under:
 ```text
 /api/v1
 ```
+
+## Pagination
+
+Large collection routes now use a shared pagination contract.
+
+- Prefer `page` and `page_size`.
+- `limit` and `offset` are still accepted as compatibility aliases.
+- If both styles are present, `page` and `page_size` take precedence.
+- Paginated responses return `items`, `total`, `page`, `page_size`, `total_pages`, `has_next`, and `has_prev`.

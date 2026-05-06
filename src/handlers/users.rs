@@ -13,11 +13,13 @@ use crate::{
     errors::ApiError,
     jobs::roster_sync,
     models::{
-        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery,
+        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery, PaginationMeta,
+        PaginationQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
         ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, RosterUserRow, UserBasicInfo,
-        UserDetailsResponse, UserFeedbackQuery, UserFullInfo, UserListItem, UserPrivateInfo,
-        VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
+        UserDetailsResponse, UserFeedbackListResponse, UserFeedbackQuery, UserFullInfo,
+        UserListItem, UserListResponse, UserPrivateInfo, VisitArtccRequest, VisitArtccResponse,
+        VisitorApplicationItem,
     },
     repos::{audit as audit_repo, users as user_repo},
     state::AppState,
@@ -27,12 +29,9 @@ use crate::{
     get,
     path = "/api/v1/user",
     tag = "users",
-    params(
-        ("limit" = Option<i64>, Query, description = "Maximum number of users to return"),
-        ("offset" = Option<i64>, Query, description = "Pagination offset")
-    ),
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List users", body = [UserListItem]),
+        (status = 200, description = "List users", body = UserListResponse),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -40,7 +39,7 @@ pub async fn list_users(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListUsersQuery>,
-) -> Result<Json<Vec<UserListItem>>, ApiError> {
+) -> Result<Json<UserListResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -52,9 +51,14 @@ pub async fn list_users(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let can_view_private = can_view_private_directory(&state, viewer).await?;
-    let limit = query.limit.unwrap_or(25).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
-    let rows = user_repo::list_roster_users(pool, limit, offset).await?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    let rows = user_repo::list_roster_users(pool, pagination.page_size, pagination.offset).await?;
 
     let items = rows
         .into_iter()
@@ -70,7 +74,17 @@ pub async fn list_users(
         })
         .collect();
 
-    Ok(Json(items))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(UserListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -356,12 +370,11 @@ pub async fn create_visitor_application(
     tag = "users",
     params(
         ("cid" = i64, Path, description = "VATSIM CID"),
-        ("limit" = Option<i64>, Query, description = "Maximum rows"),
-        ("offset" = Option<i64>, Query, description = "Pagination offset"),
+        PaginationQuery,
         ("status" = Option<String>, Query, description = "Optional feedback status filter")
     ),
     responses(
-        (status = 200, description = "Feedback for a user", body = [FeedbackItem]),
+        (status = 200, description = "Feedback for a user", body = UserFeedbackListResponse),
         (status = 400, description = "Invalid request"),
         (status = 401, description = "Not authenticated")
     )
@@ -371,7 +384,7 @@ pub async fn get_user_feedback(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(cid): Path<i64>,
     Query(query): Query<UserFeedbackQuery>,
-) -> Result<Json<Vec<FeedbackItem>>, ApiError> {
+) -> Result<Json<UserFeedbackListResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -397,8 +410,9 @@ pub async fn get_user_feedback(
         .await?;
     }
 
-    let limit = query.limit.unwrap_or(50).clamp(1, 500);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 500);
     let normalized_status = query
         .status
         .as_deref()
@@ -412,6 +426,20 @@ pub async fn get_user_feedback(
                 Ok(Some(normalized))
             }
         })?;
+
+    let total = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from feedback.feedback_items
+        where target_user_id = $1
+          and ($2::text is null or status = $2)
+        "#,
+    )
+    .bind(&target.0)
+    .bind(normalized_status.as_deref())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
 
     let items = sqlx::query_as::<_, FeedbackItem>(
         r#"
@@ -431,19 +459,29 @@ pub async fn get_user_feedback(
         from feedback.feedback_items
         where target_user_id = $1
           and ($2::text is null or status = $2)
-        order by submitted_at desc
+        order by submitted_at desc, id asc
         limit $3 offset $4
         "#,
     )
     .bind(&target.0)
     .bind(normalized_status.as_deref())
-    .bind(limit)
-    .bind(offset)
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(items))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(UserFeedbackListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 async fn can_view_private_directory(

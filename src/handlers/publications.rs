@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use serde::Serialize;
@@ -15,8 +15,10 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        CreatePublicationCategoryRequest, CreatePublicationRequest, Publication,
-        PublicationCategory, UpdatePublicationCategoryRequest, UpdatePublicationRequest,
+        CreatePublicationCategoryRequest, CreatePublicationRequest, ListPublicationsQuery,
+        PaginationMeta, PaginationQuery, Publication, PublicationCategory,
+        PublicationListResponse,
+        UpdatePublicationCategoryRequest, UpdatePublicationRequest,
     },
     repos::audit as audit_repo,
     state::AppState,
@@ -105,16 +107,31 @@ pub async fn list_publication_categories(
     get,
     path = "/api/v1/publications",
     tag = "publications",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List public publications", body = [Publication])
+        (status = 200, description = "List public publications", body = PublicationListResponse)
     )
 )]
 pub async fn list_publications(
     State(state): State<AppState>,
-) -> Result<Json<Vec<Publication>>, ApiError> {
+    Query(query): Query<ListPublicationsQuery>,
+) -> Result<Json<PublicationListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let rows = fetch_publications(pool, true).await?;
-    Ok(Json(rows.into_iter().map(Publication::from).collect()))
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = count_publications(pool, true).await?;
+    let rows = fetch_publications(pool, true, pagination.page_size, pagination.offset).await?;
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(Json(PublicationListResponse {
+        items: rows.into_iter().map(Publication::from).collect(),
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -382,8 +399,9 @@ pub async fn delete_publication_category(
     get,
     path = "/api/v1/admin/publications",
     tag = "publications",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List publications for admin", body = [Publication]),
+        (status = 200, description = "List publications for admin", body = PublicationListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
@@ -391,7 +409,8 @@ pub async fn admin_list_publications(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
-) -> Result<Json<Vec<Publication>>, ApiError> {
+    Query(query): Query<ListPublicationsQuery>,
+) -> Result<Json<PublicationListResponse>, ApiError> {
     ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
@@ -400,8 +419,21 @@ pub async fn admin_list_publications(
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let rows = fetch_publications(pool, false).await?;
-    Ok(Json(rows.into_iter().map(Publication::from).collect()))
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = count_publications(pool, false).await?;
+    let rows = fetch_publications(pool, false, pagination.page_size, pagination.offset).await?;
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(Json(PublicationListResponse {
+        items: rows.into_iter().map(Publication::from).collect(),
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -801,6 +833,8 @@ async fn fetch_publication_categories(
 async fn fetch_publications(
     pool: &sqlx::PgPool,
     public_only: bool,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<PublicationRow>, ApiError> {
     let query = if public_only {
         r#"
@@ -828,7 +862,8 @@ async fn fetch_publications(
           and p.effective_at <= now()
           and fa.deleted_at is null
           and fa.is_public = true
-        order by c.sort_order asc, p.sort_order asc, p.effective_at desc, p.title asc
+        order by c.sort_order asc, p.sort_order asc, p.effective_at desc, p.title asc, p.id asc
+        limit $1 offset $2
         "#
     } else {
         r#"
@@ -852,12 +887,42 @@ async fn fetch_publications(
         join web.publication_categories c on c.id = p.category_id
         join media.file_assets fa on fa.id = p.file_id
         where fa.deleted_at is null
-        order by c.sort_order asc, p.sort_order asc, p.effective_at desc, p.title asc
+        order by c.sort_order asc, p.sort_order asc, p.effective_at desc, p.title asc, p.id asc
+        limit $1 offset $2
         "#
     };
 
     sqlx::query_as::<_, PublicationRow>(query)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(pool)
+        .await
+        .map_err(|_| ApiError::Internal)
+}
+
+async fn count_publications(pool: &sqlx::PgPool, public_only: bool) -> Result<i64, ApiError> {
+    let query = if public_only {
+        r#"
+        select count(*)::bigint
+        from web.publications p
+        join media.file_assets fa on fa.id = p.file_id
+        where p.is_public = true
+          and p.status = 'published'
+          and p.effective_at <= now()
+          and fa.deleted_at is null
+          and fa.is_public = true
+        "#
+    } else {
+        r#"
+        select count(*)::bigint
+        from web.publications p
+        join media.file_assets fa on fa.id = p.file_id
+        where fa.deleted_at is null
+        "#
+    };
+
+    sqlx::query_scalar::<_, i64>(query)
+        .fetch_one(pool)
         .await
         .map_err(|_| ApiError::Internal)
 }

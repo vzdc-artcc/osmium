@@ -402,6 +402,14 @@ impl EmailService {
         query: &ListEmailOutboxQuery,
     ) -> Result<Vec<EmailOutboxListItem>, ApiError> {
         self.ensure_available()?;
+        let pagination = crate::models::PaginationQuery::from_parts(
+            query.page,
+            query.page_size,
+            query.limit,
+            query.offset,
+        )
+        .resolve(50, 200);
+
         sqlx::query_as::<_, EmailOutboxListItem>(
             r#"
             select
@@ -423,14 +431,14 @@ impl EmailService {
             where ($1::text is null or o.status = $1)
               and ($2::text is null or o.template_id = $2)
             group by o.id
-            order by o.queued_at desc
+            order by o.queued_at desc, o.id asc
             limit $3 offset $4
             "#,
         )
         .bind(query.status.as_deref())
         .bind(query.template_id.as_deref())
-        .bind(query.limit.unwrap_or(50).clamp(1, 200))
-        .bind(query.offset.unwrap_or(0).max(0))
+        .bind(pagination.page_size)
+        .bind(pagination.offset)
         .fetch_all(pool)
         .await
         .map_err(|_| ApiError::Internal)

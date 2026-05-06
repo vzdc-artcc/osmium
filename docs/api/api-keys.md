@@ -83,7 +83,9 @@ Behavior notes:
 
 ## Response Shape
 
-List responses expose metadata such as:
+`GET /api/v1/api-keys` now uses the shared pagination envelope with canonical `page` and `page_size` inputs plus compatibility aliases for `limit` and `offset`.
+
+List response `items` expose metadata such as:
 
 - `id`
 - `key`

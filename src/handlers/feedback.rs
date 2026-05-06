@@ -3,8 +3,6 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use serde::Deserialize;
-use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
@@ -14,17 +12,13 @@ use crate::{
         middleware::ensure_permission,
     },
     errors::ApiError,
-    models::{CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem},
+    models::{
+        CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem, FeedbackListQuery,
+        FeedbackListResponse, PaginationMeta, PaginationQuery,
+    },
     repos::audit as audit_repo,
     state::AppState,
 };
-
-#[derive(Deserialize, ToSchema)]
-pub struct FeedbackListQuery {
-    limit: Option<i64>,
-    offset: Option<i64>,
-    status: Option<String>,
-}
 
 #[utoipa::path(
     post,
@@ -140,12 +134,11 @@ pub async fn create_feedback(
     path = "/api/v1/feedback",
     tag = "feedback",
     params(
-        ("limit" = Option<i64>, Query, description = "Maximum rows"),
-        ("offset" = Option<i64>, Query, description = "Pagination offset"),
+        PaginationQuery,
         ("status" = Option<String>, Query, description = "Optional feedback status")
     ),
     responses(
-        (status = 200, description = "Feedback list", body = [FeedbackItem]),
+        (status = 200, description = "Feedback list", body = FeedbackListResponse),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -153,7 +146,7 @@ pub async fn list_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<FeedbackListQuery>,
-) -> Result<Json<Vec<FeedbackItem>>, ApiError> {
+) -> Result<Json<FeedbackListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -171,8 +164,9 @@ pub async fn list_feedback(
         return Err(ApiError::Unauthorized);
     }
 
-    let limit = query.limit.unwrap_or(50).clamp(1, 500);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 500);
     let normalized_status = query
         .status
         .as_deref()
@@ -186,6 +180,34 @@ pub async fn list_feedback(
                 Ok(Some(normalized))
             }
         })?;
+
+    let total = if can_read_all {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)::bigint
+            from feedback.feedback_items
+            where ($1::text is null or status = $1)
+            "#,
+        )
+        .bind(normalized_status.as_deref())
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+    } else {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)::bigint
+            from feedback.feedback_items
+            where submitter_user_id = $1
+              and ($2::text is null or status = $2)
+            "#,
+        )
+        .bind(&user.id)
+        .bind(normalized_status.as_deref())
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+    };
 
     let items = if can_read_all {
         sqlx::query_as::<_, FeedbackItem>(
@@ -205,13 +227,13 @@ pub async fn list_feedback(
                 decided_by
             from feedback.feedback_items
             where ($1::text is null or status = $1)
-            order by submitted_at desc
+            order by submitted_at desc, id asc
             limit $2 offset $3
             "#,
         )
         .bind(normalized_status.as_deref())
-        .bind(limit)
-        .bind(offset)
+        .bind(pagination.page_size)
+        .bind(pagination.offset)
         .fetch_all(pool)
         .await
         .map_err(|_| ApiError::Internal)?
@@ -234,20 +256,30 @@ pub async fn list_feedback(
             from feedback.feedback_items
             where submitter_user_id = $1
               and ($2::text is null or status = $2)
-            order by submitted_at desc
+            order by submitted_at desc, id asc
             limit $3 offset $4
             "#,
         )
         .bind(&user.id)
         .bind(normalized_status.as_deref())
-        .bind(limit)
-        .bind(offset)
+        .bind(pagination.page_size)
+        .bind(pagination.offset)
         .fetch_all(pool)
         .await
         .map_err(|_| ApiError::Internal)?
     };
 
-    Ok(Json(items))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(FeedbackListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct FileAsset {
@@ -25,8 +25,10 @@ pub struct UploadFileQuery {
     pub viewer_roles: Option<String>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ListFilesQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -39,4 +41,15 @@ pub struct UpdateFileMetadataRequest {
     pub owner_cid: Option<i64>,
     pub viewer_cids: Option<Vec<i64>>,
     pub viewer_roles: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FileAssetListResponse {
+    pub items: Vec<FileAsset>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }

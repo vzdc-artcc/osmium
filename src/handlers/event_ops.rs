@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Utc};
@@ -16,6 +16,7 @@ use crate::{
         middleware::ensure_permission,
     },
     errors::ApiError,
+    models::{ListEventsQuery, PaginationMeta, PaginationQuery},
     repos::audit as audit_repo,
     state::AppState,
 };
@@ -46,6 +47,17 @@ pub struct EventTmiItem {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct EventTmiListResponse {
+    pub items: Vec<EventTmiItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -180,22 +192,49 @@ pub async fn update_event_ops_plan(
     path = "/api/v1/events/{event_id}/tmis",
     tag = "events",
     params(
-        ("event_id" = String, Path, description = "Event ID")
+        ("event_id" = String, Path, description = "Event ID"),
+        PaginationQuery
     ),
     responses(
-        (status = 200, description = "Event TMI list", body = [EventTmiItem]),
+        (status = 200, description = "Event TMI list", body = EventTmiListResponse),
         (status = 400, description = "Invalid event ID")
     )
 )]
 pub async fn list_event_tmis(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
-) -> Result<Json<Vec<EventTmiItem>>, ApiError> {
+    Query(query): Query<ListEventsQuery>,
+) -> Result<Json<EventTmiListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from events.event_tmis where event_id = $1",
+    )
+    .bind(&event_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, EventTmiItem>(
-        "select id, event_id, tmi_type, start_time, notes, created_at, updated_at from events.event_tmis where event_id = $1 order by start_time asc, created_at asc",
-    ).bind(&event_id).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
-    Ok(Json(rows))
+        "select id, event_id, tmi_type, start_time, notes, created_at, updated_at from events.event_tmis where event_id = $1 order by start_time asc, created_at asc, id asc limit $2 offset $3",
+    )
+    .bind(&event_id)
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(Json(EventTmiListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(

@@ -609,7 +609,7 @@ pub fn build_docs_router() -> Router<AppState> {
             crate::models::FeedbackItem,
             crate::models::CreateFeedbackRequest,
             crate::models::DecideFeedbackRequest,
-            crate::handlers::feedback::FeedbackListQuery,
+            crate::models::FeedbackListQuery,
             crate::handlers::integrations::DiscordConfigItem,
             crate::handlers::integrations::DiscordChannelItem,
             crate::handlers::integrations::DiscordRoleItem,

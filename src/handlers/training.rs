@@ -23,10 +23,13 @@ use crate::{
         CreateTrainingLessonRequest, CreateTrainingSessionRequest,
         DecideTrainerReleaseRequestRequest, DecideTrainingAssignmentRequestRequest,
         LessonRosterChangeSummary, ListTrainingAppointmentsQuery, ListTrainingSessionsQuery,
-        OtsRecommendationSummary, TrainerReleaseRequest, TrainingAppointmentDetail,
-        TrainingAppointmentLessonSummary, TrainingAppointmentListItem, TrainingAssignment,
-        TrainingAssignmentRequest, TrainingLesson, TrainingSessionDetail, TrainingSessionListItem,
-        TrainingSessionPerformanceIndicatorCategoryDetail,
+        OtsRecommendationListResponse, OtsRecommendationSummary, PaginationMeta, PaginationQuery,
+        TrainerReleaseRequest, TrainerReleaseRequestListResponse, TrainingAppointmentDetail,
+        TrainingAppointmentLessonSummary, TrainingAppointmentListItem,
+        TrainingAppointmentListResponse, TrainingAssignment, TrainingAssignmentListResponse,
+        TrainingAssignmentRequest, TrainingAssignmentRequestListResponse, TrainingLesson,
+        TrainingLessonListResponse, TrainingSessionDetail, TrainingSessionListItem,
+        TrainingSessionListResponse, TrainingSessionPerformanceIndicatorCategoryDetail,
         TrainingSessionPerformanceIndicatorCriteriaDetail,
         TrainingSessionPerformanceIndicatorDetail, TrainingTicketDetail,
         UpdateOtsRecommendationRequest, UpdateTrainingAppointmentRequest,
@@ -173,27 +176,46 @@ struct RubricRule {
     get,
     path = "/api/v1/training/assignments",
     tag = "training",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List assignments", body = [TrainingAssignment]),
+        (status = 200, description = "List assignments", body = TrainingAssignmentListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
 pub async fn list_assignments(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<TrainingAssignment>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<TrainingAssignmentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["assignments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    let pagination = query.resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_assignments")
+        .fetch_one(db)
+        .await
+        .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, TrainingAssignment>(
-        "select id, student_id, primary_trainer_id, created_at, updated_at from training.training_assignments order by created_at desc",
+        "select id, student_id, primary_trainer_id, created_at, updated_at from training.training_assignments order by created_at desc, id asc limit $1 offset $2",
     )
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(db)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(rows))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(TrainingAssignmentListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -282,15 +304,17 @@ pub async fn create_assignment(
     get,
     path = "/api/v1/training/ots-recommendations",
     tag = "training",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List OTS recommendations", body = [OtsRecommendationSummary]),
+        (status = 200, description = "List OTS recommendations", body = OtsRecommendationListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
 pub async fn list_ots_recommendations(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<OtsRecommendationSummary>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<OtsRecommendationListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -301,18 +325,36 @@ pub async fn list_ots_recommendations(
     .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    let pagination = query.resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.ots_recommendations")
+        .fetch_one(db)
+        .await
+        .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, OtsRecommendationSummary>(
         r#"
         select id, student_id, assigned_instructor_id, notes, created_at, updated_at
         from training.ots_recommendations
-        order by created_at desc
+        order by created_at desc, id asc
+        limit $1 offset $2
         "#,
     )
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(db)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(rows))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(OtsRecommendationListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -573,19 +615,26 @@ pub async fn delete_ots_recommendation(
     get,
     path = "/api/v1/training/lessons",
     tag = "training",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List training lessons", body = [TrainingLesson]),
+        (status = 200, description = "List training lessons", body = TrainingLessonListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
 pub async fn list_lessons(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<TrainingLesson>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<TrainingLessonListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["lessons"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    let pagination = query.resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.lessons")
+        .fetch_one(db)
+        .await
+        .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, TrainingLesson>(
         r#"
         select
@@ -606,14 +655,27 @@ pub async fn list_lessons(
             performance_indicator_template_id,
             created_at
         from training.lessons
-        order by location asc, identifier asc, name asc
+        order by location asc, identifier asc, name asc, id asc
+        limit $1 offset $2
         "#,
     )
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(db)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(rows))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(TrainingLessonListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -921,15 +983,17 @@ pub async fn delete_lesson(
     get,
     path = "/api/v1/training/assignment-requests",
     tag = "training",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List assignment requests", body = [TrainingAssignmentRequest]),
+        (status = 200, description = "List assignment requests", body = TrainingAssignmentRequestListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
 pub async fn list_assignment_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<TrainingAssignmentRequest>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<TrainingAssignmentRequestListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -940,14 +1004,33 @@ pub async fn list_assignment_requests(
     .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let rows = sqlx::query_as::<_, TrainingAssignmentRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.training_assignment_requests order by submitted_at desc",
+    let pagination = query.resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from training.training_assignment_requests",
     )
+    .fetch_one(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    let rows = sqlx::query_as::<_, TrainingAssignmentRequest>(
+        "select id, student_id, submitted_at, status, decided_at, decided_by from training.training_assignment_requests order by submitted_at desc, id asc limit $1 offset $2",
+    )
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(db)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(rows))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(TrainingAssignmentRequestListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -1100,27 +1183,48 @@ pub async fn decide_assignment_request(
     get,
     path = "/api/v1/training/trainer-release-requests",
     tag = "training",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List trainer release requests", body = [TrainerReleaseRequest]),
+        (status = 200, description = "List trainer release requests", body = TrainerReleaseRequestListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
 pub async fn list_release_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<TrainerReleaseRequest>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<TrainerReleaseRequestListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["release_requests"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let rows = sqlx::query_as::<_, TrainerReleaseRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.trainer_release_requests order by submitted_at desc",
+    let pagination = query.resolve(25, 200);
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from training.trainer_release_requests",
     )
+    .fetch_one(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    let rows = sqlx::query_as::<_, TrainerReleaseRequest>(
+        "select id, student_id, submitted_at, status, decided_at, decided_by from training.trainer_release_requests order by submitted_at desc, id asc limit $1 offset $2",
+    )
+    .bind(pagination.page_size)
+    .bind(pagination.offset)
     .fetch_all(db)
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(rows))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(TrainerReleaseRequestListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -1404,9 +1508,16 @@ pub async fn remove_assignment_request_interest(
     get,
     path = "/api/v1/training/appointments",
     tag = "training",
-    params(ListTrainingAppointmentsQuery),
+    params(
+        PaginationQuery,
+        ("sort_field" = Option<String>, Query, description = "Sort field"),
+        ("sort_order" = Option<String>, Query, description = "Sort order"),
+        ("trainer_id" = Option<String>, Query, description = "Optional trainer filter"),
+        ("student_id" = Option<String>, Query, description = "Optional student filter"),
+        ("user_id" = Option<String>, Query, description = "Optional shared user filter")
+    ),
     responses(
-        (status = 200, description = "List training appointments", body = [TrainingAppointmentListItem]),
+        (status = 200, description = "List training appointments", body = TrainingAppointmentListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
@@ -1414,13 +1525,14 @@ pub async fn list_training_appointments(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListTrainingAppointmentsQuery>,
-) -> Result<Json<Vec<TrainingAppointmentListItem>>, ApiError> {
+) -> Result<Json<TrainingAppointmentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["appointments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let limit = query.limit.unwrap_or(25).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
     let sort_column = match query.sort_field.as_deref() {
         Some("created_at") => "ta.created_at",
         Some("updated_at") => "ta.updated_at",
@@ -1430,6 +1542,22 @@ pub async fn list_training_appointments(
         Some(value) if value.eq_ignore_ascii_case("desc") => "desc",
         _ => "asc",
     };
+
+    let total = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from training.training_appointments ta
+        where ($1::text is null or ta.trainer_id = $1)
+          and ($2::text is null or ta.student_id = $2)
+          and ($3::text is null or (ta.trainer_id = $3 or ta.student_id = $3))
+        "#,
+    )
+    .bind(query.trainer_id.as_deref())
+    .bind(query.student_id.as_deref())
+    .bind(query.user_id.as_deref())
+    .fetch_one(db)
+    .await
+    .map_err(|_| ApiError::Internal)?;
 
     let sql = format!(
         r#"
@@ -1477,13 +1605,23 @@ pub async fn list_training_appointments(
         .bind(query.trainer_id.as_deref())
         .bind(query.student_id.as_deref())
         .bind(query.user_id.as_deref())
-        .bind(limit)
-        .bind(offset)
+        .bind(pagination.page_size)
+        .bind(pagination.offset)
         .fetch_all(db)
         .await
         .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(items))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(Json(TrainingAppointmentListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(
@@ -1902,9 +2040,18 @@ pub async fn delete_training_appointment(
     get,
     path = "/api/v1/training/sessions",
     tag = "training",
-    params(ListTrainingSessionsQuery),
+    params(
+        PaginationQuery,
+        ("sort_field" = Option<String>, Query, description = "Sort field"),
+        ("sort_order" = Option<String>, Query, description = "Sort order"),
+        ("filter_field" = Option<String>, Query, description = "Filter field"),
+        ("filter_operator" = Option<String>, Query, description = "Filter operator"),
+        ("filter_value" = Option<String>, Query, description = "Filter value"),
+        ("student_id" = Option<String>, Query, description = "Optional student filter"),
+        ("instructor_id" = Option<String>, Query, description = "Optional instructor filter")
+    ),
     responses(
-        (status = 200, description = "List training sessions", body = [TrainingSessionListItem]),
+        (status = 200, description = "List training sessions", body = TrainingSessionListResponse),
         (status = 401, description = "Not authorized")
     )
 )]
@@ -1912,13 +2059,14 @@ pub async fn list_training_sessions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListTrainingSessionsQuery>,
-) -> Result<Json<Vec<TrainingSessionListItem>>, ApiError> {
+) -> Result<Json<TrainingSessionListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["sessions"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let limit = query.limit.unwrap_or(25).clamp(1, 200);
-    let offset = query.offset.unwrap_or(0).max(0);
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
     let sort_column = match query.sort_field.as_deref() {
         Some("end") => "ts.end",
         _ => "ts.start",
@@ -2054,8 +2202,8 @@ pub async fn list_training_sessions(
         .bind(&filter_field)
         .bind(&filter_pattern)
         .bind(filter_is_exact)
-        .bind(limit)
-        .bind(offset)
+        .bind(pagination.page_size)
+        .bind(pagination.offset)
         .fetch_all(db)
         .await
         .map_err(|_| ApiError::Internal)?;
@@ -2064,7 +2212,17 @@ pub async fn list_training_sessions(
         items.clear();
     }
 
-    Ok(Json(items))
+    let meta = PaginationMeta::new(count, pagination.page, pagination.page_size);
+
+    Ok(Json(TrainingSessionListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(

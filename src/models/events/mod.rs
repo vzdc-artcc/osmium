@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct Event {
@@ -87,4 +87,34 @@ pub struct CreateEventPositionRequest {
 pub struct AssignEventPositionRequest {
     pub user_id: String,
     pub assigned_slot: i32,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ListEventsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct EventListResponse {
+    pub items: Vec<Event>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct EventPositionListResponse {
+    pub items: Vec<EventPosition>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }

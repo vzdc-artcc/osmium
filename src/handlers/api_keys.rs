@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use serde::Serialize;
@@ -20,8 +20,8 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        ApiKeyDetail, ApiKeyListItem, CreateApiKeyRequest, CreateApiKeyResponse,
-        UpdateApiKeyRequest,
+        ApiKeyDetail, ApiKeyListItem, ApiKeyListResponse, CreateApiKeyRequest,
+        CreateApiKeyResponse, PaginationMeta, PaginationQuery, UpdateApiKeyRequest,
     },
     repos::{
         access::{permission_names_to_permissions, sha256_hex},
@@ -45,15 +45,17 @@ const SCOPE_TYPE_SERVICE_ACCOUNT: &str = "service_account";
     get,
     path = "/api/v1/api-keys",
     tag = "api-keys",
+    params(PaginationQuery),
     responses(
-        (status = 200, description = "List API keys visible to the current user", body = [ApiKeyListItem]),
+        (status = 200, description = "List API keys visible to the current user", body = ApiKeyListResponse),
         (status = 401, description = "Not authenticated")
     )
 )]
 pub async fn list_api_keys(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<ApiKeyListItem>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<ApiKeyListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -64,9 +66,27 @@ pub async fn list_api_keys(
     )
     .await?;
 
-    let rows = api_keys_repo::list_api_keys(pool, &user.id, viewer_can_read_all).await?;
+    let pagination = query.resolve(25, 200);
+    let total = api_keys_repo::count_api_keys(pool, &user.id, viewer_can_read_all).await?;
+    let rows = api_keys_repo::list_api_keys(
+        pool,
+        &user.id,
+        viewer_can_read_all,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
     let items = rows.into_iter().map(ApiKeyListItem::from).collect();
-    Ok(Json(items))
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(Json(ApiKeyListResponse {
+        items,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(

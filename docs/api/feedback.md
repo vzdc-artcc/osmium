@@ -16,3 +16,7 @@ Submit and review controller feedback.
 - authenticated users can list their own submitted feedback and view their own received feedback
 - managers with `manage_feedback` can review and decide feedback state
 - feedback submission remains an intentional self-service exception to the otherwise read-mostly default user access
+
+## Pagination
+
+`GET /api/v1/feedback` now uses the shared pagination envelope with canonical `page` and `page_size` inputs plus compatibility aliases for `limit` and `offset`.

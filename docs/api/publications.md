@@ -34,7 +34,9 @@ Public publication reads return only rows where:
 
 ## Notes
 
+- `GET /api/v1/publications` and `GET /api/v1/admin/publications` now use the shared pagination envelope.
 - publication records store metadata and linked `file_id`; bytes remain in `media.file_assets`
 - public responses include `cdn_url` in the form `/cdn/{file_id}`
 - admin publication and category routes require `web.update`
 - publication status is constrained to `draft`, `published`, and `archived`
+- category list routes remain intentionally unpaginated because they are bounded configuration/catalog sets

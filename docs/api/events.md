@@ -28,6 +28,8 @@ Create, update, delete, and staff events.
 - ops-plan and TMI routes are backend-owned event-management surfaces built on the existing `events.events` and `events.event_tmis` tables
 - event Discord publish now queues an outbound integration job instead of requiring the website to call the bot directly
 
+List routes for events, event positions, and event TMIs now use the shared pagination envelope with canonical `page` and `page_size` inputs plus compatibility aliases for `limit` and `offset`.
+
 ## Request Shapes
 
 Ops-plan update:

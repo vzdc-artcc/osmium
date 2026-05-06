@@ -4,6 +4,8 @@
 
 Cover the new backend-owned workflow domains that previously lived in website actions and cron routes.
 
+All paginated workflow list routes now use the shared envelope with canonical `page` and `page_size` inputs. `limit` and `offset` remain accepted as compatibility aliases.
+
 ## Main Routes
 
 Self-service routes:

@@ -131,6 +131,8 @@ pub struct EmailOutboxDetailResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct ListEmailOutboxQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub status: Option<String>,
@@ -182,4 +184,15 @@ pub struct EmailSuppressionRecordResponse {
     pub category: String,
     pub email: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmailOutboxListResponse {
+    pub items: Vec<EmailOutboxListItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+    pub has_next: bool,
+    pub has_prev: bool,
 }
