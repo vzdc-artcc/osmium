@@ -26,6 +26,24 @@ pub fn normalize_rating(value: &str) -> Result<i32> {
     }
 }
 
+pub fn legacy_numeric_rating_to_code(value: i32) -> &'static str {
+    match value {
+        1 => "OBS",
+        2 => "S1",
+        3 => "S2",
+        4 => "S3",
+        5 => "C1",
+        6 => "C2",
+        7 => "C3",
+        8 => "I1",
+        9 => "I2",
+        10 => "I3",
+        11 => "SUP",
+        12 => "ADM",
+        _ => "SUS",
+    }
+}
+
 pub fn normalize_controller_status(value: &str) -> Result<&'static str> {
     match value.trim().to_uppercase().as_str() {
         "HOME" => Ok("HOME"),
@@ -37,10 +55,10 @@ pub fn normalize_controller_status(value: &str) -> Result<&'static str> {
 
 pub fn normalize_role(role_name: &str) -> Option<&'static str> {
     match role_name.trim().to_uppercase().as_str() {
-        "USER" => Some("CONTROLLER"),
+        "USER" | "CONTROLLER" => Some("USER"),
         "STAFF" => Some("STAFF"),
-        "INS" => Some("INSTRUCTOR"),
-        "MTR" => Some("MENTOR"),
+        "INS" | "INSTRUCTOR" => Some("INS"),
+        "MTR" | "MENTOR" => Some("MTR"),
         "EVENT_STAFF" => Some("EVENT_STAFF"),
         "WEB_TEAM" => Some("WEB_TEAM"),
         _ => None,
