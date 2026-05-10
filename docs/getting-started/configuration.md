@@ -2,6 +2,8 @@
 
 This page documents the main environment variables used by Osmium.
 
+`.env.example` is the local development template. Production deployment templates live in `.env.cutover.example` and `.env.prod.example`.
+
 ## App and Server
 
 | Variable | Required | Default | Notes |

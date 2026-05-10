@@ -586,9 +586,12 @@ pub async fn get_controller_totals(
 
     let last_activity_at = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
         r#"
-        select greatest(
-            coalesce((select max(coalesce(ended_at, started_at)) from stats.controller_activations where environment = $1 and cid = $2), '-infinity'::timestamptz),
-            coalesce((select max(coalesce(logout_at, login_at)) from stats.controller_sessions where environment = $1 and cid = $2), '-infinity'::timestamptz)
+        select nullif(
+            greatest(
+                coalesce((select max(coalesce(ended_at, started_at)) from stats.controller_activations where environment = $1 and cid = $2), '-infinity'::timestamptz),
+                coalesce((select max(coalesce(logout_at, login_at)) from stats.controller_sessions where environment = $1 and cid = $2), '-infinity'::timestamptz)
+            ),
+            '-infinity'::timestamptz
         )
         "#,
     )
@@ -701,19 +704,21 @@ async fn fetch_controller_identity(
     sqlx::query_as::<_, ControllerIdentityRow>(
         r#"
         select
-            coalesce(p.cid, latest.cid) as cid,
+            coalesce(p.cid, latest.cid, input.cid) as cid,
             p.display_name,
             p.first_name,
             p.last_name,
             coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating
-        from (
-            select cid, real_name, user_rating, requested_rating
+        from (select $2::bigint as cid) input
+        left join lateral (
+            select cid, user_rating, requested_rating
             from stats.controller_sessions
             where environment = $1 and cid = $2
             order by login_at desc
             limit 1
-        ) latest
-        left join org.v_user_roster_profile p on p.cid = latest.cid
+        ) latest on true
+        left join org.v_user_roster_profile p on p.cid = coalesce(latest.cid, input.cid)
+        where p.cid is not null or latest.cid is not null
         "#,
     )
     .bind(environment)

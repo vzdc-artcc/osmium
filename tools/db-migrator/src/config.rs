@@ -11,6 +11,7 @@ pub enum Domain {
     Training,
     Feedback,
     Events,
+    Stats,
     Web,
 }
 
@@ -46,6 +47,7 @@ impl Config {
                 Domain::Training,
                 Domain::Feedback,
                 Domain::Events,
+                Domain::Stats,
             ],
             DomainArg::Reference => vec![Domain::Reference],
             DomainArg::Users => vec![Domain::Users],
@@ -53,6 +55,7 @@ impl Config {
             DomainArg::Training => vec![Domain::Training],
             DomainArg::Feedback => vec![Domain::Feedback],
             DomainArg::Events => vec![Domain::Events],
+            DomainArg::Stats => vec![Domain::Stats],
             DomainArg::Web => vec![Domain::Web],
         };
 

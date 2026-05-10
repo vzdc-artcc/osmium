@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
@@ -6,7 +6,7 @@ use serde::Serialize;
 use sqlx::FromRow;
 
 use crate::{
-    helpers::{assume_utc, assume_utc_opt},
+    helpers::{assume_utc, assume_utc_opt, record_warning},
     mapping::{normalize_event_type, normalize_tmi_category},
     state::AppState,
     target,
@@ -291,6 +291,7 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
         bump_counts(state, existed);
     }
 
+    let mut seen_position_keys = HashSet::new();
     for row in positions {
         let event_id = mapped_id(&state.target, "event", &row.event_id).await?;
         let user_id = if let Some(id) = row.user_id.as_deref() {
@@ -299,6 +300,19 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
             None
         };
         let callsign = derive_callsign(&row);
+        if !seen_position_keys.insert((event_id.clone(), callsign.clone())) {
+            record_warning(
+                state,
+                DOMAIN,
+                "event_position",
+                &row.id,
+                format!(
+                    "skipping duplicate event position for event `{event_id}` and callsign `{callsign}`"
+                ),
+            )
+            .await?;
+            continue;
+        }
         let target_id = mapped_or_same(&state.target, "event_position", &row.id).await?;
         let status = derive_position_status(&row, user_id.is_some());
 
