@@ -37,8 +37,8 @@ It enforces:
 
 Separately, the Docker publish workflow still publishes:
 
-- `master` as `ghcr.io/<owner>/<repo>:latest` and `:latest-<sha>`
-- `develop` as `ghcr.io/<owner>/<repo>:dev` and `:dev-<sha>`
+- `master` as `ghcr.io/vzdc-artcc/osmium:latest` and `:latest-<sha>`
+- `develop` as `ghcr.io/vzdc-artcc/osmium:dev` and `:dev-<sha>`
 
 Recommended validation before pushing:
 

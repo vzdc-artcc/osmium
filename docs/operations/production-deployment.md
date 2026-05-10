@@ -79,7 +79,7 @@ Do not use a floating production tag for cutover.
 
 Preferred:
 
-- `ghcr.io/<owner>/<repo>:latest-<sha>`
+- `ghcr.io/vzdc-artcc/osmium:latest-<sha>`
 - an immutable image digest
 
 Avoid using raw `:latest` for an actual production migration.

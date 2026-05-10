@@ -89,11 +89,11 @@ cargo run
 
 - `master` and `develop` both auto-publish Docker images on push
 - `master` publishes:
-  - `ghcr.io/<owner>/<repo>:latest`
-  - `ghcr.io/<owner>/<repo>:latest-<sha>`
+  - `ghcr.io/vzdc-artcc/osmium:latest`
+  - `ghcr.io/vzdc-artcc/osmium:latest-<sha>`
 - `develop` publishes:
-  - `ghcr.io/<owner>/<repo>:dev`
-  - `ghcr.io/<owner>/<repo>:dev-<sha>`
+  - `ghcr.io/vzdc-artcc/osmium:dev`
+  - `ghcr.io/vzdc-artcc/osmium:dev-<sha>`
 
 Recommended local validation before pushing:
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde::Serialize;
 use sqlx::FromRow;
 
@@ -67,13 +67,6 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
         let resolved_user_id = match resolve_target_user_id(state, &log.user_id).await? {
             Some(user_id) => user_id,
             None => {
-                if state.config.strict {
-                    bail!(
-                        "legacy controller log {} references unresolved user {}",
-                        log.id,
-                        log.user_id
-                    );
-                }
                 record_warning(
                     state,
                     DOMAIN,
@@ -92,13 +85,22 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
         let cid = sqlx::query_scalar::<_, i64>(r#"select cid from identity.users where id = $1"#)
             .bind(&resolved_user_id)
             .fetch_optional(&state.target)
-            .await?
-            .with_context(|| {
+            .await?;
+
+        let Some(cid) = cid else {
+            record_warning(
+                state,
+                DOMAIN,
+                "controller_log",
+                &log.id,
                 format!(
-                    "migrated controller log user {} is missing target cid",
+                    "skipping controller log because migrated user {} is missing target cid",
                     resolved_user_id
-                )
-            })?;
+                ),
+            )
+            .await?;
+            continue;
+        };
 
         if !state.config.dry_run {
             let target_id = format!("{ENVIRONMENT}:{cid}");
@@ -126,13 +128,6 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
 
     for row in months {
         let Some(&cid) = log_to_cid.get(&row.log_id) else {
-            if state.config.strict {
-                bail!(
-                    "legacy controller log month {} references unresolved controller log {}",
-                    row.id,
-                    row.log_id
-                );
-            }
             record_warning(
                 state,
                 DOMAIN,
