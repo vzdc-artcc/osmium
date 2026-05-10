@@ -2,11 +2,11 @@ mod support;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
-use support::{TestApp, assert_status, env_test_lock, json_body};
+use support::{TestApp, assert_status, json_body, lock_env};
 
 #[tokio::test(flavor = "current_thread")]
 async fn api_key_lifecycle_works_end_to_end() {
-    let _env_lock = env_test_lock().lock().unwrap();
+    let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
     };

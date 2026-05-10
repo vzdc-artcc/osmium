@@ -133,6 +133,12 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        env_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[tokio::test]
     async fn health_endpoint_works_without_db() {
         let state = crate::state::AppState::without_db();
@@ -459,7 +465,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_login_route_is_gated_by_dev_mode_env() {
-        let _env_lock = env_test_lock().lock().unwrap();
+        let _env_lock = lock_env();
 
         {
             let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
@@ -519,7 +525,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_login_route_is_enabled_with_only_vatsim_dev_mode() {
-        let _env_lock = env_test_lock().lock().unwrap();
+        let _env_lock = lock_env();
         let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "true");
         let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "false");
 
@@ -541,7 +547,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_login_route_is_enabled_with_explicit_flag() {
-        let _env_lock = env_test_lock().lock().unwrap();
+        let _env_lock = lock_env();
         let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
         let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "true");
 
@@ -563,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_seed_route_is_gated_by_dev_mode_env() {
-        let _env_lock = env_test_lock().lock().unwrap();
+        let _env_lock = lock_env();
 
         {
             let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
@@ -589,7 +595,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_seed_route_is_not_enabled_by_vatsim_dev_mode() {
-        let _env_lock = env_test_lock().lock().unwrap();
+        let _env_lock = lock_env();
         let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "true");
         let _dev_seed = EnvVarGuard::set("DEV_SEED_ENABLED", "false");
 
@@ -612,7 +618,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_seed_route_is_enabled_with_explicit_flag() {
-        let _env_lock = env_test_lock().lock().unwrap();
+        let _env_lock = lock_env();
         let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
         let _dev_seed = EnvVarGuard::set("DEV_SEED_ENABLED", "true");
 
@@ -635,7 +641,7 @@ mod tests {
 
     #[tokio::test]
     async fn cors_preflight_reflects_allowed_origin_only() {
-        let _env_lock = env_test_lock().lock().unwrap();
+        let _env_lock = lock_env();
         let _cors = EnvVarGuard::set(
             "CORS_ALLOWED_ORIGINS",
             "http://127.0.0.1:3000,https://app.example.org",

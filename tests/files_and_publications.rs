@@ -2,11 +2,11 @@ mod support;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
-use support::{TestApp, assert_status, env_test_lock, json_body, text_body};
+use support::{TestApp, assert_status, json_body, lock_env, text_body};
 
 #[tokio::test(flavor = "current_thread")]
 async fn file_upload_download_and_cdn_visibility_work() {
-    let _env_lock = env_test_lock().lock().unwrap();
+    let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
     };
@@ -94,7 +94,7 @@ async fn file_upload_download_and_cdn_visibility_work() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn publication_visibility_rules_hold_with_real_db_state() {
-    let _env_lock = env_test_lock().lock().unwrap();
+    let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
     };

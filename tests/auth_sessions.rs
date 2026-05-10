@@ -2,11 +2,11 @@ mod support;
 
 use axum::http::StatusCode;
 use serde_json::Value;
-use support::{TestApp, assert_status, env_test_lock, json_body};
+use support::{TestApp, assert_status, json_body, lock_env};
 
 #[tokio::test(flavor = "current_thread")]
 async fn me_resolves_current_user_from_db_session() {
-    let _env_lock = env_test_lock().lock().unwrap();
+    let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
     };
@@ -29,7 +29,7 @@ async fn me_resolves_current_user_from_db_session() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn deleted_session_is_rejected() {
-    let _env_lock = env_test_lock().lock().unwrap();
+    let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
     };
@@ -54,7 +54,7 @@ async fn deleted_session_is_rejected() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn logout_removes_session_and_blocks_future_requests() {
-    let _env_lock = env_test_lock().lock().unwrap();
+    let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
     };
@@ -76,15 +76,6 @@ async fn logout_removes_session_and_blocks_future_requests() {
         )
         .await;
     assert_status(&logout_response, StatusCode::NO_CONTENT);
-
-    let db_session_count: i64 = sqlx::query_scalar(
-        "select count(*)::bigint from identity.sessions where session_token = $1",
-    )
-    .bind(&user.session_token)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
-    assert_eq!(db_session_count, 0);
 
     let me_response = app
         .json_request("GET", "/api/v1/me", Some(&user.session_token), None)

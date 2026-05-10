@@ -2,7 +2,7 @@
 
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
 };
 
 use axum::{
@@ -40,6 +40,12 @@ pub struct TestUser {
 pub fn env_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
+}
+
+pub fn lock_env() -> MutexGuard<'static, ()> {
+    env_test_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 impl TestApp {
