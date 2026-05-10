@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod config;
 pub mod docs;
 pub mod email;
 pub mod errors;
@@ -9,6 +10,7 @@ pub mod models;
 pub mod repos;
 pub mod router;
 pub mod state;
+pub mod time;
 
 use std::net::SocketAddr;
 
@@ -382,7 +384,10 @@ mod tests {
                 .filter_map(|param| param["name"].as_str())
                 .collect();
 
-            assert!(parameter_names.contains(&"page"), "missing `page` for {path}");
+            assert!(
+                parameter_names.contains(&"page"),
+                "missing `page` for {path}"
+            );
             assert!(
                 parameter_names.contains(&"page_size"),
                 "missing `page_size` for {path}"
@@ -403,9 +408,18 @@ mod tests {
             let schema_name = schema_ref.rsplit('/').next().unwrap();
             let schema = &openapi["components"]["schemas"][schema_name];
 
-            assert!(schema["properties"]["items"].is_object(), "missing items for {path}");
-            assert!(schema["properties"]["total"].is_object(), "missing total for {path}");
-            assert!(schema["properties"]["page"].is_object(), "missing page for {path}");
+            assert!(
+                schema["properties"]["items"].is_object(),
+                "missing items for {path}"
+            );
+            assert!(
+                schema["properties"]["total"].is_object(),
+                "missing total for {path}"
+            );
+            assert!(
+                schema["properties"]["page"].is_object(),
+                "missing page for {path}"
+            );
             assert!(
                 schema["properties"]["page_size"].is_object(),
                 "missing page_size for {path}"
@@ -448,8 +462,8 @@ mod tests {
         let _env_lock = env_test_lock().lock().unwrap();
 
         {
-            let _api_dev = EnvVarGuard::set("API_DEV_MODE", "false");
             let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
+            let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "false");
 
             let state = crate::state::AppState::without_db();
             let app = crate::router::build_router(state);
@@ -465,26 +479,6 @@ mod tests {
                 .unwrap();
 
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        }
-
-        {
-            let _api_dev = EnvVarGuard::set("API_DEV_MODE", "true");
-            let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
-
-            let state = crate::state::AppState::without_db();
-            let app = crate::router::build_router(state);
-
-            let response = app
-                .oneshot(
-                    Request::builder()
-                        .uri("/api/v1/auth/login/as/10000010")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-
-            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         }
     }
 
@@ -526,8 +520,30 @@ mod tests {
     #[tokio::test]
     async fn dev_login_route_is_enabled_with_only_vatsim_dev_mode() {
         let _env_lock = env_test_lock().lock().unwrap();
-        let _api_dev = EnvVarGuard::set("API_DEV_MODE", "false");
         let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "true");
+        let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "false");
+
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/login/as/10000010")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn dev_login_route_is_enabled_with_explicit_flag() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
+        let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "true");
 
         let state = crate::state::AppState::without_db();
         let app = crate::router::build_router(state);
@@ -550,8 +566,8 @@ mod tests {
         let _env_lock = env_test_lock().lock().unwrap();
 
         {
-            let _api_dev = EnvVarGuard::set("API_DEV_MODE", "false");
             let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
+            let _dev_seed = EnvVarGuard::set("DEV_SEED_ENABLED", "false");
 
             let state = crate::state::AppState::without_db();
             let app = crate::router::build_router(state);
@@ -569,27 +585,108 @@ mod tests {
 
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
+    }
 
-        {
-            let _api_dev = EnvVarGuard::set("API_DEV_MODE", "true");
-            let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
+    #[tokio::test]
+    async fn dev_seed_route_is_not_enabled_by_vatsim_dev_mode() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "true");
+        let _dev_seed = EnvVarGuard::set("DEV_SEED_ENABLED", "false");
 
-            let state = crate::state::AppState::without_db();
-            let app = crate::router::build_router(state);
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
 
-            let response = app
-                .oneshot(
-                    Request::builder()
-                        .method(Method::POST)
-                        .uri("/api/v1/dev/seed")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/dev/seed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
-            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        }
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn dev_seed_route_is_enabled_with_explicit_flag() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
+        let _dev_seed = EnvVarGuard::set("DEV_SEED_ENABLED", "true");
+
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/dev/seed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn cors_preflight_reflects_allowed_origin_only() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _cors = EnvVarGuard::set(
+            "CORS_ALLOWED_ORIGINS",
+            "http://127.0.0.1:3000,https://app.example.org",
+        );
+
+        let state = crate::state::AppState::without_db();
+        let app = crate::router::build_router(state);
+
+        let allowed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header(http::header::ORIGIN, "https://app.example.org")
+                    .header(http::header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(allowed.status(), StatusCode::OK);
+        assert_eq!(
+            allowed
+                .headers()
+                .get(http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("https://app.example.org")
+        );
+
+        let blocked = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/health")
+                    .header(http::header::ORIGIN, "https://blocked.example.org")
+                    .header(http::header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(blocked.status(), StatusCode::OK);
+        assert!(
+            blocked
+                .headers()
+                .get(http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none()
+        );
     }
 
     #[tokio::test]

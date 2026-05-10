@@ -8,14 +8,16 @@ This page documents the current testing baseline for Osmium.
 cargo test
 ```
 
-This covers route-level checks, auth helpers, middleware behavior, and basic non-DB expectations for several endpoints.
+This always covers route-level checks, auth helpers, middleware behavior, and basic non-DB expectations for several endpoints.
+
+When `DATABASE_URL` is set, `cargo test` also runs the Postgres-backed integration suite under `tests/`.
 
 ## Recommended Local Validation
 
 - `cargo test`
 - `cargo fmt --all -- --check`
-- `cargo check`
-- `cargo test --all-targets`
+- `cargo check --workspace --all-targets`
+- `cargo test --workspace --all-targets -- --test-threads=1`
 - `docker build -f Dockerfile .`
 - open `/docs`
 - open `/docs/api/v1`
@@ -23,21 +25,34 @@ This covers route-level checks, auth helpers, middleware behavior, and basic non
 - hit `/ready`
 - verify one authenticated flow with a dev session
 
-## Branch Build Flow
+## CI Validation
 
-- pushes to `master` publish:
-  - `ghcr.io/<owner>/<repo>:master`
-  - `ghcr.io/<owner>/<repo>:master-<sha>`
-- pushes to `develop` publish:
-  - `ghcr.io/<owner>/<repo>:develop`
-  - `ghcr.io/<owner>/<repo>:develop-<sha>`
+GitHub Actions runs `.github/workflows/ci.yml` on pushes and pull requests for `master` and `develop`.
+
+It enforces:
+
+- `cargo fmt --all -- --check`
+- `cargo check --workspace --all-targets`
+- `cargo test --workspace --all-targets -- --test-threads=1`
+
+Separately, the Docker publish workflow still publishes:
+
+- `master` as `ghcr.io/<owner>/<repo>:latest` and `:latest-<sha>`
+- `develop` as `ghcr.io/<owner>/<repo>:dev` and `:dev-<sha>`
 
 Recommended validation before pushing:
 
 - `cargo fmt --all -- --check`
-- `cargo check`
-- `cargo test --all-targets`
+- `cargo check --workspace --all-targets`
+- `cargo test --workspace --all-targets -- --test-threads=1`
 - `docker build -f Dockerfile .`
+
+## Automated Coverage
+
+Current automated coverage is split into:
+
+- route/unit tests in `src/lib.rs` and module-local test blocks
+- DB-backed integration tests in `tests/` for sessions, API keys, files/publications, and an end-to-end event workflow
 
 ## Docs-Specific Checks
 
@@ -55,7 +70,7 @@ The standard test suite does not fully validate:
 
 - live OAuth behavior against VATSIM
 - object storage semantics beyond local filesystem behavior
-- full DB-backed correctness when `DATABASE_URL` is unset
+- DB-backed correctness when `DATABASE_URL` is unset
 - production deployment behavior
 
 ## Manual Scenarios Worth Running

@@ -2,10 +2,10 @@ use axum::{
     Router, middleware,
     routing::{get, patch, post},
 };
-use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     auth::middleware::resolve_current_user,
+    config::{build_cors_layer, dev_impersonation_enabled, dev_seed_enabled},
     docs,
     handlers::{
         admin, api_keys, auth, dev, docs as docs_handlers, emails, event_ops, events, feedback,
@@ -462,10 +462,12 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/training", training_routes)
         .nest("/user", user_routes);
 
-    if api_dev_mode_enabled() {
-        api = api
-            .route("/auth/login/as/{cid}", get(auth::login_as_cid))
-            .route("/dev/seed", post(dev::seed_data));
+    if dev_impersonation_enabled() {
+        api = api.route("/auth/login/as/{cid}", get(auth::login_as_cid));
+    }
+
+    if dev_seed_enabled() {
+        api = api.route("/dev/seed", post(dev::seed_data));
     }
 
     Router::new()
@@ -485,26 +487,6 @@ pub fn build_router(state: AppState) -> Router {
             state.clone(),
             resolve_current_user,
         ))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer(build_cors_layer())
         .with_state(state)
-}
-
-fn api_dev_mode_enabled() -> bool {
-    env_flag_enabled("API_DEV_MODE") || env_flag_enabled("VATSIM_DEV_MODE")
-}
-
-fn env_flag_enabled(name: &str) -> bool {
-    std::env::var(name)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
 }
