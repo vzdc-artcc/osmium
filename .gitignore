@@ -3,6 +3,7 @@
 .env.cutover
 .env.prod
 .idea
+.DS_Store
 /tools/api-load-tester/target/
 /tools/api-load-tester/reports
 /tools/db-migrator/target/

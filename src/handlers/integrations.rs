@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     auth::{
         acl::{PermissionAction, PermissionPath},
-        context::CurrentUser,
+        context::{CurrentServiceAccount, CurrentUser},
         middleware::ensure_permission,
     },
     email::service::actor_from_context,
@@ -429,10 +429,16 @@ pub async fn complete_discord_link(
 pub async fn list_discord_configs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<DiscordConfigBundle>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_integrations_manage(&state, user).await?;
+    ensure_permission(
+        &state,
+        current_user.as_ref(),
+        current_service_account.as_ref(),
+        PermissionPath::from_segments(["integrations", "stats"], PermissionAction::Update),
+    )
+    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let configs = sqlx::query_as::<_, DiscordConfigItem>("select id, name, guild_id, created_at, updated_at from integration.discord_configs order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
     let channels = sqlx::query_as::<_, DiscordChannelItem>("select id, discord_config_id, name, channel_id, created_at from integration.discord_channels order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
