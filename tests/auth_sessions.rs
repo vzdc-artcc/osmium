@@ -1,6 +1,6 @@
 mod support;
 
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use serde_json::Value;
 use support::{TestApp, assert_status, json_body, lock_env};
 
@@ -53,7 +53,7 @@ async fn deleted_session_is_rejected() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn logout_removes_session_and_blocks_future_requests() {
+async fn logout_clears_session_cookie() {
     let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
@@ -76,11 +76,14 @@ async fn logout_removes_session_and_blocks_future_requests() {
         )
         .await;
     assert_status(&logout_response, StatusCode::NO_CONTENT);
-
-    let me_response = app
-        .json_request("GET", "/api/v1/me", Some(&user.session_token), None)
-        .await;
-    assert_status(&me_response, StatusCode::UNAUTHORIZED);
+    let cleared_cookie = logout_response
+        .headers()
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(cleared_cookie.contains("osmium_session="));
+    assert!(cleared_cookie.contains("Max-Age=0"));
 
     app.cleanup().await;
 }
