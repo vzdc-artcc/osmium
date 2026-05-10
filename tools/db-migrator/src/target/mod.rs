@@ -10,18 +10,26 @@ pub struct EntityMapRow {
 }
 
 pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
+    sqlx::query("create schema if not exists migrator")
+        .execute(pool)
+        .await?;
+
     sqlx::query(
         r#"
-        create schema if not exists migrator;
-
         create table if not exists migrator.migration_runs (
             run_id text primary key,
             status text not null,
             dry_run boolean not null default false,
             started_at timestamptz not null default now(),
             finished_at timestamptz
-        );
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
 
+    sqlx::query(
+        r#"
         create table if not exists migrator.migration_entity_map (
             run_id text not null references migrator.migration_runs(run_id) on delete cascade,
             domain text not null,
@@ -35,11 +43,23 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now(),
             unique (entity_type, source_id)
-        );
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
 
+    sqlx::query(
+        r#"
         create index if not exists idx_migration_entity_map_target
-            on migrator.migration_entity_map(entity_type, target_id);
+            on migrator.migration_entity_map(entity_type, target_id)
+        "#,
+    )
+    .execute(pool)
+    .await?;
 
+    sqlx::query(
+        r#"
         create table if not exists migrator.migration_warnings (
             id text primary key default gen_random_uuid()::text,
             run_id text not null references migrator.migration_runs(run_id) on delete cascade,
@@ -48,19 +68,26 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
             source_id text not null,
             message text not null,
             created_at timestamptz not null default now()
-        );
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
 
+    sqlx::query(
+        r#"
         create table if not exists migrator.migration_checkpoints (
             run_id text not null references migrator.migration_runs(run_id) on delete cascade,
             domain text not null,
             entity_type text not null,
             updated_at timestamptz not null default now(),
             primary key (run_id, domain, entity_type)
-        );
+        )
         "#,
     )
     .execute(pool)
     .await?;
+
     Ok(())
 }
 

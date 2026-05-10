@@ -1,0 +1,93 @@
+services:
+  mock-prod-postgres:
+    image: postgres:16
+    container_name: osmium-migration-mock-prod-postgres
+    environment:
+      POSTGRES_DB: prod
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - osmium-migration-mock-prod-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mock-prod-seed:
+    image: postgres:16
+    container_name: osmium-migration-mock-prod-seed
+    depends_on:
+      mock-prod-postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: mock-prod-postgres
+      PGPORT: 5432
+      PGDATABASE: prod
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    volumes:
+      - ./dev-data/mock-prod:/seed:ro
+      - ./scripts/migration-test/seed-mock-prod.sh:/usr/local/bin/seed-mock-prod.sh:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/seed-mock-prod.sh"]
+
+  osmium-postgres:
+    image: postgres:16
+    container_name: osmium-migration-osmium-postgres
+    environment:
+      POSTGRES_DB: osmium
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - osmium-migration-osmium-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d osmium"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osmium-migration-api
+    depends_on:
+      osmium-postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      BIND_ADDR: 0.0.0.0:3000
+      DATABASE_URL: postgres://postgres:postgres@osmium-postgres:5432/osmium
+      RUST_LOG: info,tower_http=debug
+      RUN_MIGRATIONS_ON_STARTUP: "true"
+      OSMIUM_SERVER_ADMIN_CID: ${OSMIUM_SERVER_ADMIN_CID:-}
+      FILE_STORAGE_ROOT: /app/storage/files
+    ports:
+      - "3000:3000"
+    volumes:
+      - osmium-migration-files-data:/app/storage/files
+
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      mock-prod-postgres:
+        condition: service_healthy
+      osmium-postgres:
+        condition: service_healthy
+    environment:
+      SOURCE_DATABASE_URL: postgres://postgres:postgres@mock-prod-postgres:5432/prod
+      TARGET_DATABASE_URL: postgres://postgres:postgres@osmium-postgres:5432/osmium
+      RUST_LOG: info
+    entrypoint: ["/usr/local/bin/db-migrator"]
+
+volumes:
+  osmium-migration-mock-prod-data:
+  osmium-migration-osmium-data:
+  osmium-migration-files-data:

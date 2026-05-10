@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Debug, Parser)]
 #[command(name = "db-migrator")]
 #[command(
-    about = "Migrates data from the current osmium Postgres schema into the Prisma-backed website schema"
+    about = "Migrates data from the legacy Prisma/public prod schema into the new Osmium Postgres schema"
 )]
 pub struct Cli {
     #[arg(long, env = "SOURCE_DATABASE_URL")]

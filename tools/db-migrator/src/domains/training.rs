@@ -1,15 +1,9 @@
-use std::collections::HashMap;
-
-use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use anyhow::Result;
+use chrono::NaiveDateTime;
 use serde::Serialize;
 use sqlx::FromRow;
 
-use crate::{
-    helpers::{new_id, record_warning},
-    state::AppState,
-    target,
-};
+use crate::{helpers::assume_utc, state::AppState, target};
 
 const DOMAIN: &str = "training";
 
@@ -20,7 +14,7 @@ struct SourceAssignment {
     primary_trainer_id: String,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, Serialize)]
 struct SourceAssignmentOtherTrainer {
     assignment_id: String,
     trainer_id: String,
@@ -30,11 +24,10 @@ struct SourceAssignmentOtherTrainer {
 struct SourceAssignmentRequest {
     id: String,
     student_id: String,
-    submitted_at: DateTime<Utc>,
-    status: String,
+    submitted_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, Serialize)]
 struct SourceAssignmentRequestInterestedTrainer {
     assignment_request_id: String,
     trainer_id: String,
@@ -44,8 +37,7 @@ struct SourceAssignmentRequestInterestedTrainer {
 struct SourceReleaseRequest {
     id: String,
     student_id: String,
-    submitted_at: DateTime<Utc>,
-    status: String,
+    submitted_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -53,14 +45,14 @@ struct SourceAppointment {
     id: String,
     student_id: String,
     trainer_id: String,
-    start: DateTime<Utc>,
+    start: NaiveDateTime,
     environment: Option<String>,
     double_booking: bool,
     preparation_completed: bool,
     warning_email_sent: bool,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, Serialize)]
 struct SourceAppointmentLesson {
     appointment_id: String,
     lesson_id: String,
@@ -72,7 +64,7 @@ struct SourceOtsRecommendation {
     student_id: String,
     assigned_instructor_id: Option<String>,
     notes: String,
-    created_at: DateTime<Utc>,
+    created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -86,8 +78,8 @@ struct SourceTrainingSession {
     id: String,
     student_id: String,
     instructor_id: String,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
+    start: NaiveDateTime,
+    end: NaiveDateTime,
     additional_comments: Option<String>,
     trainer_comments: Option<String>,
     vatusa_id: Option<String>,
@@ -105,24 +97,19 @@ struct SourceTrainingTicket {
 #[derive(Debug, Clone, FromRow, Serialize)]
 struct SourceRubricScore {
     id: String,
-    training_ticket_id: Option<String>,
+    training_ticket_id: String,
     criteria_id: String,
     cell_id: String,
     passed: bool,
 }
 
-#[derive(Debug, Clone, FromRow)]
-struct SourceTicketMistake {
-    training_ticket_id: String,
-    common_mistake_id: String,
-}
-
 #[derive(Debug, Clone, FromRow, Serialize)]
-struct SourceCommonMistake {
+struct SourceTicketCommonMistake {
     id: String,
     name: String,
     description: String,
     facility: Option<String>,
+    training_ticket_id: String,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -162,54 +149,42 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
 
 async fn migrate_training_assignments(state: &mut AppState) -> Result<()> {
     let assignments = sqlx::query_as::<_, SourceAssignment>(
-        r#"select id, student_id, primary_trainer_id from training.training_assignments"#,
+        r#"
+        select
+            id,
+            "studentId" as student_id,
+            "primaryTrainerId" as primary_trainer_id
+        from public."TrainingAssignment"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
     let other_trainers = sqlx::query_as::<_, SourceAssignmentOtherTrainer>(
-        r#"select assignment_id, trainer_id from training.training_assignment_other_trainers"#,
+        r#"
+        select
+            "A" as assignment_id,
+            "B" as trainer_id
+        from public."_TrainingAssignmentOtherTrainers"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let mut others_by_assignment: HashMap<String, Vec<String>> = HashMap::new();
-    for row in other_trainers {
-        others_by_assignment
-            .entry(row.assignment_id)
-            .or_default()
-            .push(row.trainer_id);
-    }
 
     for row in assignments {
         state.report.domain_mut(DOMAIN).planned += 1;
         let student_id = mapped_id(&state.target, "user", &row.student_id).await?;
         let primary_trainer_id = mapped_id(&state.target, "user", &row.primary_trainer_id).await?;
-        let business_key = format!("student:{student_id}");
-        let mut target_id = if let Some(mapping) =
-            target::find_mapping(&state.target, "training_assignment", &row.id).await?
-        {
-            Some(mapping.target_id)
-        } else {
-            sqlx::query_scalar::<_, String>(
-                r#"select id from "TrainingAssignment" where "studentId" = $1"#,
-            )
-            .bind(&student_id)
-            .fetch_optional(&state.target)
-            .await?
-        };
-        let existed = target_id.is_some();
-        if target_id.is_none() {
-            target_id = Some(new_id());
-        }
-        let target_id = target_id.expect("target id exists");
+        let target_id = mapped_or_same(&state.target, "training_assignment", &row.id).await?;
+        let existed = exists(&state.target, "training.training_assignments", &target_id).await?;
 
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "TrainingAssignment" (id, "studentId", "primaryTrainerId")
+                insert into training.training_assignments (id, student_id, primary_trainer_id)
                 values ($1, $2, $3)
                 on conflict (id) do update set
-                    "studentId" = excluded."studentId",
-                    "primaryTrainerId" = excluded."primaryTrainerId"
+                    student_id = excluded.student_id,
+                    primary_trainer_id = excluded.primary_trainer_id
                 "#,
             )
             .bind(&target_id)
@@ -217,43 +192,45 @@ async fn migrate_training_assignments(state: &mut AppState) -> Result<()> {
             .bind(&primary_trainer_id)
             .execute(&state.target)
             .await?;
+
             target::upsert_mapping(
                 &state.target,
                 &state.config.run_id,
                 DOMAIN,
                 "training_assignment",
                 &row.id,
-                &business_key,
+                &format!("student:{student_id}"),
                 &target_id,
-                &business_key,
+                &format!("student:{student_id}"),
                 if existed { "updated" } else { "created" },
                 &row,
             )
             .await?;
+        }
 
-            sqlx::query(r#"delete from "_TrainingAssignmentOtherTrainers" where "A" = $1"#)
-                .bind(&target_id)
-                .execute(&state.target)
-                .await?;
-            for source_trainer_id in others_by_assignment.remove(&row.id).unwrap_or_default() {
-                let trainer_id = mapped_id(&state.target, "user", &source_trainer_id).await?;
-                sqlx::query(
-                    r#"insert into "_TrainingAssignmentOtherTrainers" ("A", "B") values ($1, $2) on conflict do nothing"#,
-                )
-                .bind(&target_id)
-                .bind(&trainer_id)
-                .execute(&state.target)
-                .await?;
-            }
-        }
-        if existed {
-            state.report.domain_mut(DOMAIN).updated += 1;
-        } else {
-            state.report.domain_mut(DOMAIN).created += 1;
-        }
+        bump_counts(state, existed);
     }
 
     if !state.config.dry_run {
+        sqlx::query("delete from training.training_assignment_other_trainers")
+            .execute(&state.target)
+            .await?;
+        for row in other_trainers {
+            let assignment_id =
+                mapped_id(&state.target, "training_assignment", &row.assignment_id).await?;
+            let trainer_id = mapped_id(&state.target, "user", &row.trainer_id).await?;
+            sqlx::query(
+                r#"
+                insert into training.training_assignment_other_trainers (assignment_id, trainer_id)
+                values ($1, $2)
+                on conflict do nothing
+                "#,
+            )
+            .bind(&assignment_id)
+            .bind(&trainer_id)
+            .execute(&state.target)
+            .await?;
+        }
         target::checkpoint(
             &state.target,
             &state.config.run_id,
@@ -267,69 +244,54 @@ async fn migrate_training_assignments(state: &mut AppState) -> Result<()> {
 
 async fn migrate_assignment_requests(state: &mut AppState) -> Result<()> {
     let requests = sqlx::query_as::<_, SourceAssignmentRequest>(
-        r#"select id, student_id, submitted_at, status from training.training_assignment_requests order by submitted_at asc"#,
+        r#"
+        select
+            id,
+            "studentId" as student_id,
+            "submittedAt" as submitted_at
+        from public."TrainingAssignmentRequest"
+        order by "submittedAt" asc
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
     let interested = sqlx::query_as::<_, SourceAssignmentRequestInterestedTrainer>(
-        r#"select assignment_request_id, trainer_id from training.training_assignment_request_interested_trainers"#,
+        r#"
+        select
+            "A" as assignment_request_id,
+            "B" as trainer_id
+        from public."_TrainingAssignmentRequestInterestedTrainers"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let mut interested_by_request: HashMap<String, Vec<String>> = HashMap::new();
-    for row in interested {
-        interested_by_request
-            .entry(row.assignment_request_id)
-            .or_default()
-            .push(row.trainer_id);
-    }
 
     for row in requests {
-        if row.status != "PENDING" {
-            record_warning(
-                state,
-                DOMAIN,
-                "training_assignment_request",
-                &row.id,
-                format!("skipping non-pending request with status {}", row.status),
-            )
-            .await?;
-            state.report.domain_mut(DOMAIN).skipped += 1;
-            continue;
-        }
+        state.report.domain_mut(DOMAIN).planned += 1;
         let student_id = mapped_id(&state.target, "user", &row.student_id).await?;
-        let business_key = format!("student:{student_id}");
-        let mut target_id = if let Some(mapping) =
-            target::find_mapping(&state.target, "training_assignment_request", &row.id).await?
-        {
-            Some(mapping.target_id)
-        } else {
-            sqlx::query_scalar::<_, String>(
-                r#"select id from "TrainingAssignmentRequest" where "studentId" = $1"#,
-            )
-            .bind(&student_id)
-            .fetch_optional(&state.target)
-            .await?
-        };
-        let existed = target_id.is_some();
-        if target_id.is_none() {
-            target_id = Some(new_id());
-        }
-        let target_id = target_id.expect("target id exists");
+        let target_id =
+            mapped_or_same(&state.target, "training_assignment_request", &row.id).await?;
+        let existed = exists(
+            &state.target,
+            "training.training_assignment_requests",
+            &target_id,
+        )
+        .await?;
 
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "TrainingAssignmentRequest" (id, "studentId", "submittedAt")
-                values ($1, $2, $3)
+                insert into training.training_assignment_requests (id, student_id, submitted_at, status)
+                values ($1, $2, $3, 'PENDING')
                 on conflict (id) do update set
-                    "studentId" = excluded."studentId",
-                    "submittedAt" = excluded."submittedAt"
+                    student_id = excluded.student_id,
+                    submitted_at = excluded.submitted_at,
+                    status = excluded.status
                 "#,
             )
             .bind(&target_id)
             .bind(&student_id)
-            .bind(row.submitted_at)
+            .bind(assume_utc(row.submitted_at))
             .execute(&state.target)
             .await?;
             target::upsert_mapping(
@@ -338,34 +300,44 @@ async fn migrate_assignment_requests(state: &mut AppState) -> Result<()> {
                 DOMAIN,
                 "training_assignment_request",
                 &row.id,
-                &business_key,
+                &format!("student:{student_id}"),
                 &target_id,
-                &business_key,
+                &format!("student:{student_id}"),
                 if existed { "updated" } else { "created" },
                 &row,
             )
             .await?;
-
-            sqlx::query(
-                r#"delete from "_TrainingAssignmentRequestInterestedTrainers" where "A" = $1"#,
-            )
-            .bind(&target_id)
-            .execute(&state.target)
-            .await?;
-            for source_trainer_id in interested_by_request.remove(&row.id).unwrap_or_default() {
-                let trainer_id = mapped_id(&state.target, "user", &source_trainer_id).await?;
-                sqlx::query(
-                    r#"insert into "_TrainingAssignmentRequestInterestedTrainers" ("A", "B") values ($1, $2) on conflict do nothing"#,
-                )
-                .bind(&target_id)
-                .bind(&trainer_id)
-                .execute(&state.target)
-                .await?;
-            }
         }
+
+        bump_counts(state, existed);
     }
 
     if !state.config.dry_run {
+        sqlx::query("delete from training.training_assignment_request_interested_trainers")
+            .execute(&state.target)
+            .await?;
+        for row in interested {
+            let assignment_request_id = mapped_id(
+                &state.target,
+                "training_assignment_request",
+                &row.assignment_request_id,
+            )
+            .await?;
+            let trainer_id = mapped_id(&state.target, "user", &row.trainer_id).await?;
+            sqlx::query(
+                r#"
+                insert into training.training_assignment_request_interested_trainers (
+                    assignment_request_id, trainer_id
+                )
+                values ($1, $2)
+                on conflict do nothing
+                "#,
+            )
+            .bind(&assignment_request_id)
+            .bind(&trainer_id)
+            .execute(&state.target)
+            .await?;
+        }
         target::checkpoint(
             &state.target,
             &state.config.run_id,
@@ -379,60 +351,43 @@ async fn migrate_assignment_requests(state: &mut AppState) -> Result<()> {
 
 async fn migrate_release_requests(state: &mut AppState) -> Result<()> {
     let rows = sqlx::query_as::<_, SourceReleaseRequest>(
-        r#"select id, student_id, submitted_at, status from training.trainer_release_requests order by submitted_at asc"#,
+        r#"
+        select
+            id,
+            "studentId" as student_id,
+            "submittedAt" as submitted_at
+        from public."TrainerReleaseRequest"
+        order by "submittedAt" asc
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
 
     for row in rows {
-        if row.status != "PENDING" {
-            record_warning(
-                state,
-                DOMAIN,
-                "trainer_release_request",
-                &row.id,
-                format!(
-                    "skipping non-pending release request with status {}",
-                    row.status
-                ),
-            )
-            .await?;
-            state.report.domain_mut(DOMAIN).skipped += 1;
-            continue;
-        }
+        state.report.domain_mut(DOMAIN).planned += 1;
         let student_id = mapped_id(&state.target, "user", &row.student_id).await?;
-        let business_key = format!("student:{student_id}");
-        let mut target_id = if let Some(mapping) =
-            target::find_mapping(&state.target, "trainer_release_request", &row.id).await?
-        {
-            Some(mapping.target_id)
-        } else {
-            sqlx::query_scalar::<_, String>(
-                r#"select id from "TrainerReleaseRequest" where "studentId" = $1"#,
-            )
-            .bind(&student_id)
-            .fetch_optional(&state.target)
-            .await?
-        };
-        let existed = target_id.is_some();
-        if target_id.is_none() {
-            target_id = Some(new_id());
-        }
-        let target_id = target_id.expect("target id exists");
+        let target_id = mapped_or_same(&state.target, "trainer_release_request", &row.id).await?;
+        let existed = exists(
+            &state.target,
+            "training.trainer_release_requests",
+            &target_id,
+        )
+        .await?;
 
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "TrainerReleaseRequest" (id, "studentId", "submittedAt")
-                values ($1, $2, $3)
+                insert into training.trainer_release_requests (id, student_id, submitted_at, status)
+                values ($1, $2, $3, 'PENDING')
                 on conflict (id) do update set
-                    "studentId" = excluded."studentId",
-                    "submittedAt" = excluded."submittedAt"
+                    student_id = excluded.student_id,
+                    submitted_at = excluded.submitted_at,
+                    status = excluded.status
                 "#,
             )
             .bind(&target_id)
             .bind(&student_id)
-            .bind(row.submitted_at)
+            .bind(assume_utc(row.submitted_at))
             .execute(&state.target)
             .await?;
             target::upsert_mapping(
@@ -441,95 +396,79 @@ async fn migrate_release_requests(state: &mut AppState) -> Result<()> {
                 DOMAIN,
                 "trainer_release_request",
                 &row.id,
-                &business_key,
+                &format!("student:{student_id}"),
                 &target_id,
-                &business_key,
+                &format!("student:{student_id}"),
                 if existed { "updated" } else { "created" },
                 &row,
             )
             .await?;
         }
+
+        bump_counts(state, existed);
     }
 
-    if !state.config.dry_run {
-        target::checkpoint(
-            &state.target,
-            &state.config.run_id,
-            DOMAIN,
-            "trainer_release_requests",
-        )
-        .await?;
-    }
-    Ok(())
+    checkpoint(state, "trainer_release_requests").await
 }
 
 async fn migrate_appointments(state: &mut AppState) -> Result<()> {
     let appointments = sqlx::query_as::<_, SourceAppointment>(
         r#"
-        select id, student_id, trainer_id, start, environment, double_booking, preparation_completed, warning_email_sent
-        from training.training_appointments
+        select
+            id,
+            "studentId" as student_id,
+            "trainerId" as trainer_id,
+            start,
+            environment,
+            "doubleBooking" as double_booking,
+            "preparationCompleted" as preparation_completed,
+            "warningEmailSent" as warning_email_sent
+        from public."TrainingAppointment"
         order by start asc
         "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let appointment_lessons = sqlx::query_as::<_, SourceAppointmentLesson>(
-        r#"select appointment_id, lesson_id from training.training_appointment_lessons"#,
+    let lessons = sqlx::query_as::<_, SourceAppointmentLesson>(
+        r#"
+        select
+            "A" as appointment_id,
+            "B" as lesson_id
+        from public."_LessonToTrainingAppointment"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let mut lessons_by_appointment: HashMap<String, Vec<String>> = HashMap::new();
-    for row in appointment_lessons {
-        lessons_by_appointment
-            .entry(row.appointment_id)
-            .or_default()
-            .push(row.lesson_id);
-    }
 
     for row in appointments {
+        state.report.domain_mut(DOMAIN).planned += 1;
         let student_id = mapped_id(&state.target, "user", &row.student_id).await?;
         let trainer_id = mapped_id(&state.target, "user", &row.trainer_id).await?;
-        let business_key = format!("{student_id}:{trainer_id}:{}", row.start.to_rfc3339());
-        let mut target_id = if let Some(mapping) =
-            target::find_mapping(&state.target, "training_appointment", &row.id).await?
-        {
-            Some(mapping.target_id)
-        } else {
-            sqlx::query_scalar::<_, String>(
-                r#"select id from "TrainingAppointment" where "studentId" = $1 and "trainerId" = $2 and start = $3"#,
-            )
-            .bind(&student_id)
-            .bind(&trainer_id)
-            .bind(row.start)
-            .fetch_optional(&state.target)
-            .await?
-        };
-        let existed = target_id.is_some();
-        if target_id.is_none() {
-            target_id = Some(new_id());
-        }
-        let target_id = target_id.expect("target id exists");
+        let target_id = mapped_or_same(&state.target, "training_appointment", &row.id).await?;
+        let existed = exists(&state.target, "training.training_appointments", &target_id).await?;
+
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "TrainingAppointment" (
-                    id, "studentId", "trainerId", start, environment, "doubleBooking", "preparationCompleted", "warningEmailSent"
+                insert into training.training_appointments (
+                    id, student_id, trainer_id, start, environment, double_booking,
+                    preparation_completed, warning_email_sent
                 )
                 values ($1, $2, $3, $4, $5, $6, $7, $8)
                 on conflict (id) do update set
-                    "studentId" = excluded."studentId",
-                    "trainerId" = excluded."trainerId",
+                    student_id = excluded.student_id,
+                    trainer_id = excluded.trainer_id,
                     start = excluded.start,
                     environment = excluded.environment,
-                    "doubleBooking" = excluded."doubleBooking",
-                    "preparationCompleted" = excluded."preparationCompleted",
-                    "warningEmailSent" = excluded."warningEmailSent"
+                    double_booking = excluded.double_booking,
+                    preparation_completed = excluded.preparation_completed,
+                    warning_email_sent = excluded.warning_email_sent
                 "#,
             )
             .bind(&target_id)
             .bind(&student_id)
             .bind(&trainer_id)
-            .bind(row.start)
+            .bind(assume_utc(row.start))
             .bind(&row.environment)
             .bind(row.double_booking)
             .bind(row.preparation_completed)
@@ -542,32 +481,38 @@ async fn migrate_appointments(state: &mut AppState) -> Result<()> {
                 DOMAIN,
                 "training_appointment",
                 &row.id,
-                &business_key,
+                &format!("{student_id}:{trainer_id}:{}", row.start),
                 &target_id,
-                &business_key,
+                &format!("{student_id}:{trainer_id}:{}", row.start),
                 if existed { "updated" } else { "created" },
                 &row,
             )
             .await?;
-
-            sqlx::query(r#"delete from "_LessonToTrainingAppointment" where "B" = $1"#)
-                .bind(&target_id)
-                .execute(&state.target)
-                .await?;
-            for lesson_source_id in lessons_by_appointment.remove(&row.id).unwrap_or_default() {
-                let lesson_id = mapped_id(&state.target, "lesson", &lesson_source_id).await?;
-                sqlx::query(
-                    r#"insert into "_LessonToTrainingAppointment" ("A", "B") values ($1, $2) on conflict do nothing"#,
-                )
-                .bind(&lesson_id)
-                .bind(&target_id)
-                .execute(&state.target)
-                .await?;
-            }
         }
+
+        bump_counts(state, existed);
     }
 
     if !state.config.dry_run {
+        sqlx::query("delete from training.training_appointment_lessons")
+            .execute(&state.target)
+            .await?;
+        for row in lessons {
+            let appointment_id =
+                mapped_id(&state.target, "training_appointment", &row.appointment_id).await?;
+            let lesson_id = mapped_id(&state.target, "lesson", &row.lesson_id).await?;
+            sqlx::query(
+                r#"
+                insert into training.training_appointment_lessons (appointment_id, lesson_id)
+                values ($1, $2)
+                on conflict do nothing
+                "#,
+            )
+            .bind(&appointment_id)
+            .bind(&lesson_id)
+            .execute(&state.target)
+            .await?;
+        }
         target::checkpoint(
             &state.target,
             &state.config.run_id,
@@ -581,45 +526,50 @@ async fn migrate_appointments(state: &mut AppState) -> Result<()> {
 
 async fn migrate_ots_recommendations(state: &mut AppState) -> Result<()> {
     let rows = sqlx::query_as::<_, SourceOtsRecommendation>(
-        r#"select id, student_id, assigned_instructor_id, notes, created_at from training.ots_recommendations order by created_at asc"#,
+        r#"
+        select
+            id,
+            "studentId" as student_id,
+            "assignedInstructorId" as assigned_instructor_id,
+            notes,
+            "createdAt" as created_at
+        from public."OtsRecommendation"
+        order by "createdAt" asc
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
 
     for row in rows {
+        state.report.domain_mut(DOMAIN).planned += 1;
         let student_id = mapped_id(&state.target, "user", &row.student_id).await?;
-        let assigned_instructor_id = match &row.assigned_instructor_id {
-            Some(source_user_id) => target::find_mapping(&state.target, "user", source_user_id)
-                .await?
-                .map(|row| row.target_id),
-            None => None,
+        let assigned_instructor_id = if let Some(id) = row.assigned_instructor_id.as_deref() {
+            Some(mapped_id(&state.target, "user", id).await?)
+        } else {
+            None
         };
-        let business_key = format!(
-            "{student_id}:{}:{}",
-            assigned_instructor_id.clone().unwrap_or_default(),
-            row.notes
-        );
-        let target_id = target::find_mapping(&state.target, "ots_recommendation", &row.id)
-            .await?
-            .map(|row| row.target_id)
-            .unwrap_or_else(new_id);
+        let target_id = mapped_or_same(&state.target, "ots_recommendation", &row.id).await?;
+        let existed = exists(&state.target, "training.ots_recommendations", &target_id).await?;
+
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "OtsRecommendation" (id, "studentId", "assignedInstructorId", notes, "createdAt")
+                insert into training.ots_recommendations (
+                    id, student_id, assigned_instructor_id, notes, created_at
+                )
                 values ($1, $2, $3, $4, $5)
                 on conflict (id) do update set
-                    "studentId" = excluded."studentId",
-                    "assignedInstructorId" = excluded."assignedInstructorId",
+                    student_id = excluded.student_id,
+                    assigned_instructor_id = excluded.assigned_instructor_id,
                     notes = excluded.notes,
-                    "createdAt" = excluded."createdAt"
+                    created_at = excluded.created_at
                 "#,
             )
             .bind(&target_id)
             .bind(&student_id)
             .bind(&assigned_instructor_id)
             .bind(&row.notes)
-            .bind(row.created_at)
+            .bind(assume_utc(row.created_at))
             .execute(&state.target)
             .await?;
             target::upsert_mapping(
@@ -628,31 +578,28 @@ async fn migrate_ots_recommendations(state: &mut AppState) -> Result<()> {
                 DOMAIN,
                 "ots_recommendation",
                 &row.id,
-                &business_key,
+                &format!("{student_id}:{}", row.created_at),
                 &target_id,
-                &business_key,
-                "updated",
+                &format!("{student_id}:{}", row.created_at),
+                if existed { "updated" } else { "created" },
                 &row,
             )
             .await?;
         }
+
+        bump_counts(state, existed);
     }
 
-    if !state.config.dry_run {
-        target::checkpoint(
-            &state.target,
-            &state.config.run_id,
-            DOMAIN,
-            "ots_recommendations",
-        )
-        .await?;
-    }
-    Ok(())
+    checkpoint(state, "ots_recommendations").await
 }
 
 async fn migrate_user_progressions(state: &mut AppState) -> Result<()> {
     let rows = sqlx::query_as::<_, SourceUserProgression>(
-        r#"select user_id, progression_id from training.user_progressions"#,
+        r#"
+        select id as user_id, "trainingProgressionId" as progression_id
+        from public."User"
+        where "trainingProgressionId" is not null
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
@@ -662,127 +609,163 @@ async fn migrate_user_progressions(state: &mut AppState) -> Result<()> {
         let progression_id =
             mapped_id(&state.target, "training_progression", &row.progression_id).await?;
         if !state.config.dry_run {
-            sqlx::query(r#"update "User" set "trainingProgressionId" = $2 where id = $1"#)
-                .bind(&user_id)
-                .bind(&progression_id)
-                .execute(&state.target)
-                .await?;
+            sqlx::query(
+                r#"
+                insert into training.user_progressions (user_id, progression_id)
+                values ($1, $2)
+                on conflict (user_id) do update set
+                    progression_id = excluded.progression_id
+                "#,
+            )
+            .bind(&user_id)
+            .bind(&progression_id)
+            .execute(&state.target)
+            .await?;
+            target::upsert_mapping(
+                &state.target,
+                &state.config.run_id,
+                DOMAIN,
+                "user_progression",
+                &row.user_id,
+                &format!("{user_id}:{progression_id}"),
+                &user_id,
+                &format!("{user_id}:{progression_id}"),
+                "updated",
+                &row,
+            )
+            .await?;
         }
     }
-    if !state.config.dry_run {
-        target::checkpoint(
-            &state.target,
-            &state.config.run_id,
-            DOMAIN,
-            "user_progressions",
-        )
-        .await?;
-    }
-    Ok(())
+
+    checkpoint(state, "user_progressions").await
 }
 
 async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
     let sessions = sqlx::query_as::<_, SourceTrainingSession>(
         r#"
-        select id, student_id, instructor_id, start, "end", additional_comments, trainer_comments, vatusa_id, enable_markdown
-        from training.training_sessions
+        select
+            id,
+            "studentId" as student_id,
+            "instructorId" as instructor_id,
+            start,
+            "end" as end,
+            "additionalComments" as additional_comments,
+            "trainerComments" as trainer_comments,
+            "vatusaId" as vatusa_id,
+            "enableMarkdown" as enable_markdown
+        from public."TrainingSession"
         order by start asc
         "#,
     )
     .fetch_all(&state.source)
     .await?;
     let tickets = sqlx::query_as::<_, SourceTrainingTicket>(
-        r#"select id, session_id, lesson_id, passed from training.training_tickets"#,
+        r#"
+        select
+            id,
+            "sessionId" as session_id,
+            "lessonId" as lesson_id,
+            passed
+        from public."TrainingTicket"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let scores = sqlx::query_as::<_, SourceRubricScore>(
-        r#"select id, training_ticket_id, criteria_id, cell_id, passed from training.rubric_scores"#,
+    let rubric_scores = sqlx::query_as::<_, SourceRubricScore>(
+        r#"
+        select
+            id,
+            "trainingTicketId" as training_ticket_id,
+            "criteriaId" as criteria_id,
+            "cellId" as cell_id,
+            passed
+        from public."RubricCriteraScore"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let ticket_mistakes = sqlx::query_as::<_, SourceTicketMistake>(
-        r#"select training_ticket_id, common_mistake_id from training.training_ticket_common_mistakes"#,
+    let common_mistakes = sqlx::query_as::<_, SourceTicketCommonMistake>(
+        r#"
+        select
+            id,
+            name,
+            description,
+            facility,
+            "trainingTicketId" as training_ticket_id
+        from public."CommonMistake"
+        where "trainingTicketId" is not null
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let common_mistakes = sqlx::query_as::<_, SourceCommonMistake>(
-        r#"select id, name, description, facility from training.common_mistakes"#,
+    let performance_indicators = sqlx::query_as::<_, SourceSessionPi>(
+        r#"
+        select
+            id,
+            "sessionId" as training_session_id
+        from public."TrainingSessionPerformanceIndicator"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let session_pis = sqlx::query_as::<_, SourceSessionPi>(
-        r#"select id, training_session_id from training.session_performance_indicators"#,
+    let pi_categories = sqlx::query_as::<_, SourceSessionPiCategory>(
+        r#"
+        select
+            id,
+            "sessionId" as session_performance_indicator_id,
+            name,
+            "order" as sort_order
+        from public."TrainingSessionPerformanceIndicatorCategory"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let session_pi_categories = sqlx::query_as::<_, SourceSessionPiCategory>(
-        r#"select id, session_performance_indicator_id, name, sort_order from training.session_performance_indicator_categories"#,
+    let pi_criteria = sqlx::query_as::<_, SourceSessionPiCriteria>(
+        r#"
+        select
+            id,
+            "categoryId" as category_id,
+            name,
+            "order" as sort_order,
+            marker::text as marker,
+            comments
+        from public."TrainingSessionPerformanceIndicatorCriteria"
+        "#,
     )
     .fetch_all(&state.source)
     .await?;
-    let session_pi_criteria = sqlx::query_as::<_, SourceSessionPiCriteria>(
-        r#"select id, category_id, name, sort_order, marker, comments from training.session_performance_indicator_criteria"#,
-    )
-    .fetch_all(&state.source)
-    .await?;
-
-    let common_mistake_by_id = common_mistakes
-        .into_iter()
-        .map(|row| (row.id.clone(), row))
-        .collect::<HashMap<_, _>>();
-    let mut ticket_ids_by_source = HashMap::new();
-    let mut session_ids_by_source = HashMap::new();
-    let mut session_pi_ids_by_source = HashMap::new();
-    let mut session_pi_category_ids_by_source = HashMap::new();
 
     for row in sessions {
+        state.report.domain_mut(DOMAIN).planned += 1;
         let student_id = mapped_id(&state.target, "user", &row.student_id).await?;
         let instructor_id = mapped_id(&state.target, "user", &row.instructor_id).await?;
-        let business_key = format!("{student_id}:{instructor_id}:{}", row.start.to_rfc3339());
-        let mut target_id = if let Some(mapping) =
-            target::find_mapping(&state.target, "training_session", &row.id).await?
-        {
-            Some(mapping.target_id)
-        } else {
-            sqlx::query_scalar::<_, String>(
-                r#"select id from "TrainingSession" where "studentId" = $1 and "instructorId" = $2 and start = $3"#,
-            )
-            .bind(&student_id)
-            .bind(&instructor_id)
-            .bind(row.start)
-            .fetch_optional(&state.target)
-            .await?
-        };
-        let existed = target_id.is_some();
-        if target_id.is_none() {
-            target_id = Some(new_id());
-        }
-        let target_id = target_id.expect("target id exists");
+        let target_id = mapped_or_same(&state.target, "training_session", &row.id).await?;
+        let existed = exists(&state.target, "training.training_sessions", &target_id).await?;
+
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "TrainingSession" (
-                    id, "studentId", "instructorId", start, "end", "additionalComments",
-                    "trainerComments", "vatusaId", "enableMarkdown"
+                insert into training.training_sessions (
+                    id, student_id, instructor_id, start, "end", additional_comments,
+                    trainer_comments, vatusa_id, enable_markdown
                 )
                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 on conflict (id) do update set
-                    "studentId" = excluded."studentId",
-                    "instructorId" = excluded."instructorId",
+                    student_id = excluded.student_id,
+                    instructor_id = excluded.instructor_id,
                     start = excluded.start,
                     "end" = excluded."end",
-                    "additionalComments" = excluded."additionalComments",
-                    "trainerComments" = excluded."trainerComments",
-                    "vatusaId" = excluded."vatusaId",
-                    "enableMarkdown" = excluded."enableMarkdown"
+                    additional_comments = excluded.additional_comments,
+                    trainer_comments = excluded.trainer_comments,
+                    vatusa_id = excluded.vatusa_id,
+                    enable_markdown = excluded.enable_markdown
                 "#,
             )
             .bind(&target_id)
             .bind(&student_id)
             .bind(&instructor_id)
-            .bind(row.start)
-            .bind(row.end)
+            .bind(assume_utc(row.start))
+            .bind(assume_utc(row.end))
             .bind(&row.additional_comments)
             .bind(&row.trainer_comments)
             .bind(&row.vatusa_id)
@@ -795,36 +778,30 @@ async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
                 DOMAIN,
                 "training_session",
                 &row.id,
-                &business_key,
+                &format!("{student_id}:{instructor_id}:{}", row.start),
                 &target_id,
-                &business_key,
+                &format!("{student_id}:{instructor_id}:{}", row.start),
                 if existed { "updated" } else { "created" },
                 &row,
             )
             .await?;
         }
-        session_ids_by_source.insert(row.id, target_id);
+
+        bump_counts(state, existed);
     }
 
     for row in tickets {
-        let session_id = session_ids_by_source
-            .get(&row.session_id)
-            .cloned()
-            .with_context(|| format!("missing migrated training session for ticket {}", row.id))?;
+        let session_id = mapped_id(&state.target, "training_session", &row.session_id).await?;
         let lesson_id = mapped_id(&state.target, "lesson", &row.lesson_id).await?;
-        let business_key = format!("{session_id}:{lesson_id}");
-        let target_id = target::find_mapping(&state.target, "training_ticket", &row.id)
-            .await?
-            .map(|row| row.target_id)
-            .unwrap_or_else(new_id);
+        let target_id = mapped_or_same(&state.target, "training_ticket", &row.id).await?;
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "TrainingTicket" (id, "sessionId", "lessonId", passed)
+                insert into training.training_tickets (id, session_id, lesson_id, passed)
                 values ($1, $2, $3, $4)
                 on conflict (id) do update set
-                    "sessionId" = excluded."sessionId",
-                    "lessonId" = excluded."lessonId",
+                    session_id = excluded.session_id,
+                    lesson_id = excluded.lesson_id,
                     passed = excluded.passed
                 "#,
             )
@@ -840,56 +817,41 @@ async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
                 DOMAIN,
                 "training_ticket",
                 &row.id,
-                &business_key,
+                &format!("{session_id}:{lesson_id}"),
                 &target_id,
-                &business_key,
+                &format!("{session_id}:{lesson_id}"),
                 "updated",
                 &row,
             )
             .await?;
         }
-        ticket_ids_by_source.insert(row.id, target_id);
     }
 
-    for row in scores {
-        let Some(ticket_source_id) = row.training_ticket_id.as_ref() else {
-            record_warning(
-                state,
-                DOMAIN,
-                "rubric_score",
-                &row.id,
-                "skipping rubric score without training_ticket_id",
-            )
-            .await?;
-            continue;
-        };
-        let ticket_id = ticket_ids_by_source
-            .get(ticket_source_id)
-            .cloned()
-            .with_context(|| format!("missing ticket mapping for rubric score {}", row.id))?;
-        let criteria_id = mapped_id(&state.target, "lesson_criteria", &row.criteria_id).await?;
-        let cell_id = mapped_id(&state.target, "lesson_cell", &row.cell_id).await?;
-        let business_key = format!("{ticket_id}:{criteria_id}:{cell_id}");
-        let target_id = target::find_mapping(&state.target, "rubric_score", &row.id)
-            .await?
-            .map(|row| row.target_id)
-            .unwrap_or_else(new_id);
+    for row in rubric_scores {
+        let training_ticket_id =
+            mapped_id(&state.target, "training_ticket", &row.training_ticket_id).await?;
+        let criteria_id =
+            mapped_id(&state.target, "lesson_rubric_criteria", &row.criteria_id).await?;
+        let cell_id = mapped_id(&state.target, "lesson_rubric_cell", &row.cell_id).await?;
+        let target_id = mapped_or_same(&state.target, "rubric_score", &row.id).await?;
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "RubricCriteraScore" (id, "criteriaId", "cellId", "trainingTicketId", passed)
+                insert into training.rubric_scores (
+                    id, training_ticket_id, criteria_id, cell_id, passed
+                )
                 values ($1, $2, $3, $4, $5)
                 on conflict (id) do update set
-                    "criteriaId" = excluded."criteriaId",
-                    "cellId" = excluded."cellId",
-                    "trainingTicketId" = excluded."trainingTicketId",
+                    training_ticket_id = excluded.training_ticket_id,
+                    criteria_id = excluded.criteria_id,
+                    cell_id = excluded.cell_id,
                     passed = excluded.passed
                 "#,
             )
             .bind(&target_id)
+            .bind(&training_ticket_id)
             .bind(&criteria_id)
             .bind(&cell_id)
-            .bind(&ticket_id)
             .bind(row.passed)
             .execute(&state.target)
             .await?;
@@ -899,9 +861,9 @@ async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
                 DOMAIN,
                 "rubric_score",
                 &row.id,
-                &business_key,
+                &format!("{training_ticket_id}:{criteria_id}:{cell_id}"),
                 &target_id,
-                &business_key,
+                &format!("{training_ticket_id}:{criteria_id}:{cell_id}"),
                 "updated",
                 &row,
             )
@@ -909,191 +871,181 @@ async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
         }
     }
 
-    for row in ticket_mistakes {
-        let ticket_id = ticket_ids_by_source
-            .get(&row.training_ticket_id)
-            .cloned()
-            .with_context(|| {
-                format!(
-                    "missing training ticket mapping for mistake link {}",
-                    row.common_mistake_id
-                )
-            })?;
-        let source_mistake = common_mistake_by_id
-            .get(&row.common_mistake_id)
-            .with_context(|| format!("missing common mistake {}", row.common_mistake_id))?;
-        let business_key = format!("{ticket_id}:{}", source_mistake.id);
-        let target_id = target::find_mapping(&state.target, "ticket_mistake", &business_key)
-            .await?
-            .map(|row| row.target_id)
-            .unwrap_or_else(new_id);
+    for row in common_mistakes {
+        let training_ticket_id =
+            mapped_id(&state.target, "training_ticket", &row.training_ticket_id).await?;
+        let target_id = mapped_or_same(&state.target, "ticket_common_mistake", &row.id).await?;
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "CommonMistake" (id, name, description, facility, "trainingTicketId")
-                values ($1, $2, $3, $4, $5)
-                on conflict (id) do update set
-                    name = excluded.name,
-                    description = excluded.description,
-                    facility = excluded.facility,
-                    "trainingTicketId" = excluded."trainingTicketId"
-                "#,
-            )
-            .bind(&target_id)
-            .bind(&source_mistake.name)
-            .bind(&source_mistake.description)
-            .bind(&source_mistake.facility)
-            .bind(&ticket_id)
-            .execute(&state.target)
-            .await?;
-            target::upsert_mapping(
-                &state.target,
-                &state.config.run_id,
-                DOMAIN,
-                "ticket_mistake",
-                &business_key,
-                &business_key,
-                &target_id,
-                &business_key,
-                "updated",
-                source_mistake,
-            )
-            .await?;
-        }
-    }
-
-    for row in session_pis {
-        let session_id = session_ids_by_source
-            .get(&row.training_session_id)
-            .cloned()
-            .with_context(|| {
-                format!("missing training session mapping for session PI {}", row.id)
-            })?;
-        let business_key = format!("session:{session_id}");
-        let target_id = target::find_mapping(&state.target, "training_session_pi", &row.id)
-            .await?
-            .map(|row| row.target_id)
-            .unwrap_or_else(new_id);
-        if !state.config.dry_run {
-            sqlx::query(
-                r#"
-                insert into "TrainingSessionPerformanceIndicator" (id, "sessionId")
-                values ($1, $2)
-                on conflict (id) do update set "sessionId" = excluded."sessionId"
-                "#,
-            )
-            .bind(&target_id)
-            .bind(&session_id)
-            .execute(&state.target)
-            .await?;
-            target::upsert_mapping(
-                &state.target,
-                &state.config.run_id,
-                DOMAIN,
-                "training_session_pi",
-                &row.id,
-                &business_key,
-                &target_id,
-                &business_key,
-                "updated",
-                &row,
-            )
-            .await?;
-        }
-        session_pi_ids_by_source.insert(row.id, target_id);
-    }
-
-    for row in session_pi_categories {
-        let session_pi_id = session_pi_ids_by_source
-            .get(&row.session_performance_indicator_id)
-            .cloned()
-            .with_context(|| format!("missing session PI mapping for category {}", row.id))?;
-        let business_key = format!("{session_pi_id}:{}", row.name);
-        let target_id =
-            target::find_mapping(&state.target, "training_session_pi_category", &row.id)
-                .await?
-                .map(|row| row.target_id)
-                .unwrap_or_else(new_id);
-        if !state.config.dry_run {
-            sqlx::query(
-                r#"
-                insert into "TrainingSessionPerformanceIndicatorCategory" (id, name, "order", "sessionId")
+                insert into training.common_mistakes (id, name, description, facility)
                 values ($1, $2, $3, $4)
                 on conflict (id) do update set
                     name = excluded.name,
-                    "order" = excluded."order",
-                    "sessionId" = excluded."sessionId"
+                    description = excluded.description,
+                    facility = excluded.facility
                 "#,
             )
             .bind(&target_id)
             .bind(&row.name)
-            .bind(row.sort_order)
-            .bind(&session_pi_id)
+            .bind(&row.description)
+            .bind(&row.facility)
+            .execute(&state.target)
+            .await?;
+            sqlx::query(
+                r#"
+                insert into training.training_ticket_common_mistakes (training_ticket_id, common_mistake_id)
+                values ($1, $2)
+                on conflict do nothing
+                "#,
+            )
+            .bind(&training_ticket_id)
+            .bind(&target_id)
             .execute(&state.target)
             .await?;
             target::upsert_mapping(
                 &state.target,
                 &state.config.run_id,
                 DOMAIN,
-                "training_session_pi_category",
+                "ticket_common_mistake",
                 &row.id,
-                &business_key,
+                &format!("{training_ticket_id}:{}", row.name),
                 &target_id,
-                &business_key,
+                &format!("{training_ticket_id}:{}", row.name),
                 "updated",
                 &row,
             )
             .await?;
         }
-        session_pi_category_ids_by_source.insert(row.id, target_id);
     }
 
-    for row in session_pi_criteria {
-        let category_id = session_pi_category_ids_by_source
-            .get(&row.category_id)
-            .cloned()
-            .with_context(|| {
-                format!(
-                    "missing session PI category mapping for criteria {}",
-                    row.id
-                )
-            })?;
-        let business_key = format!("{category_id}:{}", row.name);
+    for row in performance_indicators {
+        let training_session_id =
+            mapped_id(&state.target, "training_session", &row.training_session_id).await?;
         let target_id =
-            target::find_mapping(&state.target, "training_session_pi_criteria", &row.id)
-                .await?
-                .map(|row| row.target_id)
-                .unwrap_or_else(new_id);
+            mapped_or_same(&state.target, "session_performance_indicator", &row.id).await?;
         if !state.config.dry_run {
             sqlx::query(
                 r#"
-                insert into "TrainingSessionPerformanceIndicatorCriteria" (id, name, "order", marker, comments, "categoryId")
-                values ($1, $2, $3, $4::"PerformanceIndicatorMarker", $5, $6)
+                insert into training.session_performance_indicators (id, training_session_id)
+                values ($1, $2)
                 on conflict (id) do update set
-                    name = excluded.name,
-                    "order" = excluded."order",
-                    marker = excluded.marker,
-                    comments = excluded.comments,
-                    "categoryId" = excluded."categoryId"
+                    training_session_id = excluded.training_session_id
                 "#,
             )
             .bind(&target_id)
+            .bind(&training_session_id)
+            .execute(&state.target)
+            .await?;
+            target::upsert_mapping(
+                &state.target,
+                &state.config.run_id,
+                DOMAIN,
+                "session_performance_indicator",
+                &row.id,
+                &training_session_id,
+                &target_id,
+                &training_session_id,
+                "updated",
+                &row,
+            )
+            .await?;
+        }
+    }
+
+    for row in pi_categories {
+        let session_performance_indicator_id = mapped_id(
+            &state.target,
+            "session_performance_indicator",
+            &row.session_performance_indicator_id,
+        )
+        .await?;
+        let target_id = mapped_or_same(
+            &state.target,
+            "session_performance_indicator_category",
+            &row.id,
+        )
+        .await?;
+        if !state.config.dry_run {
+            sqlx::query(
+                r#"
+                insert into training.session_performance_indicator_categories (
+                    id, session_performance_indicator_id, name, sort_order
+                )
+                values ($1, $2, $3, $4)
+                on conflict (id) do update set
+                    session_performance_indicator_id = excluded.session_performance_indicator_id,
+                    name = excluded.name,
+                    sort_order = excluded.sort_order
+                "#,
+            )
+            .bind(&target_id)
+            .bind(&session_performance_indicator_id)
+            .bind(&row.name)
+            .bind(row.sort_order)
+            .execute(&state.target)
+            .await?;
+            target::upsert_mapping(
+                &state.target,
+                &state.config.run_id,
+                DOMAIN,
+                "session_performance_indicator_category",
+                &row.id,
+                &format!("{session_performance_indicator_id}:{}", row.sort_order),
+                &target_id,
+                &format!("{session_performance_indicator_id}:{}", row.sort_order),
+                "updated",
+                &row,
+            )
+            .await?;
+        }
+    }
+
+    for row in pi_criteria {
+        let category_id = mapped_id(
+            &state.target,
+            "session_performance_indicator_category",
+            &row.category_id,
+        )
+        .await?;
+        let target_id = mapped_or_same(
+            &state.target,
+            "session_performance_indicator_criteria",
+            &row.id,
+        )
+        .await?;
+        if !state.config.dry_run {
+            sqlx::query(
+                r#"
+                insert into training.session_performance_indicator_criteria (
+                    id, category_id, name, sort_order, marker, comments
+                )
+                values ($1, $2, $3, $4, $5, $6)
+                on conflict (id) do update set
+                    category_id = excluded.category_id,
+                    name = excluded.name,
+                    sort_order = excluded.sort_order,
+                    marker = excluded.marker,
+                    comments = excluded.comments
+                "#,
+            )
+            .bind(&target_id)
+            .bind(&category_id)
             .bind(&row.name)
             .bind(row.sort_order)
             .bind(&row.marker)
             .bind(&row.comments)
-            .bind(&category_id)
             .execute(&state.target)
             .await?;
             target::upsert_mapping(
                 &state.target,
                 &state.config.run_id,
                 DOMAIN,
-                "training_session_pi_criteria",
+                "session_performance_indicator_criteria",
                 &row.id,
-                &business_key,
+                &format!("{category_id}:{}", row.sort_order),
                 &target_id,
-                &business_key,
+                &format!("{category_id}:{}", row.sort_order),
                 "updated",
                 &row,
             )
@@ -1101,21 +1053,43 @@ async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
         }
     }
 
-    if !state.config.dry_run {
-        target::checkpoint(
-            &state.target,
-            &state.config.run_id,
-            DOMAIN,
-            "training_sessions",
-        )
-        .await?;
-    }
-    Ok(())
+    checkpoint(state, "training_sessions").await
+}
+
+async fn mapped_or_same(pool: &sqlx::PgPool, entity_type: &str, source_id: &str) -> Result<String> {
+    Ok(target::find_mapping(pool, entity_type, source_id)
+        .await?
+        .map(|row| row.target_id)
+        .unwrap_or_else(|| source_id.to_string()))
 }
 
 async fn mapped_id(pool: &sqlx::PgPool, entity_type: &str, source_id: &str) -> Result<String> {
     Ok(target::find_mapping(pool, entity_type, source_id)
         .await?
-        .with_context(|| format!("missing mapping for {entity_type}/{source_id}"))?
-        .target_id)
+        .map(|row| row.target_id)
+        .unwrap_or_else(|| source_id.to_string()))
+}
+
+async fn exists(pool: &sqlx::PgPool, table: &str, id: &str) -> Result<bool> {
+    let query = format!("select exists(select 1 from {table} where id = $1)");
+    Ok(sqlx::query_scalar::<_, bool>(&query)
+        .bind(id)
+        .fetch_one(pool)
+        .await?)
+}
+
+fn bump_counts(state: &mut AppState, existed: bool) {
+    let domain = state.report.domain_mut(DOMAIN);
+    if existed {
+        domain.updated += 1;
+    } else {
+        domain.created += 1;
+    }
+}
+
+async fn checkpoint(state: &AppState, entity_type: &str) -> Result<()> {
+    if !state.config.dry_run {
+        target::checkpoint(&state.target, &state.config.run_id, DOMAIN, entity_type).await?;
+    }
+    Ok(())
 }

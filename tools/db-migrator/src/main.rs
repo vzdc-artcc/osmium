@@ -24,9 +24,7 @@ async fn main() -> Result<()> {
     let config = Config::from_cli(cli);
     let mut state = AppState::connect(config).await?;
 
-    if !state.config.dry_run {
-        target::ensure_schema(&state.target).await?;
-    }
+    target::ensure_schema(&state.target).await?;
 
     match state.config.command {
         Command::ResetRun => {

@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use uuid::Uuid;
 
 use crate::{state::AppState, target};
@@ -40,4 +41,12 @@ pub fn merge_note(prefix: &str, note: Option<&str>) -> String {
         Some(note) => format!("{prefix} {note}"),
         None => prefix.to_string(),
     }
+}
+
+pub fn assume_utc(timestamp: NaiveDateTime) -> DateTime<Utc> {
+    timestamp.and_utc()
+}
+
+pub fn assume_utc_opt(timestamp: Option<NaiveDateTime>) -> Option<DateTime<Utc>> {
+    timestamp.map(assume_utc)
 }

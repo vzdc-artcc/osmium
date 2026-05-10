@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use sqlx::Row;
 
-use crate::{report::ReportIssue, state::AppState};
+use crate::state::AppState;
 
 pub async fn run(state: &mut AppState) -> Result<()> {
     verify_counts(state).await?;
@@ -14,88 +14,88 @@ async fn verify_counts(state: &mut AppState) -> Result<()> {
     let checks = [
         (
             "users",
-            "select count(*) from identity.users",
-            "select count(*) from \"User\"",
+            r#"select count(*) from public."User""#,
+            r#"select count(*) from identity.users"#,
         ),
         (
             "visitor_applications",
-            "select count(*) from org.visitor_applications",
-            "select count(*) from \"VisitorApplication\"",
+            r#"select count(*) from public."VisitorApplication""#,
+            r#"select count(*) from org.visitor_applications"#,
         ),
         (
             "loas",
-            "select count(*) from org.loas",
-            "select count(*) from \"LOA\"",
+            r#"select count(*) from public."LOA""#,
+            r#"select count(*) from org.loas"#,
         ),
         (
             "certifications",
-            "select count(*) from org.user_certifications",
-            "select count(*) from \"Certification\"",
+            r#"select count(*) from public."Certification""#,
+            r#"select count(*) from org.user_certifications"#,
         ),
         (
             "solo_certifications",
-            "select count(*) from org.user_solo_certifications",
-            "select count(*) from \"SoloCertification\"",
+            r#"select count(*) from public."SoloCertification""#,
+            r#"select count(*) from org.user_solo_certifications"#,
         ),
         (
             "training_assignments",
-            "select count(*) from training.training_assignments",
-            "select count(*) from \"TrainingAssignment\"",
+            r#"select count(*) from public."TrainingAssignment""#,
+            r#"select count(*) from training.training_assignments"#,
         ),
         (
             "training_requests",
-            "select count(*) from training.training_assignment_requests where status = 'PENDING'",
-            "select count(*) from \"TrainingAssignmentRequest\"",
+            r#"select count(*) from public."TrainingAssignmentRequest""#,
+            r#"select count(*) from training.training_assignment_requests"#,
         ),
         (
             "release_requests",
-            "select count(*) from training.trainer_release_requests where status = 'PENDING'",
-            "select count(*) from \"TrainerReleaseRequest\"",
+            r#"select count(*) from public."TrainerReleaseRequest""#,
+            r#"select count(*) from training.trainer_release_requests"#,
         ),
         (
             "appointments",
-            "select count(*) from training.training_appointments",
-            "select count(*) from \"TrainingAppointment\"",
+            r#"select count(*) from public."TrainingAppointment""#,
+            r#"select count(*) from training.training_appointments"#,
         ),
         (
             "ots_recommendations",
-            "select count(*) from training.ots_recommendations",
-            "select count(*) from \"OtsRecommendation\"",
+            r#"select count(*) from public."OtsRecommendation""#,
+            r#"select count(*) from training.ots_recommendations"#,
         ),
         (
             "feedback",
-            "select count(*) from feedback.feedback_items",
-            "select count(*) from \"Feedback\"",
+            r#"select count(*) from public."Feedback""#,
+            r#"select count(*) from feedback.feedback_items"#,
         ),
         (
             "dossier_entries",
-            "select count(*) from feedback.dossier_entries",
-            "select count(*) from \"DossierEntry\"",
+            r#"select count(*) from public."DossierEntry""#,
+            r#"select count(*) from feedback.dossier_entries"#,
         ),
         (
             "incidents",
-            "select count(*) from feedback.incident_reports",
-            "select count(*) from \"IncidentReport\"",
+            r#"select count(*) from public."IncidentReport""#,
+            r#"select count(*) from feedback.incident_reports"#,
         ),
         (
             "events",
-            "select count(*) from events.events",
-            "select count(*) from \"Event\"",
+            r#"select count(*) from public."Event""#,
+            r#"select count(*) from events.events"#,
         ),
         (
             "event_positions",
-            "select count(*) from events.event_positions",
-            "select count(*) from \"EventPosition\"",
+            r#"select count(*) from public."EventPosition""#,
+            r#"select count(*) from events.event_positions"#,
         ),
         (
             "event_tmis",
-            "select count(*) from events.event_tmis",
-            "select count(*) from \"EventTmi\"",
+            r#"select count(*) from public."EventTmi""#,
+            r#"select count(*) from events.event_tmis"#,
         ),
         (
             "event_presets",
-            "select count(*) from events.event_position_presets",
-            "select count(*) from \"EventPositionPreset\"",
+            r#"select count(*) from public."EventPositionPreset""#,
+            r#"select count(*) from events.event_position_presets"#,
         ),
     ];
 
@@ -115,20 +115,51 @@ async fn verify_counts(state: &mut AppState) -> Result<()> {
 }
 
 async fn verify_referential_integrity(state: &mut AppState) -> Result<()> {
-    let orphans: i64 = sqlx::query_scalar(
+    let orphan_event_positions: i64 = sqlx::query_scalar(
         r#"
         select count(*)
-        from "EventPosition" ep
-        left join "Event" e on e.id = ep."eventId"
-        left join "User" u on u.id = ep."userId"
-        where e.id is null or (ep."userId" is not null and u.id is null)
+        from events.event_positions ep
+        left join events.events e on e.id = ep.event_id
+        left join identity.users u on u.id = ep.user_id
+        where e.id is null or (ep.user_id is not null and u.id is null)
         "#,
     )
     .fetch_one(&state.target)
     .await?;
+    if orphan_event_positions > 0 {
+        bail!(
+            "event position referential check failed with {orphan_event_positions} orphaned rows"
+        );
+    }
 
-    if orphans > 0 {
-        bail!("event position referential check failed with {orphans} orphaned rows");
+    let orphan_tickets: i64 = sqlx::query_scalar(
+        r#"
+        select count(*)
+        from training.training_tickets tt
+        left join training.training_sessions ts on ts.id = tt.session_id
+        left join training.lessons l on l.id = tt.lesson_id
+        where ts.id is null or l.id is null
+        "#,
+    )
+    .fetch_one(&state.target)
+    .await?;
+    if orphan_tickets > 0 {
+        bail!("training ticket referential check failed with {orphan_tickets} orphaned rows");
+    }
+
+    let orphan_certs: i64 = sqlx::query_scalar(
+        r#"
+        select count(*)
+        from org.user_certifications uc
+        left join identity.users u on u.id = uc.user_id
+        left join org.certification_types ct on ct.id = uc.certification_type_id
+        where u.id is null or ct.id is null
+        "#,
+    )
+    .fetch_one(&state.target)
+    .await?;
+    if orphan_certs > 0 {
+        bail!("user certification referential check failed with {orphan_certs} orphaned rows");
     }
 
     let missing_maps: i64 = sqlx::query_scalar(
@@ -140,7 +171,6 @@ async fn verify_referential_integrity(state: &mut AppState) -> Result<()> {
     )
     .fetch_one(&state.target)
     .await?;
-
     if missing_maps > 0 {
         bail!("migration entity map contains {missing_maps} invalid target ids");
     }
@@ -152,9 +182,10 @@ async fn verify_semantics(state: &mut AppState) -> Result<()> {
     let duplicate_cids: i64 = sqlx::query_scalar(
         r#"
         select count(*) from (
-            select "cid"
-            from "User"
-            group by "cid"
+            select cid
+            from identity.users
+            where cid is not null
+            group by cid
             having count(*) > 1
         ) d
         "#,
@@ -168,9 +199,9 @@ async fn verify_semantics(state: &mut AppState) -> Result<()> {
     let duplicate_assignments: i64 = sqlx::query_scalar(
         r#"
         select count(*) from (
-            select "studentId"
-            from "TrainingAssignment"
-            group by "studentId"
+            select student_id
+            from training.training_assignments
+            group by student_id
             having count(*) > 1
         ) d
         "#,
@@ -182,7 +213,7 @@ async fn verify_semantics(state: &mut AppState) -> Result<()> {
     }
 
     let bad_event_ranges: i64 =
-        sqlx::query_scalar(r#"select count(*) from "Event" where "end" < "start""#)
+        sqlx::query_scalar(r#"select count(*) from events.events where ends_at < starts_at"#)
             .fetch_one(&state.target)
             .await?;
     if bad_event_ranges > 0 {
@@ -192,16 +223,6 @@ async fn verify_semantics(state: &mut AppState) -> Result<()> {
     let domain = state.report.domain_mut("verify");
     domain.planned += 3;
     domain.updated += 3;
-
-    if !state.report.errors.is_empty() {
-        let summary = ReportIssue {
-            domain: "verify".to_string(),
-            entity_type: "summary".to_string(),
-            source_id: state.report.run_id.clone(),
-            message: "verification finished with prior migration errors".to_string(),
-        };
-        let _ = summary;
-    }
 
     let _ = sqlx::query("select 1")
         .fetch_one(&state.target)
