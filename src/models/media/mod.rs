@@ -12,7 +12,9 @@ pub struct FileAsset {
     pub uploaded_by: String,
     pub owner_user_id: Option<String>,
     pub viewer_roles: Vec<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 

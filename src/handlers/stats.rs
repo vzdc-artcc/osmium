@@ -1,12 +1,10 @@
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-};
+use axum::extract::{Path, Query, State};
 use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use crate::time::{ApiJson, ResponseTimeContext};
 use crate::{errors::ApiError, jobs::stats_sync::parse_environment, state::AppState};
 
 #[derive(Deserialize, ToSchema)]
@@ -26,6 +24,7 @@ pub struct ArtccStatsResponse {
     pub all_time: bool,
     pub month: Option<i32>,
     pub year: Option<i32>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub updated_at: Option<DateTime<Utc>>,
     pub controller_count: i64,
     pub summary: ArtccSummary,
@@ -71,6 +70,7 @@ pub struct ControllerEventItem {
     pub user_id: Option<String>,
     pub session_id: Option<String>,
     pub activation_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub occurred_at: DateTime<Utc>,
     pub payload: Value,
 }
@@ -89,7 +89,9 @@ pub struct ControllerTotalsResponse {
     pub center_hours: f64,
     pub active_hours: f64,
     pub total_hours: f64,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub last_activity_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub updated_at: Option<DateTime<Utc>>,
 }
 
@@ -227,7 +229,8 @@ struct ControllerEventRow {
 pub async fn get_artcc_stats(
     State(state): State<AppState>,
     Query(query): Query<ArtccStatsQuery>,
-) -> Result<Json<ArtccStatsResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ArtccStatsResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let environment = parse_environment(query.environment.as_deref())?;
     let environment_name = environment.as_str().to_string();
@@ -392,18 +395,21 @@ pub async fn get_artcc_stats(
         })
         .collect::<Vec<_>>();
 
-    Ok(Json(ArtccStatsResponse {
-        environment: environment_name,
-        label: stats_label(all_time, month_input, selected_year),
-        all_time,
-        month: month_input,
-        year: if all_time { None } else { Some(selected_year) },
-        updated_at,
-        controller_count,
-        summary,
-        leaders,
-        controllers,
-    }))
+    Ok(ApiJson::new(
+        ArtccStatsResponse {
+            environment: environment_name,
+            label: stats_label(all_time, month_input, selected_year),
+            all_time,
+            month: month_input,
+            year: if all_time { None } else { Some(selected_year) },
+            updated_at,
+            controller_count,
+            summary,
+            leaders,
+            controllers,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -424,7 +430,8 @@ pub async fn get_controller_history(
     State(state): State<AppState>,
     Path(cid): Path<i64>,
     Query(query): Query<ControllerHistoryQuery>,
-) -> Result<Json<ControllerHistoryResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ControllerHistoryResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let environment = parse_environment(query.environment.as_deref())?;
     let year = query.year.unwrap_or(Utc::now().year());
@@ -505,14 +512,17 @@ pub async fn get_controller_history(
         }
     }
 
-    Ok(Json(ControllerHistoryResponse {
-        environment: environment.as_str().to_string(),
-        cid: user.cid,
-        name: identity_name(&user),
-        rating: normalize_rating_code(user.rating.as_deref()),
-        year,
-        months,
-    }))
+    Ok(ApiJson::new(
+        ControllerHistoryResponse {
+            environment: environment.as_str().to_string(),
+            cid: user.cid,
+            name: identity_name(&user),
+            rating: normalize_rating_code(user.rating.as_deref()),
+            year,
+            months,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -532,7 +542,8 @@ pub async fn get_controller_totals(
     State(state): State<AppState>,
     Path(cid): Path<i64>,
     Query(query): Query<ControllerHistoryQuery>,
-) -> Result<Json<ControllerTotalsResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ControllerTotalsResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let environment = parse_environment(query.environment.as_deref())?;
 
@@ -589,22 +600,25 @@ pub async fn get_controller_totals(
 
     let updated_at = last_feed_updated_at(pool, environment.as_str()).await?;
 
-    Ok(Json(ControllerTotalsResponse {
-        environment: environment.as_str().to_string(),
-        cid: user.cid,
-        name: identity_name(&user),
-        rating: normalize_rating_code(user.rating.as_deref()),
-        online_hours: totals.online_hours,
-        delivery_hours: totals.delivery_hours,
-        ground_hours: totals.ground_hours,
-        tower_hours: totals.tower_hours,
-        tracon_hours: totals.tracon_hours,
-        center_hours: totals.center_hours,
-        active_hours: totals.active_hours,
-        total_hours: totals.total_hours,
-        last_activity_at,
-        updated_at,
-    }))
+    Ok(ApiJson::new(
+        ControllerTotalsResponse {
+            environment: environment.as_str().to_string(),
+            cid: user.cid,
+            name: identity_name(&user),
+            rating: normalize_rating_code(user.rating.as_deref()),
+            online_hours: totals.online_hours,
+            delivery_hours: totals.delivery_hours,
+            ground_hours: totals.ground_hours,
+            tower_hours: totals.tower_hours,
+            tracon_hours: totals.tracon_hours,
+            center_hours: totals.center_hours,
+            active_hours: totals.active_hours,
+            total_hours: totals.total_hours,
+            last_activity_at,
+            updated_at,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -624,7 +638,8 @@ pub async fn get_controller_totals(
 pub async fn list_controller_events(
     State(state): State<AppState>,
     Query(query): Query<ControllerEventsQuery>,
-) -> Result<Json<ControllerEventsResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ControllerEventsResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let environment = parse_environment(query.environment.as_deref())?;
@@ -656,23 +671,26 @@ pub async fn list_controller_events(
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(ControllerEventsResponse {
-        environment: environment.as_str().to_string(),
-        events: rows
-            .into_iter()
-            .map(|row| ControllerEventItem {
-                id: row.id,
-                environment: row.environment,
-                event_type: row.event_type,
-                cid: row.cid,
-                user_id: row.user_id,
-                session_id: row.session_id,
-                activation_id: row.activation_id,
-                occurred_at: row.occurred_at,
-                payload: row.payload,
-            })
-            .collect(),
-    }))
+    Ok(ApiJson::new(
+        ControllerEventsResponse {
+            environment: environment.as_str().to_string(),
+            events: rows
+                .into_iter()
+                .map(|row| ControllerEventItem {
+                    id: row.id,
+                    environment: row.environment,
+                    event_type: row.event_type,
+                    cid: row.cid,
+                    user_id: row.user_id,
+                    session_id: row.session_id,
+                    activation_id: row.activation_id,
+                    occurred_at: row.occurred_at,
+                    payload: row.payload,
+                })
+                .collect(),
+        },
+        time,
+    ))
 }
 
 async fn fetch_controller_identity(
@@ -854,7 +872,12 @@ mod tests {
     #[test]
     fn user_name_prefers_joined_first_and_last_name() {
         assert_eq!(
-            user_name(Some("Display Name"), Some("Jane"), Some("Controller"), 10000001),
+            user_name(
+                Some("Display Name"),
+                Some("Jane"),
+                Some("Controller"),
+                10000001
+            ),
             "Jane Controller"
         );
     }
@@ -866,7 +889,12 @@ mod tests {
             "Jane"
         );
         assert_eq!(
-            user_name(Some("Display Name"), Some("   "), Some("Controller"), 10000001),
+            user_name(
+                Some("Display Name"),
+                Some("   "),
+                Some("Controller"),
+                10000001
+            ),
             "Controller"
         );
     }
@@ -881,7 +909,10 @@ mod tests {
 
     #[test]
     fn user_name_falls_back_to_cid_when_identity_name_missing() {
-        assert_eq!(user_name(Some("   "), Some(""), Some(""), 10000001), "10000001");
+        assert_eq!(
+            user_name(Some("   "), Some(""), Some(""), 10000001),
+            "10000001"
+        );
         assert_eq!(user_name(None, None, None, 10000001), "10000001");
     }
 }

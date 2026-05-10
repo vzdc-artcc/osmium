@@ -46,6 +46,7 @@ pub struct RosterUserRow {
     pub status: Option<String>,
     pub controller_status: Option<String>,
     pub membership_status: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub join_date: Option<DateTime<Utc>>,
     pub home_facility: Option<String>,
     pub visitor_home_facility: Option<String>,
@@ -89,6 +90,7 @@ pub struct MeProfileBody {
 pub struct TeamSpeakUidBody {
     pub id: String,
     pub uid: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub linked_at: DateTime<Utc>,
 }
 
@@ -118,6 +120,7 @@ pub struct UserPrivateInfo {
     pub status: Option<String>,
     pub controller_status: Option<String>,
     pub membership_status: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub join_date: Option<DateTime<Utc>>,
     pub home_facility: Option<String>,
     pub visitor_home_facility: Option<String>,
@@ -256,7 +259,9 @@ pub struct VisitorApplicationItem {
     pub why_visit: String,
     pub status: String,
     pub reason_for_denial: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub decided_at: Option<DateTime<Utc>>,
     pub decided_by_actor_id: Option<String>,
 }

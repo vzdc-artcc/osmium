@@ -4,6 +4,10 @@
 
 Expose ARTCC summary and controller-level statistics.
 
+## Response Timezones
+
+Timestamped stats responses such as controller event `occurred_at` and dataset refresh timestamps follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Main Routes
 
 - `GET /api/v1/stats/artcc`

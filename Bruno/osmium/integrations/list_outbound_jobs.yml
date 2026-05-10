@@ -22,6 +22,10 @@ http:
       value: "0"
       type: query
       disabled: true
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   auth: inherit
 
 settings:

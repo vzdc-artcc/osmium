@@ -37,6 +37,7 @@ use crate::{
     },
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 const VALID_PI_MARKERS: &[&str] = &[
@@ -186,16 +187,18 @@ pub async fn list_assignments(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<TrainingAssignmentListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingAssignmentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["assignments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_assignments")
-        .fetch_one(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_assignments")
+            .fetch_one(db)
+            .await
+            .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, TrainingAssignment>(
         "select id, student_id, primary_trainer_id, created_at, updated_at from training.training_assignments order by created_at desc, id asc limit $1 offset $2",
     )
@@ -207,15 +210,18 @@ pub async fn list_assignments(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(TrainingAssignmentListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        TrainingAssignmentListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -233,8 +239,9 @@ pub async fn create_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingAssignmentRequest>,
-) -> Result<(StatusCode, Json<TrainingAssignment>), ApiError> {
+) -> Result<(StatusCode, ApiJson<TrainingAssignment>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["assignments"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -297,7 +304,7 @@ pub async fn create_assignment(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(
@@ -314,7 +321,8 @@ pub async fn list_ots_recommendations(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<OtsRecommendationListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<OtsRecommendationListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -326,10 +334,11 @@ pub async fn list_ots_recommendations(
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.ots_recommendations")
-        .fetch_one(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.ots_recommendations")
+            .fetch_one(db)
+            .await
+            .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, OtsRecommendationSummary>(
         r#"
         select id, student_id, assigned_instructor_id, notes, created_at, updated_at
@@ -346,15 +355,18 @@ pub async fn list_ots_recommendations(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(OtsRecommendationListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        OtsRecommendationListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -372,8 +384,9 @@ pub async fn create_ots_recommendation(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateOtsRecommendationRequest>,
-) -> Result<(StatusCode, Json<OtsRecommendationSummary>), ApiError> {
+) -> Result<(StatusCode, ApiJson<OtsRecommendationSummary>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -451,7 +464,7 @@ pub async fn create_ots_recommendation(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(
@@ -473,8 +486,9 @@ pub async fn update_ots_recommendation(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(recommendation_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateOtsRecommendationRequest>,
-) -> Result<Json<OtsRecommendationSummary>, ApiError> {
+) -> Result<ApiJson<OtsRecommendationSummary>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -544,7 +558,7 @@ pub async fn update_ots_recommendation(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(
@@ -625,7 +639,8 @@ pub async fn list_lessons(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<TrainingLessonListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingLessonListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["lessons"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -667,15 +682,18 @@ pub async fn list_lessons(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(TrainingLessonListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        TrainingLessonListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -693,8 +711,9 @@ pub async fn create_lesson(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingLessonRequest>,
-) -> Result<(StatusCode, Json<TrainingLesson>), ApiError> {
+) -> Result<(StatusCode, ApiJson<TrainingLesson>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["lessons"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -781,7 +800,7 @@ pub async fn create_lesson(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(
@@ -803,8 +822,9 @@ pub async fn update_lesson(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(lesson_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingLessonRequest>,
-) -> Result<Json<TrainingLesson>, ApiError> {
+) -> Result<ApiJson<TrainingLesson>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["lessons"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -902,7 +922,7 @@ pub async fn update_lesson(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(
@@ -993,7 +1013,8 @@ pub async fn list_assignment_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<TrainingAssignmentRequestListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingAssignmentRequestListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -1022,15 +1043,18 @@ pub async fn list_assignment_requests(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(TrainingAssignmentRequestListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        TrainingAssignmentRequestListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -1047,8 +1071,9 @@ pub async fn create_assignment_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(_payload): Json<CreateTrainingAssignmentRequestRequest>,
-) -> Result<(StatusCode, Json<TrainingAssignmentRequest>), ApiError> {
+) -> Result<(StatusCode, ApiJson<TrainingAssignmentRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -1093,7 +1118,7 @@ pub async fn create_assignment_request(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(
@@ -1115,8 +1140,9 @@ pub async fn decide_assignment_request(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<DecideTrainingAssignmentRequestRequest>,
-) -> Result<Json<TrainingAssignmentRequest>, ApiError> {
+) -> Result<ApiJson<TrainingAssignmentRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -1176,7 +1202,7 @@ pub async fn decide_assignment_request(
     )
     .await?;
 
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(
@@ -1193,7 +1219,8 @@ pub async fn list_release_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<TrainerReleaseRequestListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainerReleaseRequestListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["release_requests"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -1216,15 +1243,18 @@ pub async fn list_release_requests(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(TrainerReleaseRequestListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        TrainerReleaseRequestListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -1241,8 +1271,9 @@ pub async fn create_release_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(_payload): Json<CreateTrainerReleaseRequestRequest>,
-) -> Result<(StatusCode, Json<TrainerReleaseRequest>), ApiError> {
+) -> Result<(StatusCode, ApiJson<TrainerReleaseRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -1287,7 +1318,7 @@ pub async fn create_release_request(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(
@@ -1309,8 +1340,9 @@ pub async fn decide_release_request(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<DecideTrainerReleaseRequestRequest>,
-) -> Result<Json<TrainerReleaseRequest>, ApiError> {
+) -> Result<ApiJson<TrainerReleaseRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(
         &state,
@@ -1370,7 +1402,7 @@ pub async fn decide_release_request(
     )
     .await?;
 
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(
@@ -1525,7 +1557,8 @@ pub async fn list_training_appointments(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListTrainingAppointmentsQuery>,
-) -> Result<Json<TrainingAppointmentListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingAppointmentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["appointments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -1613,15 +1646,18 @@ pub async fn list_training_appointments(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(TrainingAppointmentListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        TrainingAppointmentListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -1641,7 +1677,8 @@ pub async fn get_training_appointment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(appointment_id): Path<String>,
-) -> Result<Json<TrainingAppointmentDetail>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingAppointmentDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["appointments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -1650,7 +1687,7 @@ pub async fn get_training_appointment(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    Ok(Json(detail))
+    Ok(ApiJson::new(detail, time))
 }
 
 #[utoipa::path(
@@ -1668,8 +1705,9 @@ pub async fn create_training_appointment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingAppointmentRequest>,
-) -> Result<(StatusCode, Json<TrainingAppointmentDetail>), ApiError> {
+) -> Result<(StatusCode, ApiJson<TrainingAppointmentDetail>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["appointments"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -1751,7 +1789,7 @@ pub async fn create_training_appointment(
         .await?
         .ok_or(ApiError::Internal)?;
 
-    Ok((StatusCode::CREATED, Json(detail)))
+    Ok((StatusCode::CREATED, ApiJson::new(detail, time)))
 }
 
 #[utoipa::path(
@@ -1773,8 +1811,9 @@ pub async fn update_training_appointment(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(appointment_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingAppointmentRequest>,
-) -> Result<Json<TrainingAppointmentDetail>, ApiError> {
+) -> Result<ApiJson<TrainingAppointmentDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["appointments"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -1927,7 +1966,7 @@ pub async fn update_training_appointment(
         .await?
         .ok_or(ApiError::Internal)?;
 
-    Ok(Json(detail))
+    Ok(ApiJson::new(detail, time))
 }
 
 #[utoipa::path(
@@ -2059,7 +2098,8 @@ pub async fn list_training_sessions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListTrainingSessionsQuery>,
-) -> Result<Json<TrainingSessionListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingSessionListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["sessions"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -2214,15 +2254,18 @@ pub async fn list_training_sessions(
 
     let meta = PaginationMeta::new(count, pagination.page, pagination.page_size);
 
-    Ok(Json(TrainingSessionListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        TrainingSessionListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -2242,7 +2285,8 @@ pub async fn get_training_session(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(session_id): Path<String>,
-) -> Result<Json<TrainingSessionDetail>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingSessionDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["sessions"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -2251,7 +2295,7 @@ pub async fn get_training_session(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    Ok(Json(detail))
+    Ok(ApiJson::new(detail, time))
 }
 
 #[utoipa::path(
@@ -2268,15 +2312,19 @@ pub async fn get_training_session(
 pub async fn create_training_session(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingSessionRequest>,
-) -> Result<(StatusCode, Json<CreateOrUpdateTrainingSessionResult>), ApiError> {
+) -> Result<(StatusCode, ApiJson<CreateOrUpdateTrainingSessionResult>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["sessions"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, None, payload.into_update_request()).await? {
-        Ok(result) => Ok((StatusCode::CREATED, Json(result))),
-        Err(errors) => Ok((StatusCode::BAD_REQUEST, Json(error_result(errors)))),
+        Ok(result) => Ok((StatusCode::CREATED, ApiJson::new(result, time.clone()))),
+        Err(errors) => Ok((
+            StatusCode::BAD_REQUEST,
+            ApiJson::new(error_result(errors), time),
+        )),
     }
 }
 
@@ -2298,14 +2346,15 @@ pub async fn update_training_session(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(session_id): Path<String>,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingSessionRequest>,
-) -> Result<Json<CreateOrUpdateTrainingSessionResult>, ApiError> {
+) -> Result<ApiJson<CreateOrUpdateTrainingSessionResult>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_permission(&state, user, &["sessions"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, Some(session_id), payload).await? {
-        Ok(result) => Ok(Json(result)),
+        Ok(result) => Ok(ApiJson::new(result, time)),
         Err(_) => Err(ApiError::BadRequest),
     }
 }

@@ -24,15 +24,15 @@ cargo run
 
 ## Branch and Build Flow
 
-- pushes to `master` automatically publish a `master` image and a `master-<sha>` image
-- pushes to `develop` automatically publish a `develop` image and a `develop-<sha>` image
+- pushes to `master` automatically publish a `latest` image and a `latest-<sha>` image
+- pushes to `develop` automatically publish a `dev` image and a `dev-<sha>` image
 
 Before pushing, run:
 
 ```bash
 cargo fmt --all -- --check
-cargo check
-cargo test --all-targets
+cargo check --workspace --all-targets
+cargo test --workspace --all-targets -- --test-threads=1
 docker build -f Dockerfile .
 ```
 
@@ -54,7 +54,7 @@ docker compose up -d postgres
 
 ## Database Setup
 
-Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0026`.
+Osmium expects a Postgres database named `osmium` with the current fresh-start migration chain under `migrations/0001` through `0032`.
 
 If you are creating the database manually:
 
@@ -90,7 +90,7 @@ curl -s http://127.0.0.1:3000/docs/health
 There are two main auth paths:
 
 - VATSIM OAuth login for normal user auth
-- Dev login shortcut when `API_DEV_MODE=true`
+- Dev login shortcut when `DEV_LOGIN_AS_CID_ENABLED=true`
 
 ### Recommended VATSIM Local Setup
 
@@ -120,6 +120,12 @@ If you see `invalid_client` against `auth-dev.vatsim.net`, verify:
 - `VATSIM_CLIENT_SECRET`
 - `VATSIM_REDIRECT_URI`
 - `VATSIM_CLIENT_AUTH_METHOD=post`
+
+If you need browser access from a separate frontend during local development, set:
+
+```bash
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000
+```
 
 Dev login route:
 
@@ -155,13 +161,15 @@ Expected results:
 
 ## Seed Data
 
-If dev routes are enabled, the API also exposes:
+If `DEV_SEED_ENABLED=true`, the API also exposes:
 
 ```text
 POST /api/v1/dev/seed
 ```
 
 Use this only for local setup and quick functional testing.
+
+`VATSIM_DEV_MODE=true` now only affects VATSIM dev OAuth hosts and client-auth behavior. It does not expose impersonation or seed routes.
 
 ## Storage Notes
 

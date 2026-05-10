@@ -39,6 +39,10 @@ http:
       type: query
       description: Controller row count
       disabled: true
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   auth: inherit
 
 settings:
@@ -53,6 +57,10 @@ examples:
     request:
       url: "{{baseUrl}}/api/v1/stats/artcc"
       method: GET
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
       params:
         - name: environment
           value: ""

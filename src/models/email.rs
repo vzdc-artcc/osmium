@@ -57,6 +57,7 @@ pub struct EmailSendResponse {
     pub status: String,
     pub resolved_recipients: usize,
     pub suppressed_recipients: usize,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub queued_at: Option<DateTime<Utc>>,
 }
 
@@ -81,8 +82,11 @@ pub struct EmailOutboxListItem {
     pub request_source: String,
     pub status: String,
     pub attempt_count: i32,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub queued_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub sent_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub failed_at: Option<DateTime<Utc>>,
     pub recipient_count: i64,
     pub delivered_count: i64,
@@ -99,7 +103,9 @@ pub struct EmailOutboxRecipientResponse {
     pub suppression_reason: Option<String>,
     pub delivery_status: String,
     pub provider_message_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub sent_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub failed_at: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
 }
@@ -119,12 +125,16 @@ pub struct EmailOutboxDetailResponse {
     pub audience_filter: Option<Value>,
     pub status: String,
     pub attempt_count: i32,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub next_attempt_at: DateTime<Utc>,
     pub last_error: Option<String>,
     pub provider: Option<String>,
     pub provider_message_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub queued_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub sent_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub failed_at: Option<DateTime<Utc>>,
     pub recipients: Vec<EmailOutboxRecipientResponse>,
 }

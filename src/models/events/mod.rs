@@ -11,10 +11,14 @@ pub struct Event {
     pub description: Option<String>,
     pub status: String,
     pub published: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub starts_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub ends_at: chrono::DateTime<chrono::Utc>,
     pub created_by: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -28,7 +32,9 @@ pub struct EventPosition {
     pub assigned_slot: Option<i32>,
     pub published: bool,
     pub status: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -37,9 +43,12 @@ pub struct EventTmi {
     pub id: String,
     pub event_id: String,
     pub tmi_type: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub notes: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -51,7 +60,9 @@ pub struct OpsPlanFile {
     pub url: Option<String>,
     pub file_type: Option<String>,
     pub uploaded_by: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 

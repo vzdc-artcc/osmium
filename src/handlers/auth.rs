@@ -21,6 +21,7 @@ use crate::{
         middleware::ensure_permission,
         vatsim::{VatsimOAuthConfig, exchange_code_for_token, fetch_profile},
     },
+    config::dev_impersonation_enabled,
     errors::ApiError,
     models::{
         CreateTeamSpeakUidRequest, MeBody, PatchMeRequest, ServiceAccountSessionBody,
@@ -28,6 +29,7 @@ use crate::{
     },
     repos::{access as access_repo, users as user_repo},
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 const OAUTH_STATE_COOKIE: &str = "osmium_oauth_state";
@@ -58,7 +60,8 @@ pub struct CallbackQuery {
 pub async fn me(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<MeBody>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<MeBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -67,7 +70,7 @@ pub async fn me(
         PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
     )
     .await?;
-    Ok(Json(build_me_body(&state, user).await?))
+    Ok(ApiJson::new(build_me_body(&state, user).await?, time))
 }
 
 #[utoipa::path(
@@ -87,8 +90,9 @@ pub async fn me(
 pub async fn patch_me(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
     Json(payload): Json<PatchMeRequest>,
-) -> Result<Json<MeBody>, ApiError> {
+) -> Result<ApiJson<MeBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -129,7 +133,7 @@ pub async fn patch_me(
     )
     .await?;
 
-    Ok(Json(build_me_body(&state, user).await?))
+    Ok(ApiJson::new(build_me_body(&state, user).await?, time))
 }
 
 #[utoipa::path(
@@ -144,7 +148,8 @@ pub async fn patch_me(
 pub async fn list_my_teamspeak_uids(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<TeamSpeakUidBody>>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Vec<TeamSpeakUidBody>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -155,7 +160,10 @@ pub async fn list_my_teamspeak_uids(
     .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    Ok(Json(user_repo::list_teamspeak_uids(pool, &user.id).await?))
+    Ok(ApiJson::new(
+        user_repo::list_teamspeak_uids(pool, &user.id).await?,
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -175,8 +183,9 @@ pub async fn list_my_teamspeak_uids(
 pub async fn create_my_teamspeak_uid(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateTeamSpeakUidRequest>,
-) -> Result<Json<TeamSpeakUidBody>, ApiError> {
+) -> Result<ApiJson<TeamSpeakUidBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -192,8 +201,9 @@ pub async fn create_my_teamspeak_uid(
         return Err(ApiError::BadRequest);
     }
 
-    Ok(Json(
+    Ok(ApiJson::new(
         user_repo::create_teamspeak_uid(pool, &user.id, uid).await?,
+        time,
     ))
 }
 
@@ -425,7 +435,7 @@ pub async fn login_as_cid(
     Path(cid): Path<i64>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Redirect), ApiError> {
-    if !api_dev_mode_enabled() {
+    if !dev_impersonation_enabled() {
         return Err(ApiError::Unauthorized);
     }
 
@@ -765,21 +775,6 @@ fn url_origin(raw: &str) -> Option<String> {
     } else {
         Some(format!("{scheme}://{host}:{port}"))
     }
-}
-
-fn api_dev_mode_enabled() -> bool {
-    env_flag_enabled("API_DEV_MODE") || env_flag_enabled("VATSIM_DEV_MODE")
-}
-
-fn env_flag_enabled(name: &str) -> bool {
-    std::env::var(name)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
 }
 
 #[cfg(test)]

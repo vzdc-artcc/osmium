@@ -18,6 +18,16 @@ The generated API reference lives at `/docs/api/v1`. This page explains how to r
 - publications
 - stats
 
+## Response Timezones
+
+Timestamped API responses are stored in UTC and converted by the backend when serializing JSON.
+
+- default: authenticated user's stored timezone
+- fallback: UTC/Zulu when no authenticated human timezone is available
+- override header: `X-Response-Timezone: user|zulu|<IANA timezone>`
+- examples: `X-Response-Timezone: zulu`, `X-Response-Timezone: America/Chicago`
+- wire format: RFC3339 with an offset, for example `2026-05-20T09:00:00-05:00` or `2026-05-20T14:00:00Z`
+
 ## Publications Coverage
 
 The publications group covers:

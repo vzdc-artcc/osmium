@@ -19,6 +19,10 @@ http:
       type: query
       description: Pagination offset
       disabled: true
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   auth: inherit
 
 settings:
@@ -33,6 +37,10 @@ examples:
     request:
       url: "{{baseUrl}}/api/v1/files"
       method: GET
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
       params:
         - name: limit
           value: ""

@@ -4,6 +4,14 @@
 
 Administrative access and roster-control operations.
 
+## Response Timezones
+
+Timestamped admin responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
+- default: authenticated user's stored timezone
+- fallback: UTC/Zulu when no authenticated human timezone exists
+- audit `before_state` and `after_state` snapshots remain stored JSON and are not rewritten
+
 ## Main Routes
 
 - `GET /api/v1/admin/acl`

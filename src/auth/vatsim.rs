@@ -2,7 +2,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::errors::ApiError;
+use crate::{config::vatsim_dev_mode_enabled, errors::ApiError};
 
 #[derive(Clone)]
 pub struct VatsimOAuthConfig {
@@ -37,7 +37,7 @@ struct TokenResponse {
 
 impl VatsimOAuthConfig {
     pub fn from_env() -> Result<Self, ApiError> {
-        let use_dev_hosts = env_flag_enabled("VATSIM_DEV_MODE");
+        let use_dev_hosts = vatsim_dev_mode_enabled();
         let client_auth_method = resolve_client_auth_method(use_dev_hosts);
 
         let authorize_url = resolve_oauth_endpoint(
@@ -360,17 +360,6 @@ fn resolve_client_auth_method(use_dev_hosts: bool) -> ClientAuthMethod {
             }
         }
     }
-}
-
-fn env_flag_enabled(name: &str) -> bool {
-    std::env::var(name)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
 }
 
 fn validate_url(name: &str, raw: &str) -> Result<String, ApiError> {

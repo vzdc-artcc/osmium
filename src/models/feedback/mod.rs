@@ -12,7 +12,9 @@ pub struct FeedbackItem {
     pub comments: Option<String>,
     pub staff_comments: Option<String>,
     pub status: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub decided_at: Option<chrono::DateTime<chrono::Utc>>,
     pub decided_by: Option<String>,
 }

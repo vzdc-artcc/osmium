@@ -21,6 +21,7 @@ use crate::{
     models::{PaginationMeta, PaginationQuery},
     repos::{audit as audit_repo, users as user_repo},
     state::{AppState, JobHealth},
+    time::{ApiJson, ResponseTimeContext},
 };
 
 const LOA_MIN_DAYS: i64 = 7;
@@ -32,14 +33,20 @@ const SUA_MAX_DURATION_HOURS: i64 = 12;
 pub struct LoaItem {
     pub id: String,
     pub user_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub end: DateTime<Utc>,
     pub reason: String,
     pub status: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub decided_at: Option<DateTime<Utc>>,
     pub decided_by_actor_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
     pub cid: Option<i64>,
     pub display_name: Option<String>,
@@ -92,7 +99,9 @@ pub struct SoloCertificationItem {
     pub user_id: String,
     pub certification_type_id: String,
     pub position: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub expires: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub granted_at: DateTime<Utc>,
     pub granted_by_actor_id: Option<String>,
     pub cid: Option<i64>,
@@ -141,7 +150,9 @@ pub struct StaffingRequestItem {
     pub user_id: String,
     pub name: String,
     pub description: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
     pub cid: Option<i64>,
     pub display_name: Option<String>,
@@ -186,12 +197,16 @@ pub struct SuaAirspaceItem {
 pub struct SuaBlockItem {
     pub id: String,
     pub user_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub end_at: DateTime<Utc>,
     pub afiliation: String,
     pub details: String,
     pub mission_number: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
     pub cid: Option<i64>,
     pub display_name: Option<String>,
@@ -263,11 +278,14 @@ pub struct ControllerLifecycleResponse {
 pub struct JobRunItem {
     pub id: String,
     pub job_name: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub started_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub finished_at: Option<DateTime<Utc>>,
     pub status: String,
     pub result_summary: Option<Value>,
     pub error_text: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -275,8 +293,11 @@ pub struct JobRunItem {
 pub struct JobStatusItem {
     pub job_name: String,
     pub enabled: bool,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub last_started_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub last_finished_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_result_ok: Option<bool>,
     pub last_error: Option<String>,
@@ -333,7 +354,8 @@ pub async fn list_my_loas(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<LoaListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<LoaListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -345,11 +367,12 @@ pub async fn list_my_loas(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.loas where user_id = $1")
-        .bind(&user.id)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.loas where user_id = $1")
+            .bind(&user.id)
+            .fetch_one(pool)
+            .await
+            .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, LoaItem>(
         r#"
         select id, user_id, start, "end", reason, status, submitted_at, decided_at, decided_by_actor_id, created_at, updated_at, null::bigint as cid, null::text as display_name
@@ -366,7 +389,18 @@ pub async fn list_my_loas(
     .await
     .map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(LoaListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        LoaListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/loa/me", tag = "workflows", request_body = CreateLoaRequest, responses((status = 201, description = "LOA created", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -374,8 +408,9 @@ pub async fn create_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateLoaRequest>,
-) -> Result<(StatusCode, Json<LoaItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<LoaItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -427,7 +462,7 @@ pub async fn create_loa(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/loa/{loa_id}", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = UpdateLoaRequest, responses((status = 200, description = "Updated LOA", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -436,8 +471,9 @@ pub async fn update_loa(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(loa_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateLoaRequest>,
-) -> Result<Json<LoaItem>, ApiError> {
+) -> Result<ApiJson<LoaItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -501,7 +537,7 @@ pub async fn update_loa(
     )
     .await?;
 
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/loa", tag = "workflows", params(PaginationQuery, ("status" = Option<String>, Query, description = "Optional LOA status filter"), ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "LOA list", body = LoaListResponse), (status = 401, description = "Not authenticated")))]
@@ -509,7 +545,8 @@ pub async fn admin_list_loas(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListLoasQuery>,
-) -> Result<Json<LoaListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<LoaListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -575,7 +612,18 @@ pub async fn admin_list_loas(
     .map_err(|_| ApiError::Internal)?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(LoaListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        LoaListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/loa/{loa_id}/decision", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = DecideLoaRequest, responses((status = 200, description = "Updated LOA decision", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -584,8 +632,9 @@ pub async fn decide_loa(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(loa_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<DecideLoaRequest>,
-) -> Result<Json<LoaItem>, ApiError> {
+) -> Result<ApiJson<LoaItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -647,7 +696,7 @@ pub async fn decide_loa(
     )
     .await?;
 
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/loa/expire-run", tag = "workflows", responses((status = 200, description = "LOA expiration job run", body = JobRunResponse), (status = 401, description = "Not authenticated")))]
@@ -655,7 +704,8 @@ pub async fn run_loa_expiration(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
-) -> Result<Json<JobRunResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<JobRunResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -682,7 +732,7 @@ pub async fn run_loa_expiration(
     )
     .await?;
 
-    Ok(Json(JobRunResponse { run }))
+    Ok(ApiJson::new(JobRunResponse { run }, time))
 }
 
 #[utoipa::path(get, path = "/api/v1/users/{cid}/solo-certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID"), PaginationQuery), responses((status = 200, description = "User solo certifications", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]
@@ -691,7 +741,8 @@ pub async fn get_user_solo_certifications(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(cid): Path<i64>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<SoloCertificationListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<SoloCertificationListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     if user.cid != cid {
         ensure_permission(
@@ -713,11 +764,27 @@ pub async fn get_user_solo_certifications(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let (items, total) =
-        list_solo_certifications(pool, None, Some(cid), pagination.page_size, pagination.offset)
-            .await?;
+    let (items, total) = list_solo_certifications(
+        pool,
+        None,
+        Some(cid),
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(SoloCertificationListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        SoloCertificationListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/solo-certifications", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "Solo certification list", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]
@@ -725,7 +792,8 @@ pub async fn admin_list_solo_certifications(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListSoloCertificationsQuery>,
-) -> Result<Json<SoloCertificationListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<SoloCertificationListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -738,11 +806,28 @@ pub async fn admin_list_solo_certifications(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let (items, total) =
-        list_solo_certifications(pool, query.cid, query.cid, pagination.page_size, pagination.offset).await?;
+    let (items, total) = list_solo_certifications(
+        pool,
+        query.cid,
+        query.cid,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(SoloCertificationListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        SoloCertificationListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/solo-certifications", tag = "workflows", request_body = CreateSoloCertificationRequest, responses((status = 201, description = "Solo certification created", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -750,8 +835,9 @@ pub async fn create_solo_certification(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateSoloCertificationRequest>,
-) -> Result<(StatusCode, Json<SoloCertificationItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<SoloCertificationItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -816,7 +902,7 @@ pub async fn create_solo_certification(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(full)))
+    Ok((StatusCode::CREATED, ApiJson::new(full, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), request_body = UpdateSoloCertificationRequest, responses((status = 200, description = "Updated solo certification", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -825,8 +911,9 @@ pub async fn update_solo_certification(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(solo_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateSoloCertificationRequest>,
-) -> Result<Json<SoloCertificationItem>, ApiError> {
+) -> Result<ApiJson<SoloCertificationItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -895,7 +982,7 @@ pub async fn update_solo_certification(
     )
     .await?;
 
-    Ok(Json(full))
+    Ok(ApiJson::new(full, time))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), responses((status = 200, description = "Deleted solo certification", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
@@ -947,7 +1034,8 @@ pub async fn list_my_staffing_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<StaffingRequestListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StaffingRequestListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -959,11 +1047,13 @@ pub async fn list_my_staffing_requests(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.staffing_requests where user_id = $1")
-        .bind(&user.id)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from org.staffing_requests where user_id = $1",
+    )
+    .bind(&user.id)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, StaffingRequestItem>(
         r#"
         select
@@ -990,7 +1080,18 @@ pub async fn list_my_staffing_requests(
     .map_err(|_| ApiError::Internal)?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(StaffingRequestListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        StaffingRequestListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/staffing-requests/me", tag = "workflows", request_body = CreateStaffingRequestRequest, responses((status = 201, description = "Staffing request created", body = StaffingRequestItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -998,8 +1099,9 @@ pub async fn create_staffing_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateStaffingRequestRequest>,
-) -> Result<(StatusCode, Json<StaffingRequestItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<StaffingRequestItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1050,7 +1152,7 @@ pub async fn create_staffing_request(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(full)))
+    Ok((StatusCode::CREATED, ApiJson::new(full, time)))
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/staffing-requests", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "Staffing request list", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated")))]
@@ -1058,7 +1160,8 @@ pub async fn admin_list_staffing_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListStaffingRequestsQuery>,
-) -> Result<Json<StaffingRequestListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StaffingRequestListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1111,7 +1214,18 @@ pub async fn admin_list_staffing_requests(
     .map_err(|_| ApiError::Internal)?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(StaffingRequestListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        StaffingRequestListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/staffing-requests/{request_id}", tag = "workflows", params(("request_id" = String, Path, description = "Staffing request ID")), responses((status = 200, description = "Deleted staffing request", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
@@ -1160,7 +1274,8 @@ pub async fn list_my_sua_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<SuaListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<SuaListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1171,9 +1286,26 @@ pub async fn list_my_sua_requests(
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let (items, total) = list_sua_blocks(pool, Some(user.cid), pagination.page_size, pagination.offset).await?;
+    let (items, total) = list_sua_blocks(
+        pool,
+        Some(user.cid),
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(SuaListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        SuaListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/sua/me", tag = "workflows", request_body = CreateSuaRequest, responses((status = 201, description = "SUA request created", body = SuaBlockItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -1181,8 +1313,9 @@ pub async fn create_sua_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateSuaRequest>,
-) -> Result<(StatusCode, Json<SuaBlockItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<SuaBlockItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1277,7 +1410,7 @@ pub async fn create_sua_request(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(item)))
+    Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
 #[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
@@ -1330,7 +1463,8 @@ pub async fn admin_list_sua_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListSuaQuery>,
-) -> Result<Json<SuaListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<SuaListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1343,10 +1477,22 @@ pub async fn admin_list_sua_requests(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let (items, total) = list_sua_blocks(pool, query.cid, pagination.page_size, pagination.offset).await?;
+    let (items, total) =
+        list_sua_blocks(pool, query.cid, pagination.page_size, pagination.offset).await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(SuaListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        SuaListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/users/{cid}/controller-lifecycle", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = ControllerLifecycleRequest, responses((status = 200, description = "Updated controller lifecycle", body = ControllerLifecycleResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -1355,8 +1501,9 @@ pub async fn update_controller_lifecycle(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(cid): Path<i64>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<ControllerLifecycleRequest>,
-) -> Result<Json<ControllerLifecycleResponse>, ApiError> {
+) -> Result<ApiJson<ControllerLifecycleResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1485,14 +1632,15 @@ pub async fn update_controller_lifecycle(
     )
     .await?;
 
-    Ok(Json(response))
+    Ok(ApiJson::new(response, time))
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/jobs", tag = "workflows", responses((status = 200, description = "Backend jobs", body = [JobStatusItem]), (status = 401, description = "Not authenticated")))]
 pub async fn list_jobs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<JobStatusItem>>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Vec<JobStatusItem>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1517,7 +1665,7 @@ pub async fn list_jobs(
     ] {
         items.push(build_job_status(pool, &health, job_name).await?);
     }
-    Ok(Json(items))
+    Ok(ApiJson::new(items, time))
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/jobs/{job_name}", tag = "workflows", params(("job_name" = String, Path, description = "Job name")), responses((status = 200, description = "Backend job detail", body = JobDetailResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -1525,7 +1673,8 @@ pub async fn get_job(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(job_name): Path<String>,
-) -> Result<Json<JobDetailResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<JobDetailResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1554,10 +1703,13 @@ pub async fn get_job(
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
-    Ok(Json(JobDetailResponse {
-        status,
-        recent_runs,
-    }))
+    Ok(ApiJson::new(
+        JobDetailResponse {
+            status,
+            recent_runs,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/jobs/{job_name}/run", tag = "workflows", params(("job_name" = String, Path, description = "Job name")), responses((status = 200, description = "Triggered backend job", body = JobRunResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -1566,7 +1718,8 @@ pub async fn run_job(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(job_name): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<JobRunResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<JobRunResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -1598,7 +1751,7 @@ pub async fn run_job(
     )
     .await?;
 
-    Ok(Json(JobRunResponse { run }))
+    Ok(ApiJson::new(JobRunResponse { run }, time))
 }
 
 async fn build_job_status(

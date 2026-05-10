@@ -24,6 +24,10 @@ http:
       type: query
       description: Optional feedback status
       disabled: true
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   auth: inherit
 
 settings:
@@ -38,6 +42,10 @@ examples:
     request:
       url: "{{baseUrl}}/api/v1/feedback"
       method: GET
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
       params:
         - name: limit
           value: ""

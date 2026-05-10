@@ -35,8 +35,9 @@ This page documents the main environment variables used by Osmium.
 
 | Variable | Required | Default | Notes |
 | --- | --- | --- | --- |
-| `API_DEV_MODE` | No | `false` | Enables dev login and seed routes. |
-| `VATSIM_DEV_MODE` | No | `false` | Switches to VATSIM dev OAuth defaults when appropriate. |
+| `DEV_LOGIN_AS_CID_ENABLED` | No | `false` | Explicitly enables `GET /api/v1/auth/login/as/{cid}` for local impersonation. |
+| `DEV_SEED_ENABLED` | No | `false` | Explicitly enables `POST /api/v1/dev/seed` for local seeding. |
+| `VATSIM_DEV_MODE` | No | `false` | Switches only the VATSIM OAuth defaults to the VATSIM dev hosts and client-auth behavior. |
 
 ### Local OAuth Recommendation
 
@@ -53,6 +54,14 @@ COOKIE_SECURE=false
 ```
 
 Do not mix `localhost` and `127.0.0.1` during the same login flow.
+
+`VATSIM_DEV_MODE` does not enable impersonation or seed routes.
+
+## Browser CORS
+
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `CORS_ALLOWED_ORIGINS` | No | unset | Comma-separated browser origin allowlist. Example: `http://127.0.0.1:3000,https://app.example.org`. If unset, the API does not allow browser origins by default. |
 
 ## File Storage and CDN
 

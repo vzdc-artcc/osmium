@@ -68,6 +68,7 @@ pub struct AuditLogItem {
     pub before_state: Option<serde_json::Value>,
     pub after_state: Option<serde_json::Value>,
     pub ip_address: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -126,9 +127,13 @@ pub struct ApiKeyListItem {
     pub last_four: Option<String>,
     pub created_by_user_id: Option<String>,
     pub created_by_display_name: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -143,9 +148,13 @@ pub struct ApiKeyDetail {
     pub last_four: Option<String>,
     pub created_by_user_id: Option<String>,
     pub created_by_display_name: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
     pub permissions: serde_json::Value,
 }

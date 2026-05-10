@@ -4,6 +4,10 @@
 
 Capture and resolve incident reports involving controllers.
 
+## Response Timezones
+
+Timestamped incident responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Main Routes
 
 - `POST /api/v1/incidents`

@@ -9,6 +9,8 @@ use crate::{
     errors::ApiError,
 };
 
+const DEFAULT_TIMEZONE: &str = "America/New_York";
+
 pub async fn find_current_user_by_session_token(
     pool: &PgPool,
     session_token: &str,
@@ -20,10 +22,12 @@ pub async fn find_current_user_by_session_token(
             u.cid,
             coalesce(u.email::text, '') as email,
             u.display_name,
+            coalesce(p.timezone, $2) as timezone,
             m.rating,
             pr.primary_role
         from identity.sessions s
         join identity.users u on u.id = s.user_id
+        left join identity.user_profiles p on p.user_id = u.id
         left join org.memberships m on m.user_id = u.id
         left join access.v_user_primary_role pr on pr.user_id = u.id
         where s.session_token = $1
@@ -32,6 +36,7 @@ pub async fn find_current_user_by_session_token(
         "#,
     )
     .bind(session_token)
+    .bind(DEFAULT_TIMEZONE)
     .fetch_optional(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -48,15 +53,18 @@ pub async fn find_current_user_by_cid(
             u.cid,
             coalesce(u.email::text, '') as email,
             u.display_name,
+            coalesce(p.timezone, $2) as timezone,
             m.rating,
             pr.primary_role
         from identity.users u
+        left join identity.user_profiles p on p.user_id = u.id
         left join org.memberships m on m.user_id = u.id
         left join access.v_user_primary_role pr on pr.user_id = u.id
         where u.cid = $1
         "#,
     )
     .bind(cid)
+    .bind(DEFAULT_TIMEZONE)
     .fetch_optional(pool)
     .await
     .map_err(|_| ApiError::Internal)

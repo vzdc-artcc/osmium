@@ -6,7 +6,9 @@ pub struct TrainingAssignment {
     pub id: String,
     pub student_id: String,
     pub primary_trainer_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -14,8 +16,10 @@ pub struct TrainingAssignment {
 pub struct TrainingAssignmentRequest {
     pub id: String,
     pub student_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: chrono::DateTime<chrono::Utc>,
     pub status: String,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub decided_at: Option<chrono::DateTime<chrono::Utc>>,
     pub decided_by: Option<String>,
 }
@@ -24,8 +28,10 @@ pub struct TrainingAssignmentRequest {
 pub struct TrainerReleaseRequest {
     pub id: String,
     pub student_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: chrono::DateTime<chrono::Utc>,
     pub status: String,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub decided_at: Option<chrono::DateTime<chrono::Utc>>,
     pub decided_by: Option<String>,
 }
@@ -272,6 +278,7 @@ pub struct TrainingLesson {
     pub position: String,
     pub facility: String,
     pub rubric_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub instructor_only: bool,
     pub notify_instructor_on_pass: bool,
@@ -279,6 +286,7 @@ pub struct TrainingLesson {
     pub duration: i32,
     pub trainee_preparation: Option<String>,
     pub performance_indicator_template_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -287,13 +295,17 @@ pub struct TrainingSessionListItem {
     pub id: String,
     pub student_id: String,
     pub instructor_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub end: chrono::DateTime<chrono::Utc>,
     pub additional_comments: Option<String>,
     pub trainer_comments: Option<String>,
     pub vatusa_id: Option<String>,
     pub enable_markdown: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub student_cid: i64,
     pub student_name: String,
@@ -307,13 +319,17 @@ pub struct TrainingSessionDetail {
     pub id: String,
     pub student_id: String,
     pub instructor_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub end: chrono::DateTime<chrono::Utc>,
     pub additional_comments: Option<String>,
     pub trainer_comments: Option<String>,
     pub vatusa_id: Option<String>,
     pub enable_markdown: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub student_cid: i64,
     pub student_name: String,
@@ -359,13 +375,16 @@ pub struct TrainingAppointmentListItem {
     pub id: String,
     pub student_id: String,
     pub trainer_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start: chrono::DateTime<chrono::Utc>,
     pub environment: Option<String>,
     pub double_booking: bool,
     pub preparation_completed: bool,
     pub warning_email_sent: bool,
     pub atc_booking_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub student_cid: i64,
     pub student_name: String,
@@ -373,6 +392,7 @@ pub struct TrainingAppointmentListItem {
     pub trainer_name: String,
     pub lesson_count: i64,
     pub estimated_duration_minutes: Option<i64>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub estimated_end: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -381,19 +401,23 @@ pub struct TrainingAppointmentDetail {
     pub id: String,
     pub student_id: String,
     pub trainer_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start: chrono::DateTime<chrono::Utc>,
     pub environment: Option<String>,
     pub double_booking: bool,
     pub preparation_completed: bool,
     pub warning_email_sent: bool,
     pub atc_booking_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub student_cid: i64,
     pub student_name: String,
     pub trainer_cid: i64,
     pub trainer_name: String,
     pub estimated_duration_minutes: Option<i64>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub estimated_end: Option<chrono::DateTime<chrono::Utc>>,
     pub lessons: Vec<TrainingAppointmentLessonSummary>,
 }
@@ -404,6 +428,7 @@ pub struct TrainingTicketDetail {
     pub session_id: String,
     pub lesson_id: String,
     pub passed: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub scores: Vec<RubricScoreDetail>,
 }
@@ -454,7 +479,9 @@ pub struct OtsRecommendationSummary {
     pub student_id: String,
     pub assigned_instructor_id: Option<String>,
     pub notes: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 

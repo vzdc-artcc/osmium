@@ -16,12 +16,12 @@ use crate::{
     errors::ApiError,
     models::{
         CreatePublicationCategoryRequest, CreatePublicationRequest, ListPublicationsQuery,
-        PaginationMeta, PaginationQuery, Publication, PublicationCategory,
-        PublicationListResponse,
+        PaginationMeta, PaginationQuery, Publication, PublicationCategory, PublicationListResponse,
         UpdatePublicationCategoryRequest, UpdatePublicationRequest,
     },
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -97,10 +97,11 @@ impl From<PublicationRow> for Publication {
 )]
 pub async fn list_publication_categories(
     State(state): State<AppState>,
-) -> Result<Json<Vec<PublicationCategory>>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Vec<PublicationCategory>>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let categories = fetch_publication_categories(pool).await?;
-    Ok(Json(categories))
+    Ok(ApiJson::new(categories, time))
 }
 
 #[utoipa::path(
@@ -115,7 +116,8 @@ pub async fn list_publication_categories(
 pub async fn list_publications(
     State(state): State<AppState>,
     Query(query): Query<ListPublicationsQuery>,
-) -> Result<Json<PublicationListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<PublicationListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
@@ -123,15 +125,18 @@ pub async fn list_publications(
     let total = count_publications(pool, true).await?;
     let rows = fetch_publications(pool, true, pagination.page_size, pagination.offset).await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(PublicationListResponse {
-        items: rows.into_iter().map(Publication::from).collect(),
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        PublicationListResponse {
+            items: rows.into_iter().map(Publication::from).collect(),
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -149,12 +154,13 @@ pub async fn list_publications(
 pub async fn get_publication(
     State(state): State<AppState>,
     Path(publication_id): Path<String>,
-) -> Result<Json<Publication>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Publication>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let publication = fetch_publication(pool, &publication_id, true)
         .await?
         .ok_or(ApiError::BadRequest)?;
-    Ok(Json(publication.into()))
+    Ok(ApiJson::new(publication.into(), time))
 }
 
 #[utoipa::path(
@@ -170,7 +176,8 @@ pub async fn admin_list_publication_categories(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
-) -> Result<Json<Vec<PublicationCategory>>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Vec<PublicationCategory>>, ApiError> {
     ensure_publication_category_permission(
         &state,
         current_user.as_ref(),
@@ -180,7 +187,7 @@ pub async fn admin_list_publication_categories(
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let categories = fetch_publication_categories(pool).await?;
-    Ok(Json(categories))
+    Ok(ApiJson::new(categories, time))
 }
 
 #[utoipa::path(
@@ -199,8 +206,9 @@ pub async fn create_publication_category(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreatePublicationCategoryRequest>,
-) -> Result<(StatusCode, Json<PublicationCategory>), ApiError> {
+) -> Result<(StatusCode, ApiJson<PublicationCategory>), ApiError> {
     ensure_publication_category_permission(
         &state,
         current_user.as_ref(),
@@ -246,7 +254,7 @@ pub async fn create_publication_category(
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-    Ok((StatusCode::CREATED, Json(category)))
+    Ok((StatusCode::CREATED, ApiJson::new(category, time)))
 }
 
 #[utoipa::path(
@@ -269,8 +277,9 @@ pub async fn update_publication_category(
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(category_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdatePublicationCategoryRequest>,
-) -> Result<Json<PublicationCategory>, ApiError> {
+) -> Result<ApiJson<PublicationCategory>, ApiError> {
     ensure_publication_category_permission(
         &state,
         current_user.as_ref(),
@@ -331,7 +340,7 @@ pub async fn update_publication_category(
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-    Ok(Json(category))
+    Ok(ApiJson::new(category, time))
 }
 
 #[utoipa::path(
@@ -410,7 +419,8 @@ pub async fn admin_list_publications(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListPublicationsQuery>,
-) -> Result<Json<PublicationListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<PublicationListResponse>, ApiError> {
     ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
@@ -425,15 +435,18 @@ pub async fn admin_list_publications(
     let total = count_publications(pool, false).await?;
     let rows = fetch_publications(pool, false, pagination.page_size, pagination.offset).await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(PublicationListResponse {
-        items: rows.into_iter().map(Publication::from).collect(),
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        PublicationListResponse {
+            items: rows.into_iter().map(Publication::from).collect(),
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -454,7 +467,8 @@ pub async fn admin_get_publication(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(publication_id): Path<String>,
-) -> Result<Json<Publication>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Publication>, ApiError> {
     ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
@@ -466,7 +480,7 @@ pub async fn admin_get_publication(
     let publication = fetch_publication(pool, &publication_id, false)
         .await?
         .ok_or(ApiError::BadRequest)?;
-    Ok(Json(publication.into()))
+    Ok(ApiJson::new(publication.into(), time))
 }
 
 #[utoipa::path(
@@ -485,8 +499,9 @@ pub async fn create_publication(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreatePublicationRequest>,
-) -> Result<(StatusCode, Json<Publication>), ApiError> {
+) -> Result<(StatusCode, ApiJson<Publication>), ApiError> {
     ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
@@ -574,7 +589,7 @@ pub async fn create_publication(
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-    Ok((StatusCode::CREATED, Json(response)))
+    Ok((StatusCode::CREATED, ApiJson::new(response, time)))
 }
 
 #[utoipa::path(
@@ -597,8 +612,9 @@ pub async fn update_publication(
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(publication_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdatePublicationRequest>,
-) -> Result<Json<Publication>, ApiError> {
+) -> Result<ApiJson<Publication>, ApiError> {
     ensure_publication_item_permission(
         &state,
         current_user.as_ref(),
@@ -714,7 +730,7 @@ pub async fn update_publication(
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-    Ok(Json(response))
+    Ok(ApiJson::new(response, time))
 }
 
 #[utoipa::path(

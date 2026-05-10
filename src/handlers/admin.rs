@@ -28,6 +28,7 @@ use crate::{
     },
     repos::{access as access_repo, audit as audit_repo, users as user_repo},
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 const DEFAULT_VATUSA_API_BASE_URL: &str = "https://api.vatusa.net/v2";
@@ -158,7 +159,8 @@ pub async fn list_audit_logs(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListAuditLogsQuery>,
-) -> Result<Json<AuditLogListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<AuditLogListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -221,15 +223,18 @@ pub async fn list_audit_logs(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(AuditLogListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        AuditLogListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -346,7 +351,8 @@ pub async fn refresh_user_vatusa(
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(cid): Path<i64>,
     headers: HeaderMap,
-) -> Result<Json<ManualVatusaRefreshResponseBody>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ManualVatusaRefreshResponseBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -406,7 +412,7 @@ pub async fn refresh_user_vatusa(
     )
     .await?;
 
-    Ok(Json(response))
+    Ok(ApiJson::new(response, time))
 }
 
 #[utoipa::path(
@@ -428,7 +434,8 @@ pub async fn list_visitor_applications(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListVisitorApplicationsQuery>,
-) -> Result<Json<VisitorApplicationListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<VisitorApplicationListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -454,26 +461,28 @@ pub async fn list_visitor_applications(
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)?;
-    let items =
-        user_repo::list_visitor_applications(
-            pool,
-            normalized_status.as_deref(),
-            pagination.page_size,
-            pagination.offset,
-        )
-        .await?;
+    let items = user_repo::list_visitor_applications(
+        pool,
+        normalized_status.as_deref(),
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(VisitorApplicationListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        VisitorApplicationListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -496,8 +505,9 @@ pub async fn decide_visitor_application(
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(application_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<DecideVisitorApplicationRequest>,
-) -> Result<Json<VisitorApplicationItem>, ApiError> {
+) -> Result<ApiJson<VisitorApplicationItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -564,7 +574,7 @@ pub async fn decide_visitor_application(
     .await?;
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok(Json(after))
+    Ok(ApiJson::new(after, time))
 }
 
 pub async fn list_users(
@@ -589,10 +599,11 @@ pub async fn list_users(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| ApiError::Internal)?;
     let users = user_repo::list_admin_users(pool, pagination.page_size, pagination.offset).await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);

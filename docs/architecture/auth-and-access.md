@@ -51,13 +51,15 @@ For local development, the code still supports `auth-dev.vatsim.net` when `VATSI
 
 ## Dev Login
 
-When `API_DEV_MODE=true`, dev login is available at:
+When `DEV_LOGIN_AS_CID_ENABLED=true`, dev login is available at:
 
 ```text
 GET /api/v1/auth/login/as/{cid}
 ```
 
 This is for local development only.
+
+`VATSIM_DEV_MODE=true` does not expose dev login or seed routes.
 
 ## Service-Account Authentication
 

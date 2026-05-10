@@ -89,24 +89,26 @@ cargo run
 
 - `master` and `develop` both auto-publish Docker images on push
 - `master` publishes:
-  - `ghcr.io/<owner>/<repo>:master`
-  - `ghcr.io/<owner>/<repo>:master-<sha>`
+  - `ghcr.io/<owner>/<repo>:latest`
+  - `ghcr.io/<owner>/<repo>:latest-<sha>`
 - `develop` publishes:
-  - `ghcr.io/<owner>/<repo>:develop`
-  - `ghcr.io/<owner>/<repo>:develop-<sha>`
+  - `ghcr.io/<owner>/<repo>:dev`
+  - `ghcr.io/<owner>/<repo>:dev-<sha>`
 
 Recommended local validation before pushing:
 
 ```bash
 cargo fmt --all -- --check
-cargo check
-cargo test --all-targets
+cargo check --workspace --all-targets
+cargo test --workspace --all-targets -- --test-threads=1
 docker build -f Dockerfile .
 ```
+
+PRs against `master` and `develop` are enforced by `.github/workflows/ci.yml`.
 
 ## Read More
 
 - Local development: [docs/getting-started/local-development.md](docs/getting-started/local-development.md)
 - Configuration: [docs/getting-started/configuration.md](docs/getting-started/configuration.md)
 - Architecture overview: [docs/architecture/overview.md](docs/architecture/overview.md)
-- Platform architecture plan: [docs/platform-architecture-plan.md](docs/platform-architecture-plan.md)
+- Testing: [docs/getting-started/testing.md](docs/getting-started/testing.md)

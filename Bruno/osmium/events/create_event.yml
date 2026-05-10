@@ -8,15 +8,19 @@ info:
 http:
   method: POST
   url: "{{baseUrl}}/api/v1/events"
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   body:
     type: json
     data: |-
       {
         "description": "description!",
-        "ends_at": "2026-05-07T07:00:00.123Z",
+        "ends_at": "2026-05-08T03:00:00.123Z",
         "event_type": "HOME",
         "host": "ZDC",
-        "starts_at": "2026-05-07T03:00:00.123Z",
+        "starts_at": "2026-05-07T23:00:00.123Z",
         "title": "Raleigh Spring Festival"
       }
   auth: inherit
@@ -33,6 +37,10 @@ examples:
     request:
       url: "{{baseUrl}}/api/v1/events"
       method: POST
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
       body:
         type: json
         data: |-
