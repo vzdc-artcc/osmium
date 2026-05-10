@@ -69,7 +69,7 @@ jobs:
 
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/osmium_ci
-      FILE_STORAGE_ROOT: ${{ runner.temp }}/files
+      FILE_STORAGE_ROOT: /tmp/osmium-files
       FILE_SIGNING_SECRET: test-signing-secret
       CDN_BASE_URL: http://127.0.0.1:3000
       EMAIL_UNSUBSCRIBE_SECRET: test-unsub-secret
