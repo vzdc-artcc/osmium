@@ -20,6 +20,7 @@ For user-created API keys:
 ## Current Route Support
 
 - `GET /api/v1/auth/service-account/me`
+- `GET /api/v1/admin/integrations/discord/configs`
 - `GET /api/v1/api-keys`
 - `GET /api/v1/api-keys/{key_id}`
 - `POST /api/v1/api-keys`
