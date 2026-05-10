@@ -134,12 +134,38 @@ Run migration tool commands against the stack:
 ```bash
 scripts/migration-test/migrator.sh plan
 scripts/migration-test/migrator.sh migrate
+scripts/migration-test/migrator.sh migrate --domain stats
+scripts/migration-test/migrator.sh verify --domain stats
 scripts/migration-test/migrator.sh verify
 ```
 
 Run `plan` first as the preflight check for the legacy source dump. The supported startup flow always destroys and recreates both databases before seeding the mock prod database and starting Osmium.
 
+Legacy controller stats are migrated into `stats.controller_monthly_rollups` for `environment = 'live'`. This backfills historical hours for the current stats API without synthesizing old controller sessions or activations, so `last_activity_at` may remain `null` for legacy-only controllers.
+
 Detailed instructions: [scripts/migration-test/README.md](scripts/migration-test/README.md)
+
+## Production Deployment
+
+Production deployment now has a separate compose path for:
+
+- steady-state `postgres` + `api`
+- one-time legacy dump cutover with a temporary source DB and `db-migrator`
+
+Quick start:
+
+```bash
+cp .env.cutover.example .env.cutover
+cp .env.prod.example .env.prod
+# edit both env files
+# place the legacy dump at ${OSMIUM_DUMP_DIR}/prod.sql
+docker compose --env-file .env.cutover -f docker-compose.prod.yml config
+docker compose --env-file .env.cutover -f docker-compose.prod.yml --profile cutover config
+scripts/prod/cutover.sh
+scripts/prod/up.sh
+```
+
+Full step-by-step setup instructions: [docs/operations/production-deployment.md](docs/operations/production-deployment.md)
 
 PRs against `master` and `develop` are enforced by `.github/workflows/ci.yml`.
 

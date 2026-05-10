@@ -3,7 +3,11 @@ use chrono::NaiveDateTime;
 use serde::Serialize;
 use sqlx::FromRow;
 
-use crate::{helpers::assume_utc, state::AppState, target};
+use crate::{
+    helpers::{assume_utc, record_warning},
+    state::AppState,
+    target,
+};
 
 const DOMAIN: &str = "training";
 
@@ -501,6 +505,40 @@ async fn migrate_appointments(state: &mut AppState) -> Result<()> {
             let appointment_id =
                 mapped_id(&state.target, "training_appointment", &row.appointment_id).await?;
             let lesson_id = mapped_id(&state.target, "lesson", &row.lesson_id).await?;
+            if !exists(
+                &state.target,
+                "training.training_appointments",
+                &appointment_id,
+            )
+            .await?
+            {
+                record_warning(
+                    state,
+                    DOMAIN,
+                    "training_appointment_lesson",
+                    &format!("{}:{}", row.appointment_id, row.lesson_id),
+                    format!(
+                        "skipping lesson link because appointment `{}` resolved to missing target appointment `{appointment_id}`",
+                        row.appointment_id
+                    ),
+                )
+                .await?;
+                continue;
+            }
+            if !exists(&state.target, "training.lessons", &lesson_id).await? {
+                record_warning(
+                    state,
+                    DOMAIN,
+                    "training_appointment_lesson",
+                    &format!("{}:{}", row.appointment_id, row.lesson_id),
+                    format!(
+                        "skipping lesson link because lesson `{}` resolved to missing target lesson `{lesson_id}`",
+                        row.lesson_id
+                    ),
+                )
+                .await?;
+                continue;
+            }
             sqlx::query(
                 r#"
                 insert into training.training_appointment_lessons (appointment_id, lesson_id)

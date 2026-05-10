@@ -37,6 +37,7 @@ pub enum DomainArg {
     Training,
     Events,
     Feedback,
+    Stats,
     Web,
 }
 

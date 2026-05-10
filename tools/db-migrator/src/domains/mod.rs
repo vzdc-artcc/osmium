@@ -2,6 +2,7 @@ pub mod events;
 pub mod feedback;
 pub mod org;
 pub mod reference;
+pub mod stats;
 pub mod training;
 pub mod users;
 
@@ -18,6 +19,7 @@ pub async fn run_migration(state: &mut AppState) -> Result<()> {
             Domain::Training => training::migrate(state).await?,
             Domain::Feedback => feedback::migrate(state).await?,
             Domain::Events => events::migrate(state).await?,
+            Domain::Stats => stats::migrate(state).await?,
             Domain::Web => bail!("web migration is intentionally not implemented in v1"),
         }
 
@@ -43,6 +45,7 @@ pub fn domain_name(domain: Domain) -> &'static str {
         Domain::Training => "training",
         Domain::Feedback => "feedback",
         Domain::Events => "events",
+        Domain::Stats => "stats",
         Domain::Web => "web",
     }
 }

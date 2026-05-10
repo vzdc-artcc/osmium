@@ -7,13 +7,16 @@ info:
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/stats/artcc"
+  url: "{{baseUrl}}/api/v1/stats/artcc?environment=sweatbox1"
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   params:
     - name: environment
-      value: ""
+      value: sweatbox1
       type: query
       description: "Environment: live, sweatbox1, or sweatbox2"
-      disabled: true
     - name: all_time
       value: ""
       type: query
@@ -38,10 +41,6 @@ http:
       value: ""
       type: query
       description: Controller row count
-      disabled: true
-  headers:
-    - name: X-Response-Timezone
-      value: "{{responseTimezone}}"
       disabled: true
   auth: inherit
 

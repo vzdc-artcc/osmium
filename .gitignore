@@ -1,5 +1,7 @@
 /target
 .env
+.env.cutover
+.env.prod
 .idea
 /tools/api-load-tester/target/
 /tools/api-load-tester/reports

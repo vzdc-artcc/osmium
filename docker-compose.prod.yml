@@ -1,0 +1,154 @@
+name: osmium-prod
+
+x-osmium-api-env: &osmium-api-env
+  BIND_ADDR: ${BIND_ADDR:-0.0.0.0:3000}
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+  RUST_LOG: ${RUST_LOG:-info}
+  RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-true}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+  OSMIUM_SERVER_ADMIN_CID: ${OSMIUM_SERVER_ADMIN_CID:-}
+  VATSIM_DEV_MODE: ${VATSIM_DEV_MODE:-false}
+  VATSIM_CLIENT_ID: ${VATSIM_CLIENT_ID:-}
+  VATSIM_CLIENT_SECRET: ${VATSIM_CLIENT_SECRET:-}
+  VATSIM_REDIRECT_URI: ${VATSIM_REDIRECT_URI:-}
+  VATSIM_AUTHORIZE_URL: ${VATSIM_AUTHORIZE_URL:-}
+  VATSIM_TOKEN_URL: ${VATSIM_TOKEN_URL:-}
+  VATSIM_USERINFO_URL: ${VATSIM_USERINFO_URL:-}
+  VATSIM_SCOPE: ${VATSIM_SCOPE:-}
+  VATSIM_CLIENT_AUTH_METHOD: ${VATSIM_CLIENT_AUTH_METHOD:-basic}
+  VATUSA_API_KEY: ${VATUSA_API_KEY:-}
+  VATUSA_FACILITY_ID: ${VATUSA_FACILITY_ID:-ZDC}
+  VATUSA_API_BASE_URL: ${VATUSA_API_BASE_URL:-https://api.vatusa.net/v2}
+  STATS_SYNC_ENABLED: ${STATS_SYNC_ENABLED:-true}
+  STATS_SYNC_INTERVAL_SECS: ${STATS_SYNC_INTERVAL_SECS:-5}
+  STATS_SYNC_STALE_SECS: ${STATS_SYNC_STALE_SECS:-300}
+  ROSTER_SYNC_ENABLED: ${ROSTER_SYNC_ENABLED:-true}
+  ROSTER_SYNC_INTERVAL_SECS: ${ROSTER_SYNC_INTERVAL_SECS:-900}
+  EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
+  EMAIL_WORKER_ENABLED: ${EMAIL_WORKER_ENABLED:-true}
+  EMAIL_WORKER_INTERVAL_SECS: ${EMAIL_WORKER_INTERVAL_SECS:-5}
+  EMAIL_WORKER_BATCH_SIZE: ${EMAIL_WORKER_BATCH_SIZE:-25}
+  AWS_REGION: ${AWS_REGION:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+  EMAIL_SES_ENDPOINT: ${EMAIL_SES_ENDPOINT:-}
+  EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Osmium}
+  EMAIL_REPLY_TO_ADDRESS: ${EMAIL_REPLY_TO_ADDRESS:-}
+  EMAIL_UNSUBSCRIBE_BASE_URL: ${EMAIL_UNSUBSCRIBE_BASE_URL:-}
+  EMAIL_UNSUBSCRIBE_SECRET: ${EMAIL_UNSUBSCRIBE_SECRET:-}
+  FILE_STORAGE_ROOT: /app/storage/files
+  FILE_MAX_UPLOAD_BYTES: ${FILE_MAX_UPLOAD_BYTES:-26214400}
+  FILE_SIGNING_SECRET: ${FILE_SIGNING_SECRET:-}
+  FILE_ENCRYPTION_KEY_HEX: ${FILE_ENCRYPTION_KEY_HEX:-}
+  CDN_BASE_URL: ${CDN_BASE_URL:-}
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${OSMIUM_POSTGRES_DB:-osmium}
+      POSTGRES_USER: ${OSMIUM_POSTGRES_USER:-osmium}
+      POSTGRES_PASSWORD: ${OSMIUM_POSTGRES_PASSWORD:?OSMIUM_POSTGRES_PASSWORD is required}
+    volumes:
+      - osmium-postgres-prod-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${OSMIUM_POSTGRES_USER:-osmium} -d ${OSMIUM_POSTGRES_DB:-osmium}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    image: ${OSMIUM_IMAGE:?OSMIUM_IMAGE is required}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *osmium-api-env
+    ports:
+      - "${OSMIUM_API_HOST_PORT:-3000}:3000"
+    volumes:
+      - ${OSMIUM_FILES_DIR:?OSMIUM_FILES_DIR is required}:/app/storage/files
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  target-init:
+    profiles: ["cutover"]
+    image: ${OSMIUM_IMAGE:?OSMIUM_IMAGE is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *osmium-api-env
+      BIND_ADDR: 0.0.0.0:3001
+    volumes:
+      - ${OSMIUM_FILES_DIR:?OSMIUM_FILES_DIR is required}:/app/storage/files
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  legacy-postgres:
+    profiles: ["cutover"]
+    image: postgres:16
+    environment:
+      POSTGRES_DB: prod
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - osmium-legacy-cutover-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  legacy-seed:
+    profiles: ["cutover"]
+    image: postgres:16
+    depends_on:
+      legacy-postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: legacy-postgres
+      PGPORT: 5432
+      PGDATABASE: prod
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    volumes:
+      - ${OSMIUM_DUMP_DIR:?OSMIUM_DUMP_DIR is required}:/seed:ro
+      - ./scripts/prod/seed-legacy.sh:/usr/local/bin/seed-legacy.sh:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/seed-legacy.sh"]
+
+  migrator:
+    profiles: ["cutover"]
+    image: ${OSMIUM_IMAGE:?OSMIUM_IMAGE is required}
+    depends_on:
+      legacy-postgres:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      SOURCE_DATABASE_URL: postgres://postgres:postgres@legacy-postgres:5432/prod
+      TARGET_DATABASE_URL: postgres://${OSMIUM_POSTGRES_USER:-osmium}:${OSMIUM_POSTGRES_PASSWORD:?OSMIUM_POSTGRES_PASSWORD is required}@postgres:5432/${OSMIUM_POSTGRES_DB:-osmium}
+      RUST_LOG: ${RUST_LOG:-info}
+    entrypoint: ["/usr/local/bin/db-migrator"]
+
+volumes:
+  osmium-postgres-prod-data:
+    name: osmium-prod-postgres-data
+  osmium-legacy-cutover-data:
+    name: osmium-prod-legacy-postgres-data

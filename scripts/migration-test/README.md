@@ -1,5 +1,7 @@
 # Migration Test Stack
 
+This stack is for local destructive migration validation. For production cutover and steady-state deployment, use `docker-compose.prod.yml` and [docs/operations/production-deployment.md](../../docs/operations/production-deployment.md).
+
 This stack is for testing `db-migrator` against:
 
 - a legacy Prisma/public source Postgres database named `prod`
@@ -79,13 +81,17 @@ Use the wrapper script so the correct compose file is always used:
 scripts/migration-test/migrator.sh plan
 scripts/migration-test/migrator.sh migrate
 scripts/migration-test/migrator.sh migrate --domain users
+scripts/migration-test/migrator.sh migrate --domain stats
 scripts/migration-test/migrator.sh verify
+scripts/migration-test/migrator.sh verify --domain stats
 scripts/migration-test/migrator.sh reset-run --run-id <run-id>
 ```
 
 Run `plan` first. It is the supported preflight step for the legacy dump shape.
 
 `migrator.sh` rebuilds the Compose-managed migrator image before running it.
+
+Legacy controller stats are migrated into `stats.controller_monthly_rollups` for `environment = 'live'`. This is enough for the existing stats API to return historical hours. It does not backfill old `stats.controller_sessions` or `stats.controller_activations`, so `last_activity_at` may still be `null` for legacy-only history.
 
 ## Service Endpoints
 
@@ -173,5 +179,6 @@ docker build -f Dockerfile .
 scripts/migration-test/up.sh
 scripts/migration-test/migrator.sh plan
 scripts/migration-test/migrator.sh migrate
+scripts/migration-test/migrator.sh migrate --domain stats
 scripts/migration-test/migrator.sh verify
 ```
