@@ -4,3 +4,5 @@
 /tools/api-load-tester/target/
 /tools/api-load-tester/reports
 /tools/db-migrator/target/
+/dev-data/mock-prod/*
+!/dev-data/mock-prod/.gitkeep

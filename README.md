@@ -104,6 +104,43 @@ cargo test --workspace --all-targets -- --test-threads=1
 docker build -f Dockerfile .
 ```
 
+## Migration Test Stack
+
+The migration test stack provisions:
+
+- a mock source Postgres database at `127.0.0.1:5433`
+- a fresh Osmium target Postgres database at `127.0.0.1:5432`
+- the Osmium API at `http://127.0.0.1:3000`
+- an on-demand `db-migrator` container
+
+`db-migrator` now migrates from the legacy Prisma/public prod dump into the new Osmium schema.
+
+Place the source dump at `dev-data/mock-prod/prod.sql`. That directory is intentionally gitignored except for a tracked `.gitkeep`.
+
+Start the stack with a full reset:
+
+```bash
+scripts/migration-test/up.sh
+```
+
+Stop and delete both Postgres volumes:
+
+```bash
+scripts/migration-test/down.sh
+```
+
+Run migration tool commands against the stack:
+
+```bash
+scripts/migration-test/migrator.sh plan
+scripts/migration-test/migrator.sh migrate
+scripts/migration-test/migrator.sh verify
+```
+
+Run `plan` first as the preflight check for the legacy source dump. The supported startup flow always destroys and recreates both databases before seeding the mock prod database and starting Osmium.
+
+Detailed instructions: [scripts/migration-test/README.md](scripts/migration-test/README.md)
+
 PRs against `master` and `develop` are enforced by `.github/workflows/ci.yml`.
 
 ## Read More
