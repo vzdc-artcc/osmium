@@ -20,6 +20,7 @@ use crate::{
     },
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 fn validate_event_window(
@@ -46,7 +47,8 @@ fn validate_event_window(
 pub async fn list_events(
     State(state): State<AppState>,
     Query(query): Query<ListEventsQuery>,
-) -> Result<Json<EventListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EventListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
@@ -67,15 +69,18 @@ pub async fn list_events(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(EventListResponse {
-        items: events,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        EventListResponse {
+            items: events,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 // Get single event
@@ -94,7 +99,8 @@ pub async fn list_events(
 pub async fn get_event(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
-) -> Result<Json<Event>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Event>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let event = sqlx::query_as::<_, Event>(
@@ -106,7 +112,7 @@ pub async fn get_event(
     .map_err(|_| ApiError::Internal)?
     .ok_or(ApiError::BadRequest)?;
 
-    Ok(Json(event))
+    Ok(ApiJson::new(event, time))
 }
 
 // Create event (staff only)
@@ -124,8 +130,9 @@ pub async fn create_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(req): Json<CreateEventRequest>,
-) -> Result<(StatusCode, Json<Event>), ApiError> {
+) -> Result<(StatusCode, ApiJson<Event>), ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
@@ -179,7 +186,7 @@ pub async fn create_event(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(event)))
+    Ok((StatusCode::CREATED, ApiJson::new(event, time)))
 }
 
 // Update event (staff only)
@@ -202,8 +209,9 @@ pub async fn update_event(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(req): Json<UpdateEventRequest>,
-) -> Result<Json<Event>, ApiError> {
+) -> Result<ApiJson<Event>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
@@ -274,7 +282,7 @@ pub async fn update_event(
     )
     .await?;
 
-    Ok(Json(event))
+    Ok(ApiJson::new(event, time))
 }
 
 // Delete event (staff only)
@@ -392,7 +400,8 @@ pub async fn list_event_positions(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
     Query(query): Query<ListEventsQuery>,
-) -> Result<Json<EventPositionListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EventPositionListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
@@ -417,15 +426,18 @@ pub async fn list_event_positions(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(EventPositionListResponse {
-        items: positions,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        EventPositionListResponse {
+            items: positions,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 // Create event position (user signup)
@@ -448,8 +460,9 @@ pub async fn create_event_position(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(req): Json<CreateEventPositionRequest>,
-) -> Result<(StatusCode, Json<EventPosition>), ApiError> {
+) -> Result<(StatusCode, ApiJson<EventPosition>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -501,7 +514,7 @@ pub async fn create_event_position(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(position)))
+    Ok((StatusCode::CREATED, ApiJson::new(position, time)))
 }
 
 // Assign event position (staff only)
@@ -525,8 +538,9 @@ pub async fn assign_event_position(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path((event_id, position_id)): Path<(String, String)>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(req): Json<AssignEventPositionRequest>,
-) -> Result<Json<EventPosition>, ApiError> {
+) -> Result<ApiJson<EventPosition>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
@@ -580,7 +594,7 @@ pub async fn assign_event_position(
     )
     .await?;
 
-    Ok(Json(position))
+    Ok(ApiJson::new(position, time))
 }
 
 // Delete event position

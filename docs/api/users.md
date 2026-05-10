@@ -4,6 +4,10 @@
 
 Expose roster, user detail, visitor membership, visitor application, and user feedback views.
 
+## Response Timezones
+
+Timestamped user-domain responses such as visitor applications, solo certifications, feedback entries, and refresh metadata follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Main Routes
 
 - `GET /api/v1/user`

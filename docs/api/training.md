@@ -4,6 +4,10 @@
 
 Manage training assignments, appointments, assignment requests, trainer-release requests, trainer interest workflows, and full training session submission.
 
+## Response Timezones
+
+Timestamped training and training-admin responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
 OTS recommendation routes now cover:
 
 - recommendation list, create, assign or unassign, and delete

@@ -19,6 +19,7 @@ use crate::{
     models::{ListEventsQuery, PaginationMeta, PaginationQuery},
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -35,6 +36,7 @@ pub struct EventOpsPlanItem {
     pub ops_plan_published: bool,
     pub ops_planner_id: Option<String>,
     pub enable_buffer_times: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -43,9 +45,12 @@ pub struct EventTmiItem {
     pub id: String,
     pub event_id: String,
     pub tmi_type: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub start_time: DateTime<Utc>,
     pub notes: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -111,9 +116,13 @@ pub struct ApiMessageBody {
 pub async fn get_event_ops_plan(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
-) -> Result<Json<EventOpsPlanItem>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EventOpsPlanItem>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    Ok(Json(fetch_event_ops_plan(pool, &event_id).await?))
+    Ok(ApiJson::new(
+        fetch_event_ops_plan(pool, &event_id).await?,
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -135,8 +144,9 @@ pub async fn update_event_ops_plan(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateEventOpsPlanRequest>,
-) -> Result<Json<EventOpsPlanItem>, ApiError> {
+) -> Result<ApiJson<EventOpsPlanItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -184,7 +194,7 @@ pub async fn update_event_ops_plan(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(
@@ -204,7 +214,8 @@ pub async fn list_event_tmis(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
     Query(query): Query<ListEventsQuery>,
-) -> Result<Json<EventTmiListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EventTmiListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
@@ -226,15 +237,18 @@ pub async fn list_event_tmis(
     .await
     .map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(EventTmiListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        EventTmiListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -256,8 +270,9 @@ pub async fn create_event_tmi(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateEventTmiRequest>,
-) -> Result<(StatusCode, Json<EventTmiItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<EventTmiItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_event_update(&state, user).await?;
     if payload.tmi_type.trim().is_empty() {
@@ -278,7 +293,7 @@ pub async fn create_event_tmi(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(
@@ -301,8 +316,9 @@ pub async fn update_event_tmi(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path((event_id, tmi_id)): Path<(String, String)>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateEventTmiRequest>,
-) -> Result<Json<EventTmiItem>, ApiError> {
+) -> Result<ApiJson<EventTmiItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -345,7 +361,7 @@ pub async fn update_event_tmi(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(

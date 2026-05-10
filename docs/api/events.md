@@ -4,6 +4,10 @@
 
 Create, update, delete, and staff events.
 
+## Response Timezones
+
+Timestamped event responses such as `starts_at`, `ends_at`, `created_at`, `updated_at`, and event-ops timestamps follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Main Routes
 
 - `/api/v1/events`

@@ -8,6 +8,10 @@ info:
 http:
   method: GET
   url: "{{baseUrl}}/api/v1/loa/me"
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   auth: inherit
 
 settings:

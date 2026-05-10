@@ -11,7 +11,9 @@ pub struct PublicationCategory {
     pub name: String,
     pub description: Option<String>,
     pub sort_order: i32,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -23,7 +25,9 @@ pub struct Publication {
     pub category_name: String,
     pub title: String,
     pub description: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub effective_at: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub file_id: String,
     pub cdn_url: String,

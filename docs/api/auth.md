@@ -4,6 +4,14 @@
 
 Provides user session login/logout, self-service profile management, TeamSpeak UID management, and service-account introspection.
 
+## Response Timezones
+
+Timestamped auth responses such as TeamSpeak UID `linked_at` follow the shared response-timezone contract.
+
+- omit `X-Response-Timezone` to use the authenticated user's stored timezone
+- use `X-Response-Timezone: zulu` to force UTC/Zulu output
+- use `X-Response-Timezone: America/Chicago` to force a specific IANA timezone
+
 ## Main Routes
 
 - `GET /api/v1/me`

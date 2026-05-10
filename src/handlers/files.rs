@@ -31,6 +31,7 @@ use crate::{
     },
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -71,6 +72,7 @@ pub struct FileAuditLogItem {
     ip_address: String,
     outcome: String,
     details: serde_json::Value,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -94,6 +96,7 @@ pub struct SignedUrlQuery {
 #[derive(Serialize, ToSchema)]
 pub struct SignedUrlResponse {
     url: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     expires_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -138,7 +141,8 @@ pub async fn list_file_audit_logs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<FileAuditQuery>,
-) -> Result<Json<FileAuditLogListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<FileAuditLogListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -186,15 +190,18 @@ pub async fn list_file_audit_logs(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(FileAuditLogListResponse {
-        items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        FileAuditLogListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -211,7 +218,8 @@ pub async fn list_files(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListFilesQuery>,
-) -> Result<Json<FileAssetListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<FileAssetListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
@@ -288,15 +296,18 @@ pub async fn list_files(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(FileAssetListResponse {
-        items: rows.into_iter().map(FileAsset::from).collect(),
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        FileAssetListResponse {
+            items: rows.into_iter().map(FileAsset::from).collect(),
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -322,8 +333,9 @@ pub async fn upload_file(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<UploadFileQuery>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     body: Bytes,
-) -> Result<(StatusCode, Json<FileAsset>), ApiError> {
+) -> Result<(StatusCode, ApiJson<FileAsset>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_can_upload(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -472,7 +484,7 @@ pub async fn upload_file(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(created_asset)))
+    Ok((StatusCode::CREATED, ApiJson::new(created_asset, time)))
 }
 
 #[utoipa::path(
@@ -492,7 +504,8 @@ pub async fn get_file_metadata(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(file_id): Path<String>,
-) -> Result<Json<FileAsset>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<FileAsset>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let row = fetch_file_row(pool, &file_id)
@@ -501,7 +514,7 @@ pub async fn get_file_metadata(
 
     ensure_can_read_file_metadata(&state, current_user.as_ref(), &row).await?;
 
-    Ok(Json(row.into()))
+    Ok(ApiJson::new(row.into(), time))
 }
 
 #[utoipa::path(
@@ -568,7 +581,8 @@ pub async fn get_signed_download_url(
     Path(file_id): Path<String>,
     Query(query): Query<SignedUrlQuery>,
     headers: HeaderMap,
-) -> Result<Json<SignedUrlResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<SignedUrlResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let ip_address = client_ip(&headers);
@@ -613,7 +627,7 @@ pub async fn get_signed_download_url(
     )
     .await;
 
-    Ok(Json(SignedUrlResponse { url, expires_at }))
+    Ok(ApiJson::new(SignedUrlResponse { url, expires_at }, time))
 }
 
 #[utoipa::path(
@@ -685,8 +699,9 @@ pub async fn update_file_metadata(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(file_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateFileMetadataRequest>,
-) -> Result<Json<FileAsset>, ApiError> {
+) -> Result<ApiJson<FileAsset>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -809,7 +824,7 @@ pub async fn update_file_metadata(
     )
     .await?;
 
-    Ok(Json(updated_asset))
+    Ok(ApiJson::new(updated_asset, time))
 }
 
 #[utoipa::path(
@@ -837,8 +852,9 @@ pub async fn replace_file_content(
     Path(file_id): Path<String>,
     Query(query): Query<UploadFileQuery>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     body: Bytes,
-) -> Result<Json<FileAsset>, ApiError> {
+) -> Result<ApiJson<FileAsset>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -919,7 +935,7 @@ pub async fn replace_file_content(
     )
     .await?;
 
-    Ok(Json(updated_asset))
+    Ok(ApiJson::new(updated_asset, time))
 }
 
 #[utoipa::path(

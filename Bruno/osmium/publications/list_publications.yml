@@ -8,6 +8,10 @@ info:
 http:
   method: GET
   url: "{{baseUrl}}/api/v1/publications"
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   auth: inherit
 
 settings:
@@ -22,6 +26,10 @@ examples:
     request:
       url: "{{baseUrl}}/api/v1/publications"
       method: GET
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
     response:
       status: 200
       statusText: OK

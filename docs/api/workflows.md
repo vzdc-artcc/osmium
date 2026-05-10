@@ -4,6 +4,14 @@
 
 Cover the new backend-owned workflow domains that previously lived in website actions and cron routes.
 
+## Response Timezones
+
+Timestamped workflow responses for LOAs, solo certifications, staffing requests, SUA requests, controller lifecycle operations, and job runs follow the shared response-timezone contract.
+
+- default: authenticated user's stored timezone
+- fallback: UTC/Zulu for anonymous or non-user contexts
+- override header: `X-Response-Timezone: user|zulu|<IANA timezone>`
+
 All paginated workflow list routes now use the shared envelope with canonical `page` and `page_size` inputs. `limit` and `offset` remain accepted as compatibility aliases.
 
 ## Main Routes

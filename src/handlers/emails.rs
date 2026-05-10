@@ -21,6 +21,7 @@ use crate::{
     },
     repos::audit,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[utoipa::path(
@@ -96,8 +97,9 @@ pub async fn send_email(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(request): Json<EmailSendRequest>,
-) -> Result<Json<EmailSendResponse>, ApiError> {
+) -> Result<ApiJson<EmailSendResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     ensure_permission(
         &state,
@@ -126,7 +128,7 @@ pub async fn send_email(
         .enqueue_template_send(pool, actor, request)
         .await?;
     let _ = headers;
-    Ok(Json(response))
+    Ok(ApiJson::new(response, time))
 }
 
 #[utoipa::path(
@@ -148,7 +150,8 @@ pub async fn list_outbox(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListEmailOutboxQuery>,
-) -> Result<Json<EmailOutboxListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EmailOutboxListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     ensure_permission(
         &state,
@@ -177,15 +180,18 @@ pub async fn list_outbox(
     let items = state.email.list_outbox(pool, &query).await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(EmailOutboxListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        EmailOutboxListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -203,7 +209,8 @@ pub async fn get_outbox_detail(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(id): Path<String>,
-) -> Result<Json<crate::models::EmailOutboxDetailResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<crate::models::EmailOutboxDetailResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     ensure_permission(
         &state,
@@ -213,7 +220,10 @@ pub async fn get_outbox_detail(
     )
     .await?;
 
-    Ok(Json(state.email.get_outbox_detail(pool, &id).await?))
+    Ok(ApiJson::new(
+        state.email.get_outbox_detail(pool, &id).await?,
+        time,
+    ))
 }
 
 #[utoipa::path(

@@ -4,6 +4,10 @@
 
 Provides template discovery, preview, durable email queueing, outbox inspection, and token-based email preference management for website-driven unsubscribe flows.
 
+## Response Timezones
+
+Timestamped outbox and send-email responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Main Routes
 
 - `GET /api/v1/emails/templates`

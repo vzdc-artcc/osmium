@@ -4,6 +4,10 @@
 
 Provides user-managed API keys for machine access to Osmium.
 
+## Response Timezones
+
+Timestamped API-key responses such as `created_at`, `updated_at`, and `last_used_at` follow the shared response-timezone contract via `X-Response-Timezone`.
+
 These keys authenticate through the normal bearer-token middleware, but they are created and managed through a human-authenticated API surface.
 
 ## Main Routes

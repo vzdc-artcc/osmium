@@ -21,6 +21,7 @@ use crate::{
     models::{PaginationMeta, PaginationQuery},
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -28,7 +29,9 @@ pub struct DiscordConfigItem {
     pub id: String,
     pub name: String,
     pub guild_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -38,6 +41,7 @@ pub struct DiscordChannelItem {
     pub discord_config_id: String,
     pub name: String,
     pub channel_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -47,6 +51,7 @@ pub struct DiscordRoleItem {
     pub discord_config_id: String,
     pub name: String,
     pub role_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -56,6 +61,7 @@ pub struct DiscordCategoryItem {
     pub discord_config_id: String,
     pub name: String,
     pub category_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -67,11 +73,15 @@ pub struct OutboundJobItem {
     pub subject_id: Option<String>,
     pub status: String,
     pub attempt_count: i32,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub last_attempt_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub next_attempt_at: Option<DateTime<Utc>>,
     pub payload: Value,
     pub error: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -419,7 +429,8 @@ pub async fn complete_discord_link(
 pub async fn list_discord_configs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<DiscordConfigBundle>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<DiscordConfigBundle>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -427,20 +438,24 @@ pub async fn list_discord_configs(
     let channels = sqlx::query_as::<_, DiscordChannelItem>("select id, discord_config_id, name, channel_id, created_at from integration.discord_channels order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
     let roles = sqlx::query_as::<_, DiscordRoleItem>("select id, discord_config_id, name, role_id, created_at from integration.discord_roles order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
     let categories = sqlx::query_as::<_, DiscordCategoryItem>("select id, discord_config_id, name, category_id, created_at from integration.discord_categories order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
-    Ok(Json(DiscordConfigBundle {
-        configs,
-        channels,
-        roles,
-        categories,
-    }))
+    Ok(ApiJson::new(
+        DiscordConfigBundle {
+            configs,
+            channels,
+            roles,
+            categories,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", request_body = CreateDiscordConfigRequest, responses((status = 201, description = "Discord config created", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
 pub async fn create_discord_config(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateDiscordConfigRequest>,
-) -> Result<(StatusCode, Json<DiscordConfigItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<DiscordConfigItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -450,7 +465,7 @@ pub async fn create_discord_config(
     let item = sqlx::query_as::<_, DiscordConfigItem>(
         "insert into integration.discord_configs (id, name, guild_id, created_at, updated_at) values ($1, $2, $3, now(), now()) returning id, name, guild_id, created_at, updated_at",
     ).bind(Uuid::new_v4().to_string()).bind(payload.name.trim()).bind(payload.guild_id.as_deref()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
-    Ok((StatusCode::CREATED, Json(item)))
+    Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), request_body = UpdateDiscordConfigRequest, responses((status = 200, description = "Updated Discord config", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -458,8 +473,9 @@ pub async fn update_discord_config(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(config_id): Path<String>,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateDiscordConfigRequest>,
-) -> Result<Json<DiscordConfigItem>, ApiError> {
+) -> Result<ApiJson<DiscordConfigItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -487,22 +503,23 @@ pub async fn update_discord_config(
     .await
     .map_err(|_| ApiError::Internal)?
     .ok_or(ApiError::BadRequest)?;
-    Ok(Json(item))
+    Ok(ApiJson::new(item, time))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/integrations/discord/channels", tag = "integrations", request_body = CreateDiscordChannelRequest, responses((status = 201, description = "Discord channel created", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
 pub async fn create_discord_channel(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateDiscordChannelRequest>,
-) -> Result<(StatusCode, Json<DiscordChannelItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<DiscordChannelItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let item = sqlx::query_as::<_, DiscordChannelItem>(
         "insert into integration.discord_channels (id, discord_config_id, name, channel_id, created_at) values ($1, $2, $3, $4, now()) returning id, discord_config_id, name, channel_id, created_at",
     ).bind(Uuid::new_v4().to_string()).bind(&payload.discord_config_id).bind(payload.name.trim()).bind(payload.channel_id.trim()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
-    Ok((StatusCode::CREATED, Json(item)))
+    Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), request_body = UpdateDiscordChannelRequest, responses((status = 200, description = "Updated Discord channel", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -510,15 +527,16 @@ pub async fn update_discord_channel(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(channel_id): Path<String>,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateDiscordChannelRequest>,
-) -> Result<Json<DiscordChannelItem>, ApiError> {
+) -> Result<ApiJson<DiscordChannelItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let item = sqlx::query_as::<_, DiscordChannelItem>(
         "update integration.discord_channels set name = coalesce($2, name), channel_id = coalesce($3, channel_id) where id = $1 returning id, discord_config_id, name, channel_id, created_at",
     ).bind(&channel_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.channel_id.as_deref().map(str::trim).filter(|v| !v.is_empty())).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
-    Ok(Json(item))
+    Ok(ApiJson::new(item, time))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), responses((status = 200, description = "Deleted Discord channel", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
@@ -544,15 +562,16 @@ pub async fn delete_discord_channel(
 pub async fn create_discord_role(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateDiscordRoleRequest>,
-) -> Result<(StatusCode, Json<DiscordRoleItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<DiscordRoleItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let item = sqlx::query_as::<_, DiscordRoleItem>(
         "insert into integration.discord_roles (id, discord_config_id, name, role_id, created_at) values ($1, $2, $3, $4, now()) returning id, discord_config_id, name, role_id, created_at",
     ).bind(Uuid::new_v4().to_string()).bind(&payload.discord_config_id).bind(payload.name.trim()).bind(payload.role_id.trim()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
-    Ok((StatusCode::CREATED, Json(item)))
+    Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), request_body = UpdateDiscordRoleRequest, responses((status = 200, description = "Updated Discord role", body = DiscordRoleItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -560,15 +579,16 @@ pub async fn update_discord_role(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(role_id): Path<String>,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateDiscordRoleRequest>,
-) -> Result<Json<DiscordRoleItem>, ApiError> {
+) -> Result<ApiJson<DiscordRoleItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let item = sqlx::query_as::<_, DiscordRoleItem>(
         "update integration.discord_roles set name = coalesce($2, name), role_id = coalesce($3, role_id) where id = $1 returning id, discord_config_id, name, role_id, created_at",
     ).bind(&role_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.role_id.as_deref().map(str::trim).filter(|v| !v.is_empty())).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
-    Ok(Json(item))
+    Ok(ApiJson::new(item, time))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), responses((status = 200, description = "Deleted Discord role", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
@@ -594,15 +614,16 @@ pub async fn delete_discord_role(
 pub async fn create_discord_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateDiscordCategoryRequest>,
-) -> Result<(StatusCode, Json<DiscordCategoryItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<DiscordCategoryItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let item = sqlx::query_as::<_, DiscordCategoryItem>(
         "insert into integration.discord_categories (id, discord_config_id, name, category_id, created_at) values ($1, $2, $3, $4, now()) returning id, discord_config_id, name, category_id, created_at",
     ).bind(Uuid::new_v4().to_string()).bind(&payload.discord_config_id).bind(payload.name.trim()).bind(payload.category_id.trim()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
-    Ok((StatusCode::CREATED, Json(item)))
+    Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), request_body = UpdateDiscordCategoryRequest, responses((status = 200, description = "Updated Discord category", body = DiscordCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -610,15 +631,16 @@ pub async fn update_discord_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(category_id): Path<String>,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateDiscordCategoryRequest>,
-) -> Result<Json<DiscordCategoryItem>, ApiError> {
+) -> Result<ApiJson<DiscordCategoryItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let item = sqlx::query_as::<_, DiscordCategoryItem>(
         "update integration.discord_categories set name = coalesce($2, name), category_id = coalesce($3, category_id) where id = $1 returning id, discord_config_id, name, category_id, created_at",
     ).bind(&category_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.category_id.as_deref().map(str::trim).filter(|v| !v.is_empty())).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
-    Ok(Json(item))
+    Ok(ApiJson::new(item, time))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), responses((status = 200, description = "Deleted Discord category", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
@@ -752,7 +774,8 @@ pub async fn list_outbound_jobs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<OutboundJobsQuery>,
-) -> Result<Json<OutboundJobListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<OutboundJobListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -776,14 +799,26 @@ pub async fn list_outbound_jobs(
         "#,
     ).bind(query.status.as_deref()).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(OutboundJobListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        OutboundJobListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/integrations/outbound-jobs/run", tag = "integrations", responses((status = 200, description = "Attempted outbound integration job deliveries", body = [OutboundJobItem]), (status = 401, description = "Not authenticated")))]
 pub async fn run_outbound_jobs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Vec<OutboundJobItem>>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Vec<OutboundJobItem>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -835,7 +870,7 @@ pub async fn run_outbound_jobs(
         .map_err(|_| ApiError::Internal)?;
         *row = updated;
     }
-    Ok(Json(rows))
+    Ok(ApiJson::new(rows, time))
 }
 
 #[derive(Debug, sqlx::FromRow)]

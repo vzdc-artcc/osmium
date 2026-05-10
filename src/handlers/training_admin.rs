@@ -18,6 +18,7 @@ use crate::{
     models::{PaginationMeta, PaginationQuery},
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -27,7 +28,9 @@ pub struct TrainingProgressionItem {
     pub next_progression_id: Option<String>,
     pub auto_assign_new_home_obs: bool,
     pub auto_assign_new_visitor: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -38,6 +41,7 @@ pub struct TrainingProgressionStepItem {
     pub lesson_id: String,
     pub sort_order: i32,
     pub optional: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -45,7 +49,9 @@ pub struct TrainingProgressionStepItem {
 pub struct PerformanceIndicatorTemplateItem {
     pub id: String,
     pub name: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 
@@ -69,6 +75,7 @@ pub struct PerformanceIndicatorCriteriaItem {
 pub struct ProgressionAssignmentItem {
     pub user_id: String,
     pub progression_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub assigned_at: DateTime<Utc>,
     pub assigned_by_actor_id: Option<String>,
     pub cid: Option<i64>,
@@ -82,7 +89,9 @@ pub struct DossierEntryItem {
     pub user_id: String,
     pub writer_id: String,
     pub message: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub timestamp: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
     pub writer_cid: Option<i64>,
     pub writer_name: Option<String>,
@@ -248,15 +257,17 @@ pub async fn list_progressions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<TrainingProgressionListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingProgressionListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_progressions")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_progressions")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, TrainingProgressionItem>(
         "select id, name, next_progression_id, auto_assign_new_home_obs, auto_assign_new_visitor, created_at, updated_at from training.training_progressions order by name asc, id asc limit $1 offset $2",
     )
@@ -266,7 +277,18 @@ pub async fn list_progressions(
     .await
     .map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(TrainingProgressionListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        TrainingProgressionListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/training/progressions", tag = "training", request_body = CreateTrainingProgressionRequest, responses((status = 201, description = "Training progression created", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -274,8 +296,9 @@ pub async fn create_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingProgressionRequest>,
-) -> Result<(StatusCode, Json<TrainingProgressionItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<TrainingProgressionItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
@@ -310,7 +333,7 @@ pub async fn create_progression(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), request_body = UpdateTrainingProgressionRequest, responses((status = 200, description = "Updated training progression", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -319,8 +342,9 @@ pub async fn update_progression(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(progression_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingProgressionRequest>,
-) -> Result<Json<TrainingProgressionItem>, ApiError> {
+) -> Result<ApiJson<TrainingProgressionItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -358,7 +382,7 @@ pub async fn update_progression(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), responses((status = 200, description = "Deleted training progression", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -398,15 +422,18 @@ pub async fn list_progression_steps(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<TrainingProgressionStepListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingProgressionStepListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_progression_steps")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from training.training_progression_steps",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, TrainingProgressionStepItem>(
         "select id, progression_id, lesson_id, sort_order, optional, created_at from training.training_progression_steps order by progression_id asc, sort_order asc, id asc limit $1 offset $2",
     )
@@ -416,7 +443,18 @@ pub async fn list_progression_steps(
     .await
     .map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(TrainingProgressionStepListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        TrainingProgressionStepListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/training/progression-steps", tag = "training", request_body = CreateTrainingProgressionStepRequest, responses((status = 201, description = "Training progression step created", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -424,8 +462,9 @@ pub async fn create_progression_step(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingProgressionStepRequest>,
-) -> Result<(StatusCode, Json<TrainingProgressionStepItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<TrainingProgressionStepItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -455,7 +494,7 @@ pub async fn create_progression_step(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), request_body = UpdateTrainingProgressionStepRequest, responses((status = 200, description = "Updated training progression step", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -464,8 +503,9 @@ pub async fn update_progression_step(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(step_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingProgressionStepRequest>,
-) -> Result<Json<TrainingProgressionStepItem>, ApiError> {
+) -> Result<ApiJson<TrainingProgressionStepItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -499,7 +539,7 @@ pub async fn update_progression_step(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), responses((status = 200, description = "Deleted training progression step", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -539,20 +579,34 @@ pub async fn list_performance_indicator_templates(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<PerformanceIndicatorTemplateListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<PerformanceIndicatorTemplateListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.performance_indicator_templates")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from training.performance_indicator_templates",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, PerformanceIndicatorTemplateItem>(
         "select id, name, created_at, updated_at from training.performance_indicator_templates order by name asc, id asc limit $1 offset $2",
     ).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(PerformanceIndicatorTemplateListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        PerformanceIndicatorTemplateListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/templates", tag = "training", request_body = CreatePerformanceIndicatorTemplateRequest, responses((status = 201, description = "Performance indicator template created", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -560,8 +614,9 @@ pub async fn create_performance_indicator_template(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreatePerformanceIndicatorTemplateRequest>,
-) -> Result<(StatusCode, Json<PerformanceIndicatorTemplateItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<PerformanceIndicatorTemplateItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
@@ -582,7 +637,7 @@ pub async fn create_performance_indicator_template(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), request_body = UpdatePerformanceIndicatorTemplateRequest, responses((status = 200, description = "Updated performance indicator template", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -591,8 +646,9 @@ pub async fn update_performance_indicator_template(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(template_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdatePerformanceIndicatorTemplateRequest>,
-) -> Result<Json<PerformanceIndicatorTemplateItem>, ApiError> {
+) -> Result<ApiJson<PerformanceIndicatorTemplateItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
@@ -614,7 +670,7 @@ pub async fn update_performance_indicator_template(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok(Json(row))
+    Ok(ApiJson::new(row, time))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), responses((status = 200, description = "Deleted performance indicator template", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -659,15 +715,25 @@ pub async fn list_performance_indicator_categories(
     ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.performance_indicator_template_categories")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from training.performance_indicator_template_categories",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, PerformanceIndicatorCategoryItem>(
         "select id, template_id, name, sort_order from training.performance_indicator_template_categories order by template_id asc, sort_order asc, id asc limit $1 offset $2",
     ).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(PerformanceIndicatorCategoryListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(Json(PerformanceIndicatorCategoryListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/categories", tag = "training", request_body = CreatePerformanceIndicatorCategoryRequest, responses((status = 201, description = "Performance indicator category created", body = PerformanceIndicatorCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -771,15 +837,25 @@ pub async fn list_performance_indicator_criteria(
     ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.performance_indicator_template_criteria")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total = sqlx::query_scalar::<_, i64>(
+        "select count(*)::bigint from training.performance_indicator_template_criteria",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, PerformanceIndicatorCriteriaItem>(
         "select id, category_id, name, sort_order from training.performance_indicator_template_criteria order by category_id asc, sort_order asc, id asc limit $1 offset $2",
     ).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(PerformanceIndicatorCriteriaListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(Json(PerformanceIndicatorCriteriaListResponse {
+        items: rows,
+        total: meta.total,
+        page: meta.page,
+        page_size: meta.page_size,
+        total_pages: meta.total_pages,
+        has_next: meta.has_next,
+        has_prev: meta.has_prev,
+    }))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/criteria", tag = "training", request_body = CreatePerformanceIndicatorCriteriaRequest, responses((status = 201, description = "Performance indicator criteria created", body = PerformanceIndicatorCriteriaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -878,15 +954,17 @@ pub async fn list_progression_assignments(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<ProgressionAssignmentListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ProgressionAssignmentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.user_progressions")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.user_progressions")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| ApiError::Internal)?;
     let rows = sqlx::query_as::<_, ProgressionAssignmentItem>(
         r#"
         select
@@ -910,7 +988,18 @@ pub async fn list_progression_assignments(
     .await
     .map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(ProgressionAssignmentListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        ProgressionAssignmentListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/training/progression-assignments", tag = "training", request_body = CreateProgressionAssignmentRequest, responses((status = 201, description = "Progression assignment created", body = ProgressionAssignmentItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -918,8 +1007,9 @@ pub async fn create_progression_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateProgressionAssignmentRequest>,
-) -> Result<(StatusCode, Json<ProgressionAssignmentItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<ProgressionAssignmentItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -946,7 +1036,7 @@ pub async fn create_progression_assignment(
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(row)))
+    Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
 #[utoipa::path(delete, path = "/api/v1/admin/training/progression-assignments/{user_id}", tag = "training", params(("user_id" = String, Path, description = "User ID")), responses((status = 200, description = "Deleted progression assignment", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -987,7 +1077,8 @@ pub async fn get_user_dossier(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(cid): Path<i64>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<DossierEntryListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<DossierEntryListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     if user.cid != cid {
         ensure_training_admin(&state, user, PermissionAction::Read).await?;
@@ -1040,7 +1131,18 @@ pub async fn get_user_dossier(
     .await
     .map_err(|_| ApiError::Internal)?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(DossierEntryListResponse { items: rows, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        DossierEntryListResponse {
+            items: rows,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 async fn ensure_training_admin(

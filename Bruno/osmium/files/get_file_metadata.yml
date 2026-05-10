@@ -13,6 +13,10 @@ http:
       value: ""
       type: path
       description: File ID
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
   auth: inherit
 
 settings:
@@ -27,6 +31,10 @@ examples:
     request:
       url: "{{baseUrl}}/api/v1/files/:file_id"
       method: GET
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
       params:
         - name: file_id
           value: ""

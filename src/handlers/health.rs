@@ -1,8 +1,11 @@
-use axum::{Json, extract::State};
+use axum::extract::State;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::state::AppState;
+use crate::{
+    state::AppState,
+    time::{ApiJson, ResponseTimeContext},
+};
 
 #[derive(Serialize)]
 pub struct HealthBody {
@@ -36,21 +39,28 @@ pub struct StatsSyncHealthBody {
 #[derive(Serialize)]
 pub struct StatsSyncEnvironmentHealthBody {
     stale: bool,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_started_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_finished_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_success_at: Option<DateTime<Utc>>,
     last_result_ok: Option<bool>,
     last_error: Option<String>,
     processed: Option<usize>,
     online: Option<usize>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     source_updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize)]
 pub struct RosterSyncHealthBody {
     enabled: bool,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_started_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_finished_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_success_at: Option<DateTime<Utc>>,
     last_result_ok: Option<bool>,
     last_error: Option<String>,
@@ -64,19 +74,22 @@ pub struct RosterSyncHealthBody {
 #[derive(Serialize)]
 pub struct EmailWorkerHealthBody {
     enabled: bool,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_started_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_finished_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     last_success_at: Option<DateTime<Utc>>,
     last_result_ok: Option<bool>,
     last_error: Option<String>,
     pending_count: Option<i64>,
 }
 
-pub async fn health() -> Json<HealthBody> {
-    Json(HealthBody { status: "ok" })
+pub async fn health(time: ResponseTimeContext) -> ApiJson<HealthBody> {
+    ApiJson::new(HealthBody { status: "ok" }, time)
 }
 
-pub async fn ready(State(state): State<AppState>) -> Json<ReadyBody> {
+pub async fn ready(State(state): State<AppState>, time: ResponseTimeContext) -> ApiJson<ReadyBody> {
     let database_ready = if let Some(pool) = state.db {
         sqlx::query_scalar::<_, i32>("select 1")
             .fetch_one(&pool)
@@ -130,20 +143,23 @@ pub async fn ready(State(state): State<AppState>) -> Json<ReadyBody> {
         .map(|health| email_health_body(&health.worker))
         .unwrap_or_else(poisoned_email_health_body);
 
-    Json(ReadyBody {
-        status: if database_ready && !live_stale {
-            "ready"
-        } else {
-            "degraded"
+    ApiJson::new(
+        ReadyBody {
+            status: if database_ready && !live_stale {
+                "ready"
+            } else {
+                "degraded"
+            },
+            database: if database_ready { "ready" } else { "degraded" },
+            docs: "ready",
+            jobs: JobsHealthBody {
+                stats_sync,
+                roster_sync,
+                email_worker,
+            },
         },
-        database: if database_ready { "ready" } else { "degraded" },
-        docs: "ready",
-        jobs: JobsHealthBody {
-            stats_sync,
-            roster_sync,
-            email_worker,
-        },
-    })
+        time,
+    )
 }
 
 fn environment_health_body(

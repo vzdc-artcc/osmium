@@ -20,6 +20,7 @@ use crate::{
     models::{PaginationMeta, PaginationQuery},
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -27,12 +28,15 @@ pub struct IncidentItem {
     pub id: String,
     pub reporter_id: String,
     pub reportee_id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub timestamp: DateTime<Utc>,
     pub reason: String,
     pub closed: bool,
     pub reporter_callsign: Option<String>,
     pub reportee_callsign: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: DateTime<Utc>,
     pub reporter_cid: Option<i64>,
     pub reporter_name: Option<String>,
@@ -95,8 +99,9 @@ pub async fn create_incident(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateIncidentRequest>,
-) -> Result<(StatusCode, Json<IncidentItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<IncidentItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -175,7 +180,7 @@ pub async fn create_incident(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(full)))
+    Ok((StatusCode::CREATED, ApiJson::new(full, time)))
 }
 
 #[utoipa::path(
@@ -192,7 +197,8 @@ pub async fn list_my_incidents(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListIncidentsQuery>,
-) -> Result<Json<IncidentListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<IncidentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -255,7 +261,18 @@ pub async fn list_my_incidents(
     .map_err(|_| ApiError::Internal)?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(IncidentListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        IncidentListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -272,7 +289,8 @@ pub async fn admin_list_incidents(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListIncidentsQuery>,
-) -> Result<Json<IncidentListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<IncidentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -327,7 +345,18 @@ pub async fn admin_list_incidents(
     .map_err(|_| ApiError::Internal)?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(IncidentListResponse { items, total: meta.total, page: meta.page, page_size: meta.page_size, total_pages: meta.total_pages, has_next: meta.has_next, has_prev: meta.has_prev }))
+    Ok(ApiJson::new(
+        IncidentListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -347,7 +376,8 @@ pub async fn admin_get_incident(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(incident_id): Path<String>,
-) -> Result<Json<IncidentItem>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<IncidentItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -357,7 +387,10 @@ pub async fn admin_get_incident(
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    Ok(Json(fetch_incident(pool, &incident_id).await?))
+    Ok(ApiJson::new(
+        fetch_incident(pool, &incident_id).await?,
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -379,8 +412,9 @@ pub async fn admin_update_incident(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(incident_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateIncidentRequest>,
-) -> Result<Json<IncidentItem>, ApiError> {
+) -> Result<ApiJson<IncidentItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -459,7 +493,7 @@ pub async fn admin_update_incident(
     )
     .await?;
 
-    Ok(Json(item))
+    Ok(ApiJson::new(item, time))
 }
 
 async fn fetch_incident(pool: &sqlx::PgPool, incident_id: &str) -> Result<IncidentItem, ApiError> {

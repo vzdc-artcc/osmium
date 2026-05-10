@@ -4,6 +4,10 @@
 
 Expose backend-owned integration and notification orchestration surfaces.
 
+## Response Timezones
+
+Timestamped Discord config and outbound-job responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Discord Identity Routes
 
 - `GET /api/v1/me/discord`

@@ -30,6 +30,7 @@ use crate::{
         audit as audit_repo,
     },
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 const API_KEY_PREFIX: &str = "osm_";
@@ -55,7 +56,8 @@ pub async fn list_api_keys(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<ApiKeyListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ApiKeyListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -78,15 +80,18 @@ pub async fn list_api_keys(
     .await?;
     let items = rows.into_iter().map(ApiKeyListItem::from).collect();
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
-    Ok(Json(ApiKeyListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        ApiKeyListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -106,7 +111,8 @@ pub async fn get_api_key(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(key_id): Path<String>,
-) -> Result<Json<ApiKeyDetail>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ApiKeyDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -118,7 +124,7 @@ pub async fn get_api_key(
 
     let permissions = api_keys_repo::fetch_api_key_permission_names(pool, &row.id).await?;
     let detail = api_key_detail_from(row, permissions)?;
-    Ok(Json(detail))
+    Ok(ApiJson::new(detail, time))
 }
 
 #[utoipa::path(
@@ -137,8 +143,9 @@ pub async fn create_api_key(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateApiKeyRequest>,
-) -> Result<(StatusCode, Json<CreateApiKeyResponse>), ApiError> {
+) -> Result<(StatusCode, ApiJson<CreateApiKeyResponse>), ApiError> {
     // API keys are user-owned. Service accounts cannot create new keys —
     // returning Unauthorized here also avoids permission-escalation chains.
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -215,7 +222,7 @@ pub async fn create_api_key(
         key: detail,
         secret,
     };
-    Ok((StatusCode::CREATED, Json(response)))
+    Ok((StatusCode::CREATED, ApiJson::new(response, time)))
 }
 
 #[utoipa::path(
@@ -238,8 +245,9 @@ pub async fn update_api_key(
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(key_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<UpdateApiKeyRequest>,
-) -> Result<Json<ApiKeyDetail>, ApiError> {
+) -> Result<ApiJson<ApiKeyDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -300,7 +308,7 @@ pub async fn update_api_key(
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-    Ok(Json(after_detail))
+    Ok(ApiJson::new(after_detail, time))
 }
 
 #[utoipa::path(

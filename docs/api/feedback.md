@@ -4,6 +4,10 @@
 
 Submit and review controller feedback.
 
+## Response Timezones
+
+Timestamped feedback responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Main Routes
 
 - `GET /api/v1/feedback`

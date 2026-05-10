@@ -4,6 +4,10 @@
 
 Manage file assets, file metadata, content replacement, signed URLs, and file audit logs.
 
+## Response Timezones
+
+Timestamped file and file-audit responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Main Routes
 
 - `GET /api/v1/files`

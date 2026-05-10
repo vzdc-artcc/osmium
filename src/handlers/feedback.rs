@@ -18,6 +18,7 @@ use crate::{
     },
     repos::audit as audit_repo,
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[utoipa::path(
@@ -35,8 +36,9 @@ pub async fn create_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateFeedbackRequest>,
-) -> Result<(StatusCode, Json<FeedbackItem>), ApiError> {
+) -> Result<(StatusCode, ApiJson<FeedbackItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -126,7 +128,7 @@ pub async fn create_feedback(
     )
     .await?;
 
-    Ok((StatusCode::CREATED, Json(item)))
+    Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
 #[utoipa::path(
@@ -146,7 +148,8 @@ pub async fn list_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<FeedbackListQuery>,
-) -> Result<Json<FeedbackListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<FeedbackListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -271,15 +274,18 @@ pub async fn list_feedback(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(FeedbackListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        FeedbackListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -301,8 +307,9 @@ pub async fn decide_feedback(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(feedback_id): Path<String>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<DecideFeedbackRequest>,
-) -> Result<Json<FeedbackItem>, ApiError> {
+) -> Result<ApiJson<FeedbackItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -397,5 +404,5 @@ pub async fn decide_feedback(
     )
     .await?;
 
-    Ok(Json(item))
+    Ok(ApiJson::new(item, time))
 }

@@ -4,6 +4,10 @@
 
 Expose the public downloads/publications catalog and provide staff CRUD for publication metadata and categories.
 
+## Response Timezones
+
+Timestamped publication and publication-category responses follow the shared response-timezone contract via `X-Response-Timezone`.
+
 ## Public Routes
 
 - `GET /api/v1/publications`

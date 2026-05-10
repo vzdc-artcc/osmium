@@ -13,16 +13,16 @@ use crate::{
     errors::ApiError,
     jobs::roster_sync,
     models::{
-        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery, PaginationMeta,
-        PaginationQuery,
+        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
-        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, RosterUserRow, UserBasicInfo,
-        UserDetailsResponse, UserFeedbackListResponse, UserFeedbackQuery, UserFullInfo,
-        UserListItem, UserListResponse, UserPrivateInfo, VisitArtccRequest, VisitArtccResponse,
-        VisitorApplicationItem,
+        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
+        PaginationQuery, RosterUserRow, UserBasicInfo, UserDetailsResponse,
+        UserFeedbackListResponse, UserFeedbackQuery, UserFullInfo, UserListItem, UserListResponse,
+        UserPrivateInfo, VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
     },
     repos::{audit as audit_repo, users as user_repo},
     state::AppState,
+    time::{ApiJson, ResponseTimeContext},
 };
 
 #[utoipa::path(
@@ -39,7 +39,8 @@ pub async fn list_users(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<ListUsersQuery>,
-) -> Result<Json<UserListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UserListResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -54,10 +55,11 @@ pub async fn list_users(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let total =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| ApiError::Internal)?;
     let rows = user_repo::list_roster_users(pool, pagination.page_size, pagination.offset).await?;
 
     let items = rows
@@ -76,15 +78,18 @@ pub async fn list_users(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(UserListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        UserListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -104,7 +109,8 @@ pub async fn get_user(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(cid): Path<i64>,
-) -> Result<Json<UserDetailsResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UserDetailsResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -112,8 +118,9 @@ pub async fn get_user(
         .await?
         .ok_or(ApiError::BadRequest)?;
 
-    Ok(Json(
+    Ok(ApiJson::new(
         build_user_details_response(&state, viewer, row).await?,
+        time,
     ))
 }
 
@@ -203,7 +210,8 @@ pub async fn refresh_my_vatusa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
-) -> Result<Json<ManualVatusaRefreshResponseBody>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ManualVatusaRefreshResponseBody>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -260,7 +268,7 @@ pub async fn refresh_my_vatusa(
     )
     .await?;
 
-    Ok(Json(response))
+    Ok(ApiJson::new(response, time))
 }
 
 #[utoipa::path(
@@ -275,7 +283,8 @@ pub async fn refresh_my_vatusa(
 pub async fn get_my_visitor_application(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-) -> Result<Json<Option<VisitorApplicationItem>>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<Option<VisitorApplicationItem>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -290,7 +299,7 @@ pub async fn get_my_visitor_application(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let application = user_repo::find_visitor_application_by_user_id(pool, &user.id).await?;
 
-    Ok(Json(application))
+    Ok(ApiJson::new(application, time))
 }
 
 #[utoipa::path(
@@ -308,8 +317,9 @@ pub async fn create_visitor_application(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     headers: HeaderMap,
+    time: ResponseTimeContext,
     Json(payload): Json<CreateVisitorApplicationRequest>,
-) -> Result<Json<VisitorApplicationItem>, ApiError> {
+) -> Result<ApiJson<VisitorApplicationItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(
         &state,
@@ -361,7 +371,7 @@ pub async fn create_visitor_application(
     )
     .await?;
 
-    Ok(Json(application))
+    Ok(ApiJson::new(application, time))
 }
 
 #[utoipa::path(
@@ -384,7 +394,8 @@ pub async fn get_user_feedback(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(cid): Path<i64>,
     Query(query): Query<UserFeedbackQuery>,
-) -> Result<Json<UserFeedbackListResponse>, ApiError> {
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UserFeedbackListResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
@@ -473,15 +484,18 @@ pub async fn get_user_feedback(
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
-    Ok(Json(UserFeedbackListResponse {
-        items,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
-    }))
+    Ok(ApiJson::new(
+        UserFeedbackListResponse {
+            items,
+            total: meta.total,
+            page: meta.page,
+            page_size: meta.page_size,
+            total_pages: meta.total_pages,
+            has_next: meta.has_next,
+            has_prev: meta.has_prev,
+        },
+        time,
+    ))
 }
 
 async fn can_view_private_directory(
