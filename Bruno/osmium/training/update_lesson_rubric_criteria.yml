@@ -1,0 +1,136 @@
+info:
+  name: update_lesson_rubric_criteria
+  type: http
+  seq: 56
+  tags:
+    - training
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id"
+  params:
+    - name: lesson_id
+      value: ""
+      type: path
+      description: Training lesson ID
+    - name: criteria_id
+      value: ""
+      type: path
+      description: Rubric criteria ID
+  body:
+    type: json
+    data: |-
+      {
+        "criteria": "Radar Traffic Advisories",
+        "description": "Issues traffic advisories when appropriate",
+        "max_points": 4,
+        "passing": 3
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Rubric criteria updated
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id"
+      method: PATCH
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+        - name: criteria_id
+          value: ""
+          type: path
+          description: Rubric criteria ID
+      body:
+        type: json
+        data: |-
+          {
+            "criteria": "Radar Traffic Advisories",
+            "description": "Issues traffic advisories when appropriate",
+            "max_points": 4,
+            "passing": 3
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "id": "",
+            "rubric_id": "",
+            "criteria": "",
+            "description": "",
+            "passing": 0,
+            "max_points": 0,
+            "cells": []
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id"
+      method: PATCH
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+        - name: criteria_id
+          value: ""
+          type: path
+          description: Rubric criteria ID
+      body:
+        type: json
+        data: |-
+          {
+            "criteria": "Radar Traffic Advisories",
+            "description": "Issues traffic advisories when appropriate",
+            "max_points": 4,
+            "passing": 3
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 404 Response
+    description: Criteria not found
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id"
+      method: PATCH
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+        - name: criteria_id
+          value: ""
+          type: path
+          description: Rubric criteria ID
+      body:
+        type: json
+        data: |-
+          {
+            "criteria": "Radar Traffic Advisories",
+            "description": "Issues traffic advisories when appropriate",
+            "max_points": 4,
+            "passing": 3
+          }
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

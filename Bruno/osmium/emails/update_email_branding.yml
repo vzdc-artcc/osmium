@@ -1,0 +1,43 @@
+info:
+  name: update_email_branding
+  type: http
+  seq: 11
+  tags:
+    - emails
+
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/v1/admin/emails/branding"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |
+      {
+        "brand_name": "vZDC",
+        "tagline": "Washington ARTCC",
+        "footer_text": "Virtual Washington Air Route Traffic Control Center",
+        "logo_file_id": null,
+        "header_background_color": "#0d5c63",
+        "header_text_color": "#ffffff",
+        "page_background_color": "#f4f1e8",
+        "panel_background_color": "#ffffff",
+        "text_color": "#1f2933",
+        "heading_color": "#0d5c63",
+        "link_color": "#0d5c63",
+        "accent_color": "#8b3d2e",
+        "button_background_color": "#0d5c63",
+        "button_text_color": "#ffffff",
+        "heading_font_family": "system_sans",
+        "body_font_family": "system_sans",
+        "font_size_scale": "medium",
+        "corner_style": "rounded"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

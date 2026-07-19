@@ -33,13 +33,16 @@ use crate::{
 };
 
 const OAUTH_STATE_COOKIE: &str = "osmium_oauth_state";
+const OAUTH_RETURN_TO_COOKIE: &str = "osmium_oauth_return_to";
 const SESSION_COOKIE: &str = "osmium_session";
 const OAUTH_STATE_TTL_SECS: i64 = 10 * 60;
 const SESSION_TTL_SECS: i64 = 60 * 60 * 24 * 30;
+const DEFAULT_LOGIN_REDIRECT: &str = "/api/v1/me";
 
 #[derive(Deserialize, ToSchema)]
 pub struct LoginQuery {
     prompt: Option<String>,
+    return_to: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -273,7 +276,8 @@ pub async fn service_account_me(
     path = "/api/v1/auth/vatsim/login",
     tag = "auth",
     params(
-        ("prompt" = Option<String>, Query, description = "Optional OAuth prompt override")
+        ("prompt" = Option<String>, Query, description = "Optional OAuth prompt override"),
+        ("return_to" = Option<String>, Query, description = "Absolute URL to redirect to after login completes. Origin must be in CORS_ALLOWED_ORIGINS; defaults to /api/v1/me if omitted or invalid.")
     ),
     responses(
         (status = 307, description = "Redirects to VATSIM OAuth")
@@ -305,10 +309,26 @@ pub async fn vatsim_login(
         .max_age(time::Duration::seconds(OAUTH_STATE_TTL_SECS))
         .build();
 
-    Ok((
-        jar.add(state_cookie),
-        Redirect::temporary(&authorize_url.to_string()),
-    ))
+    let mut jar = jar.add(state_cookie);
+
+    if let Some(raw_return_to) = query
+        .return_to
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let return_to = validate_return_to(raw_return_to)?;
+        let return_to_cookie = Cookie::build((OAUTH_RETURN_TO_COOKIE, return_to))
+            .http_only(true)
+            .secure(cookie_secure())
+            .same_site(SameSite::Lax)
+            .path("/")
+            .max_age(time::Duration::seconds(OAUTH_STATE_TTL_SECS))
+            .build();
+        jar = jar.add(return_to_cookie);
+    }
+
+    Ok((jar, Redirect::temporary(&authorize_url.to_string())))
 }
 
 #[utoipa::path(
@@ -320,7 +340,7 @@ pub async fn vatsim_login(
         ("state" = Option<String>, Query, description = "OAuth state token")
     ),
     responses(
-        (status = 302, description = "Completes login and redirects to /api/v1/me"),
+        (status = 302, description = "Completes login and redirects to the validated return_to target from the login request, or /api/v1/me if none was provided"),
         (status = 400, description = "Invalid callback state or code")
     )
 )]
@@ -416,6 +436,27 @@ pub async fn vatsim_callback(
         .max_age(time::Duration::seconds(0))
         .build();
 
+    let redirect_target = jar
+        .get(OAUTH_RETURN_TO_COOKIE)
+        .map(|cookie| cookie.value().to_string())
+        .filter(|value| !value.is_empty())
+        .and_then(|value| match validate_return_to(&value) {
+            Ok(validated) => Some(validated),
+            Err(_) => {
+                tracing::warn!(
+                    return_to = value.as_str(),
+                    "ignoring invalid return_to cookie at oauth callback"
+                );
+                None
+            }
+        })
+        .unwrap_or_else(|| DEFAULT_LOGIN_REDIRECT.to_string());
+
+    let clear_return_to_cookie = Cookie::build((OAUTH_RETURN_TO_COOKIE, ""))
+        .path("/")
+        .max_age(time::Duration::seconds(0))
+        .build();
+
     let session_cookie = Cookie::build((SESSION_COOKIE, session_token))
         .http_only(true)
         .secure(cookie_secure())
@@ -425,8 +466,10 @@ pub async fn vatsim_callback(
         .build();
 
     Ok((
-        jar.remove(clear_state_cookie).add(session_cookie),
-        Redirect::to("/api/v1/me"),
+        jar.remove(clear_state_cookie)
+            .remove(clear_return_to_cookie)
+            .add(session_cookie),
+        Redirect::to(&redirect_target),
     ))
 }
 
@@ -718,6 +761,30 @@ fn cookie_secure() -> bool {
         .unwrap_or(false)
 }
 
+/// Validates a `return_to` redirect target: must be an absolute http(s) URL
+/// whose origin is in `CORS_ALLOWED_ORIGINS`. Rejecting anything else prevents
+/// this login flow from being used as an open redirect.
+fn validate_return_to(raw: &str) -> Result<String, ApiError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let parsed = Url::parse(trimmed).map_err(|_| ApiError::BadRequest)?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(ApiError::BadRequest);
+    }
+
+    let origin = url_origin(trimmed).ok_or(ApiError::BadRequest)?;
+    let allowed_origins = crate::config::configured_allowed_origins();
+    if !allowed_origins.iter().any(|allowed| allowed == &origin) {
+        tracing::warn!(origin, "return_to origin not in CORS_ALLOWED_ORIGINS");
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(trimmed.to_string())
+}
+
 fn validate_oauth_login_origin(
     headers: &HeaderMap,
     config: &VatsimOAuthConfig,
@@ -781,7 +848,7 @@ fn url_origin(raw: &str) -> Option<String> {
 mod tests {
     use std::sync::{Mutex, OnceLock};
 
-    use super::configured_server_admin_cid;
+    use super::{configured_server_admin_cid, validate_return_to};
     use crate::auth::acl::SERVER_ADMIN_ROLE;
 
     struct EnvVarGuard {
@@ -855,5 +922,48 @@ mod tests {
     #[test]
     fn server_admin_role_constant_is_stable() {
         assert_eq!(SERVER_ADMIN_ROLE, "SERVER_ADMIN");
+    }
+
+    #[test]
+    fn return_to_accepts_allowlisted_origin() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::set("CORS_ALLOWED_ORIGINS", "https://vzdc.org");
+
+        assert_eq!(
+            validate_return_to("https://vzdc.org/profile/loa").unwrap(),
+            "https://vzdc.org/profile/loa".to_string()
+        );
+    }
+
+    #[test]
+    fn return_to_rejects_non_allowlisted_origin() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::set("CORS_ALLOWED_ORIGINS", "https://vzdc.org");
+
+        assert!(validate_return_to("https://evil.example/phish").is_err());
+    }
+
+    #[test]
+    fn return_to_rejects_when_allowlist_unset() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::unset("CORS_ALLOWED_ORIGINS");
+
+        assert!(validate_return_to("https://vzdc.org/").is_err());
+    }
+
+    #[test]
+    fn return_to_rejects_non_http_scheme() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::set("CORS_ALLOWED_ORIGINS", "https://vzdc.org");
+
+        assert!(validate_return_to("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn return_to_rejects_empty_value() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::set("CORS_ALLOWED_ORIGINS", "https://vzdc.org");
+
+        assert!(validate_return_to("   ").is_err());
     }
 }

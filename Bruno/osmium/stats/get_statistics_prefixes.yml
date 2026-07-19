@@ -1,0 +1,52 @@
+info:
+  name: get_statistics_prefixes
+  type: http
+  seq: 5
+  tags:
+    - stats
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/stats/prefixes"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Configured statistics prefixes
+    request:
+      url: "{{baseUrl}}/api/v1/admin/stats/prefixes"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "id": "",
+            "prefixes": [
+              "PCT",
+              "DCA"
+            ],
+            "updated_at": ""
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/stats/prefixes"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

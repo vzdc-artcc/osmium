@@ -1,0 +1,103 @@
+info:
+  name: create_broadcast
+  type: http
+  seq: 2
+  tags:
+    - broadcasts
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/broadcasts"
+  body:
+    type: json
+    data: |-
+      {
+        "title": "New training policy",
+        "description": "Effective immediately, all OTS sessions require...",
+        "file_id": null,
+        "exempt_staff": false
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Change broadcast created
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "title": "New training policy",
+            "description": "Effective immediately, all OTS sessions require...",
+            "file_id": null,
+            "exempt_staff": false
+          }
+    response:
+      status: 201
+      statusText: Created
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "id": "",
+            "title": "",
+            "description": "",
+            "file_id": null,
+            "file_filename": null,
+            "exempt_staff": false,
+            "timestamp": "",
+            "updated_at": "",
+            "seen_count": 0,
+            "agreed_count": 0
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "title": "New training policy",
+            "description": "Effective immediately, all OTS sessions require...",
+            "file_id": null,
+            "exempt_staff": false
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "title": "New training policy",
+            "description": "Effective immediately, all OTS sessions require...",
+            "file_id": null,
+            "exempt_staff": false
+          }
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

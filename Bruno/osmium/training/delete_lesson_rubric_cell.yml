@@ -1,0 +1,80 @@
+info:
+  name: delete_lesson_rubric_cell
+  type: http
+  seq: 60
+  tags:
+    - training
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id/cells/:cell_id"
+  params:
+    - name: lesson_id
+      value: ""
+      type: path
+      description: Training lesson ID
+    - name: criteria_id
+      value: ""
+      type: path
+      description: Rubric criteria ID
+    - name: cell_id
+      value: ""
+      type: path
+      description: Rubric cell ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Rubric cell deleted
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id/cells/:cell_id"
+      method: DELETE
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+        - name: criteria_id
+          value: ""
+          type: path
+          description: Rubric criteria ID
+        - name: cell_id
+          value: ""
+          type: path
+          description: Rubric cell ID
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 404 Response
+    description: Cell not found
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id/cells/:cell_id"
+      method: DELETE
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+        - name: criteria_id
+          value: ""
+          type: path
+          description: Rubric criteria ID
+        - name: cell_id
+          value: ""
+          type: path
+          description: Rubric cell ID
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

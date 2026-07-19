@@ -1,0 +1,41 @@
+info:
+  name: acknowledge_welcome_message
+  type: http
+  seq: 4
+  tags:
+    - welcome-messages
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/welcome-message/ack"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Welcome message flag cleared
+    request:
+      url: "{{baseUrl}}/api/v1/welcome-message/ack"
+      method: POST
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/welcome-message/ack"
+      method: POST
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

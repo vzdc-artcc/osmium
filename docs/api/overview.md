@@ -17,6 +17,9 @@ The generated API reference lives at `/docs/api/v1`. This page explains how to r
 - files
 - publications
 - stats
+- broadcasts
+- welcome-messages
+- captcha
 
 ## Response Timezones
 

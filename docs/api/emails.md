@@ -18,6 +18,8 @@ Timestamped outbox and send-email responses follow the shared response-timezone 
 - `GET /api/v1/emails/preferences`
 - `POST /api/v1/emails/preferences`
 - `POST /api/v1/emails/resubscribe`
+- `GET /api/v1/admin/emails/branding`
+- `PATCH /api/v1/admin/emails/branding`
 
 ## Template Model
 
@@ -112,6 +114,47 @@ Current audience fields:
 
 Audience filters only resolve first-party user rows with stored email addresses.
 
+## Email Branding
+
+A single global config row (`email.branding`) controls the shared visual envelope every template renders inside — not a per-template or per-category setting. Covers identity (brand name, tagline, footer text, optional logo), 10 individually-configurable colors (header background/text, page background, panel background, body text, headings, links, accent, button background/text), typography (separate heading/body font — each a key into a fixed email-safe allow-list, never a raw CSS font stack), a font-size scale (`small`/`medium`/`large`), and a corner style (`sharp`/`rounded`/`soft`).
+
+`GET /api/v1/admin/emails/branding` returns the current saved config. `PATCH /api/v1/admin/emails/branding` replaces it wholesale (not a partial update) and audit-logs the before/after state.
+
+Validation, enforced server-side on every write:
+
+- all 10 color fields must fully match `^#[0-9a-fA-F]{6}$` — free-form color strings are rejected, since they're spliced into a raw (unescaped) `<style>` block
+- `heading_font_family`/`body_font_family` must be one of the allow-listed keys (`roboto_sans`, `system_sans`, `georgia_serif`, `monospace`) — free-text font names are rejected for the same injection reason, plus most fonts aren't email-client-safe anyway
+- `font_size_scale` and `corner_style` must be one of their fixed enum values
+- `logo_file_id`, if set, must reference an existing `media.file_assets` row with `is_public: true` — a private file is rejected, since email clients fetch images anonymously with no auth
+- `brand_name`/`tagline`/`footer_text` are trimmed and length-capped (100/150/200 chars)
+
+`POST /api/v1/emails/preview` accepts an optional `branding_override` using the same shape as the `PATCH` body — when present, the preview renders with that draft branding instead of the saved config (still validated the same way), which is what lets a branding-builder UI show a live preview of unsaved edits before committing.
+
+Example update body:
+
+```json
+{
+  "brand_name": "vZDC",
+  "tagline": "Washington ARTCC",
+  "footer_text": "Sent by vZDC.",
+  "logo_file_id": null,
+  "header_background_color": "#500e0e",
+  "header_text_color": "#ededf5",
+  "page_background_color": "#f1f0f6",
+  "panel_background_color": "#ffffff",
+  "text_color": "#1f2430",
+  "heading_color": "#500e0e",
+  "link_color": "#500e0e",
+  "accent_color": "#500e0e",
+  "button_background_color": "#500e0e",
+  "button_text_color": "#ededf5",
+  "heading_font_family": "roboto_sans",
+  "body_font_family": "roboto_sans",
+  "font_size_scale": "medium",
+  "corner_style": "soft"
+}
+```
+
 ## Permissions
 
 - `emails.templates.read`
@@ -119,6 +162,8 @@ Audience filters only resolve first-party user rows with stored email addresses.
 - `emails.send.create`
 - `emails.outbox.read`
 - `emails.suppressions.update`
+- `emails.branding.read`
+- `emails.branding.update`
 
 `GET /api/v1/emails/preferences?token=...` and `POST /api/v1/emails/preferences` are public-by-token and do not require auth.
 

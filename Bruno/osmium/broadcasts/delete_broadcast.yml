@@ -1,0 +1,72 @@
+info:
+  name: delete_broadcast
+  type: http
+  seq: 4
+  tags:
+    - broadcasts
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/admin/broadcasts/:broadcast_id"
+  params:
+    - name: broadcast_id
+      value: ""
+      type: path
+      description: Change broadcast ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Change broadcast deleted
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts/:broadcast_id"
+      method: DELETE
+      params:
+        - name: broadcast_id
+          value: ""
+          type: path
+          description: Change broadcast ID
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts/:broadcast_id"
+      method: DELETE
+      params:
+        - name: broadcast_id
+          value: ""
+          type: path
+          description: Change broadcast ID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""
+  - name: 404 Response
+    description: Broadcast not found
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts/:broadcast_id"
+      method: DELETE
+      params:
+        - name: broadcast_id
+          value: ""
+          type: path
+          description: Change broadcast ID
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""
