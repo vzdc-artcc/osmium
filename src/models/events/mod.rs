@@ -40,6 +40,26 @@ pub struct EventPosition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct UserEventPositionItem {
+    pub id: String,
+    pub event_id: String,
+    pub event_title: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub event_starts_at: DateTime<Utc>,
+    pub event_type: String,
+    pub final_position: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub final_start_time: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub final_end_time: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct UserEventPositionListResponse {
+    pub items: Vec<UserEventPositionItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct EventOpsPlanItem {
     pub id: String,
     pub title: String,

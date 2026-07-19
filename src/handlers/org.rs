@@ -23,20 +23,20 @@ use crate::{
     email::service::EmailActor,
     errors::ApiError,
     models::{
-        ControllerLifecycleCleanupSummary, ControllerLifecycleRequest, ControllerLifecycleResponse,
-        CreateLoaRequest, CreateSoloCertificationRequest, CreateStaffingRequestRequest,
-        CreateSuaRequest, DecideLoaRequest, JobDetailResponse, JobRunItem, JobRunResponse,
-        JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery, ListStaffingRequestsQuery,
-        ListSuaQuery, LoaItem, LoaListResponse, PaginationMeta, PaginationQuery,
-        SoloCertificationItem, SoloCertificationListResponse, StaffingRequestItem,
+        CertificationListResponse, ControllerLifecycleCleanupSummary, ControllerLifecycleRequest,
+        ControllerLifecycleResponse, CreateLoaRequest, CreateSoloCertificationRequest,
+        CreateStaffingRequestRequest, CreateSuaRequest, DecideLoaRequest, JobDetailResponse,
+        JobRunItem, JobRunResponse, JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery,
+        ListStaffingRequestsQuery, ListSuaQuery, LoaItem, LoaListResponse, PaginationMeta,
+        PaginationQuery, SoloCertificationItem, SoloCertificationListResponse, StaffingRequestItem,
         StaffingRequestListResponse, SuaBlockItem, SuaListResponse, UpdateLoaRequest,
         UpdateSoloCertificationRequest,
     },
     repos::{
         audit as audit_repo,
         org::{
-            controller_lifecycle, jobs as jobs_repo, loas, solo_certs, staffing_requests,
-            sua_requests,
+            certifications, controller_lifecycle, jobs as jobs_repo, loas, solo_certs,
+            staffing_requests, sua_requests,
         },
         users as user_repo,
     },
@@ -317,6 +317,40 @@ pub async fn get_user_solo_certifications(
         },
         time,
     ))
+}
+
+#[utoipa::path(get, path = "/api/v1/users/{cid}/certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "User certifications by type", body = CertificationListResponse), (status = 401, description = "Not authenticated")))]
+pub async fn get_user_certifications(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(cid): Path<i64>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<CertificationListResponse>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    // Same data-dependent authorization as get_user_solo_certifications above: self-view
+    // needs only "auth.profile.read", viewing someone else needs "users.directory.read".
+    if user.cid != cid {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
+        )
+        .await?;
+    } else {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
+        )
+        .await?;
+    }
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let items = certifications::fetch_user_certifications(pool, cid).await?;
+
+    Ok(ApiJson::new(CertificationListResponse { items }, time))
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/solo-certifications", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "Solo certification list", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]

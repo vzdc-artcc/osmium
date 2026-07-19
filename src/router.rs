@@ -8,9 +8,9 @@ use crate::{
     config::{build_cors_layer, dev_impersonation_enabled, dev_seed_enabled},
     docs,
     handlers::{
-        admin, api_keys, auth, broadcasts, dev, docs as docs_handlers, emails, event_ops, events,
-        feedback, files, health, incidents, integrations, org, publications, stats, training,
-        training_admin, users, welcome_messages,
+        admin, api_keys, auth, broadcasts, captcha, dev, docs as docs_handlers, emails, event_ops,
+        events, feedback, files, health, incidents, integrations, org, publications, stats,
+        training, training_admin, users, welcome_messages,
     },
     state::AppState,
 };
@@ -498,9 +498,18 @@ pub fn build_router(state: AppState) -> Router {
             "/welcome-message/ack",
             post(welcome_messages::acknowledge_welcome_message),
         )
+        .route("/captcha/verify", post(captcha::verify_captcha))
         .route(
             "/users/{cid}/solo-certifications",
             get(org::get_user_solo_certifications),
+        )
+        .route(
+            "/users/{cid}/certifications",
+            get(org::get_user_certifications),
+        )
+        .route(
+            "/users/{cid}/event-positions",
+            get(events::get_user_event_positions),
         )
         .route(
             "/users/{cid}/dossier",

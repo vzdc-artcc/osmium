@@ -63,6 +63,19 @@ pub struct LoaListResponse {
     pub pagination: crate::models::PaginationMeta,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct CertificationItem {
+    pub certification_type_id: String,
+    pub certification_type_name: String,
+    pub sort_order: i32,
+    pub certification_option: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CertificationListResponse {
+    pub items: Vec<CertificationItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SoloCertificationItem {
     pub id: String,

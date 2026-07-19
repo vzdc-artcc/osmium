@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
+        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
+        middleware::ensure_permission,
         permissions::{
             EventsItemsCreate, EventsItemsDelete, EventsItemsUpdate, EventsPositionsAssign,
             EventsPositionsDelete, EventsPositionsPublish, EventsPositionsSelfRequest,
@@ -19,7 +21,7 @@ use crate::{
     models::{
         AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
         EventListResponse, EventPosition, EventPositionListResponse, ListEventsQuery,
-        PaginationMeta, PaginationQuery, UpdateEventRequest,
+        PaginationMeta, PaginationQuery, UpdateEventRequest, UserEventPositionListResponse,
     },
     repos::{audit as audit_repo, events as events_repo},
     state::AppState,
@@ -349,6 +351,40 @@ pub async fn list_event_positions(
         },
         time,
     ))
+}
+
+#[utoipa::path(get, path = "/api/v1/users/{cid}/event-positions", tag = "events", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "User's published event positions, most recent event first", body = UserEventPositionListResponse), (status = 401, description = "Not authenticated")))]
+pub async fn get_user_event_positions(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(cid): Path<i64>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UserEventPositionListResponse>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    // Same data-dependent authorization as org::get_user_solo_certifications: self-view
+    // needs only "auth.profile.read", viewing someone else needs "users.directory.read".
+    if user.cid != cid {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
+        )
+        .await?;
+    } else {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
+        )
+        .await?;
+    }
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let items = events_repo::fetch_user_published_event_positions(db, cid).await?;
+
+    Ok(ApiJson::new(UserEventPositionListResponse { items }, time))
 }
 
 // Create event position (user signup)

@@ -13,6 +13,7 @@ pub fn build_docs_router() -> Router<AppState> {
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        crate::handlers::captcha::verify_captcha,
         crate::handlers::broadcasts::list_broadcasts,
         crate::handlers::broadcasts::create_broadcast,
         crate::handlers::broadcasts::update_broadcast,
@@ -95,6 +96,7 @@ pub fn build_docs_router() -> Router<AppState> {
         crate::handlers::events::update_event,
         crate::handlers::events::delete_event,
         crate::handlers::events::list_event_positions,
+        crate::handlers::events::get_user_event_positions,
         crate::handlers::events::create_event_position,
         crate::handlers::events::assign_event_position,
         crate::handlers::events::delete_event_position,
@@ -154,6 +156,7 @@ pub fn build_docs_router() -> Router<AppState> {
         crate::handlers::org::decide_loa,
         crate::handlers::org::run_loa_expiration,
         crate::handlers::org::get_user_solo_certifications,
+        crate::handlers::org::get_user_certifications,
         crate::handlers::org::admin_list_solo_certifications,
         crate::handlers::org::create_solo_certification,
         crate::handlers::org::update_solo_certification,
@@ -311,6 +314,8 @@ pub fn build_docs_router() -> Router<AppState> {
             crate::models::DecideTrainerReleaseRequestRequest,
             crate::models::Event,
             crate::models::EventPosition,
+            crate::models::UserEventPositionItem,
+            crate::models::UserEventPositionListResponse,
             crate::models::CreateEventRequest,
             crate::models::UpdateEventRequest,
             crate::models::CreateEventPositionRequest,
@@ -377,6 +382,8 @@ pub fn build_docs_router() -> Router<AppState> {
             crate::models::DecideLoaRequest,
             crate::models::LoaListResponse,
             crate::models::SoloCertificationItem,
+            crate::models::CertificationItem,
+            crate::models::CertificationListResponse,
             crate::models::CreateSoloCertificationRequest,
             crate::models::UpdateSoloCertificationRequest,
             crate::models::SoloCertificationListResponse,
@@ -435,6 +442,8 @@ pub fn build_docs_router() -> Router<AppState> {
             crate::models::WelcomeMessageContent,
             crate::models::UpdateWelcomeMessageContentRequest,
             crate::models::MyWelcomeMessageResponse,
+            crate::models::VerifyCaptchaRequest,
+            crate::models::VerifyCaptchaResponse,
             crate::models::TrainingProgressionItem,
             crate::models::TrainingProgressionStepItem,
             crate::models::PerformanceIndicatorTemplateItem,
@@ -472,7 +481,8 @@ pub fn build_docs_router() -> Router<AppState> {
         (name = "publications", description = "Downloads and publication metadata"),
         (name = "stats", description = "Statistics and reporting routes"),
         (name = "broadcasts", description = "Site-wide change broadcast notices"),
-        (name = "welcome-messages", description = "First-visit welcome message content and per-user acknowledgement")
+        (name = "welcome-messages", description = "First-visit welcome message content and per-user acknowledgement"),
+        (name = "captcha", description = "Server-side reCAPTCHA verification proxy")
     )
 )]
 pub struct ApiDoc;

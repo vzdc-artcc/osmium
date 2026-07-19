@@ -2,7 +2,7 @@ use sqlx::PgPool;
 
 use crate::{
     errors::ApiError,
-    models::{Event, EventOpsPlanItem, EventPosition, EventTmiItem},
+    models::{Event, EventOpsPlanItem, EventPosition, EventTmiItem, UserEventPositionItem},
 };
 
 #[derive(Debug, sqlx::FromRow)]
@@ -261,6 +261,34 @@ pub async fn list_event_positions_all(
     .fetch_all(pool)
     .await
     .map(|rows| rows.into_iter().map(Into::into).collect())
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn fetch_user_published_event_positions(
+    pool: &PgPool,
+    cid: i64,
+) -> Result<Vec<UserEventPositionItem>, ApiError> {
+    sqlx::query_as::<_, UserEventPositionItem>(
+        r#"
+        select
+            ep.id,
+            ep.event_id,
+            e.title as event_title,
+            e.starts_at as event_starts_at,
+            e.type as event_type,
+            ep.final_position,
+            ep.final_start_time,
+            ep.final_end_time
+        from events.event_positions ep
+        join events.events e on e.id = ep.event_id
+        join identity.users u on u.id = ep.user_id
+        where u.cid = $1 and ep.published = true
+        order by e.starts_at desc, ep.id asc
+        "#,
+    )
+    .bind(cid)
+    .fetch_all(pool)
+    .await
     .map_err(|_| ApiError::Internal)
 }
 

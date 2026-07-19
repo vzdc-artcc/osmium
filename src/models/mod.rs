@@ -1,4 +1,5 @@
 pub mod access;
+pub mod captcha;
 pub mod email;
 pub mod events;
 pub mod feedback;
@@ -19,6 +20,7 @@ pub use access::{
     ListAuditLogsQuery, ServiceAccountSessionBody, UpdateApiKeyRequest, UpdateUserAccessRequest,
     UserAccessBody,
 };
+pub use captcha::{VerifyCaptchaRequest, VerifyCaptchaResponse};
 pub use email::{
     EmailAudienceRequest, EmailBranding, EmailOutboxDetailResponse, EmailOutboxListItem,
     EmailOutboxListResponse, EmailOutboxRecipientResponse, EmailPreferenceState,
@@ -33,7 +35,7 @@ pub use events::{
     CreateEventTmiRequest, Event, EventListResponse, EventOpsPlanItem, EventPosition,
     EventPositionListResponse, EventTmiItem, EventTmiListResponse, ListEventsQuery,
     UpdateEventOpsPlanRequest, UpdateEventRequest, UpdateEventTmiRequest,
-    UpdatePresetPositionsRequest,
+    UpdatePresetPositionsRequest, UserEventPositionItem, UserEventPositionListResponse,
 };
 
 pub use feedback::{
@@ -58,14 +60,14 @@ pub use media::{
     UploadFileQuery,
 };
 pub use org::{
-    ControllerLifecycleCleanupSummary, ControllerLifecycleRequest, ControllerLifecycleResponse,
-    CreateLoaRequest, CreateSoloCertificationRequest, CreateStaffingRequestRequest,
-    CreateSuaAirspaceRequest, CreateSuaRequest, DecideLoaRequest, JobDetailResponse, JobRunItem,
-    JobRunResponse, JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery,
-    ListStaffingRequestsQuery, ListSuaQuery, LoaItem, LoaListResponse, SoloCertificationItem,
-    SoloCertificationListResponse, StaffingRequestItem, StaffingRequestListResponse,
-    SuaAirspaceItem, SuaBlockItem, SuaListResponse, UpdateLoaRequest,
-    UpdateSoloCertificationRequest,
+    CertificationItem, CertificationListResponse, ControllerLifecycleCleanupSummary,
+    ControllerLifecycleRequest, ControllerLifecycleResponse, CreateLoaRequest,
+    CreateSoloCertificationRequest, CreateStaffingRequestRequest, CreateSuaAirspaceRequest,
+    CreateSuaRequest, DecideLoaRequest, JobDetailResponse, JobRunItem, JobRunResponse,
+    JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery, ListStaffingRequestsQuery,
+    ListSuaQuery, LoaItem, LoaListResponse, SoloCertificationItem, SoloCertificationListResponse,
+    StaffingRequestItem, StaffingRequestListResponse, SuaAirspaceItem, SuaBlockItem,
+    SuaListResponse, UpdateLoaRequest, UpdateSoloCertificationRequest,
 };
 pub use pagination::{PaginationMeta, PaginationQuery, ResolvedPagination};
 pub use stats::{

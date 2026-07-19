@@ -1,3 +1,4 @@
+pub mod certifications;
 pub mod controller_lifecycle;
 pub mod jobs;
 pub mod loas;

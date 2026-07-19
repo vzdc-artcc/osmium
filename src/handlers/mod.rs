@@ -2,6 +2,7 @@ pub mod admin;
 pub mod api_keys;
 pub mod auth;
 pub mod broadcasts;
+pub mod captcha;
 pub mod dev;
 pub mod docs;
 pub mod emails;
