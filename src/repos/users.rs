@@ -39,6 +39,39 @@ struct ExistingTeamSpeakUidRow {
     linked_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(sqlx::FromRow)]
+struct VisitorApplicationRow {
+    id: String,
+    user_id: String,
+    cid: Option<i64>,
+    display_name: Option<String>,
+    home_facility: String,
+    why_visit: String,
+    status: String,
+    reason_for_denial: Option<String>,
+    submitted_at: chrono::DateTime<chrono::Utc>,
+    decided_at: Option<chrono::DateTime<chrono::Utc>>,
+    decided_by_actor_id: Option<String>,
+}
+
+impl From<VisitorApplicationRow> for VisitorApplicationItem {
+    fn from(row: VisitorApplicationRow) -> Self {
+        VisitorApplicationItem {
+            id: row.id,
+            user_id: row.user_id,
+            cid: row.cid,
+            display_name: row.display_name,
+            home_facility: row.home_facility,
+            why_visit: row.why_visit,
+            status: row.status,
+            reason_for_denial: row.reason_for_denial,
+            submitted_at: row.submitted_at,
+            decided_at: row.decided_at,
+            decided_by_actor_id: row.decided_by_actor_id,
+        }
+    }
+}
+
 pub async fn list_admin_users(
     pool: &PgPool,
     limit: i64,
@@ -608,7 +641,7 @@ pub async fn find_visitor_application_by_user_id(
     pool: &PgPool,
     user_id: &str,
 ) -> Result<Option<VisitorApplicationItem>, ApiError> {
-    sqlx::query_as::<_, VisitorApplicationItem>(
+    sqlx::query_as::<_, VisitorApplicationRow>(
         r#"
         select
             va.id,
@@ -630,6 +663,7 @@ pub async fn find_visitor_application_by_user_id(
     .bind(user_id)
     .fetch_optional(pool)
     .await
+    .map(|row| row.map(Into::into))
     .map_err(|_| ApiError::Internal)
 }
 
@@ -639,7 +673,7 @@ pub async fn list_visitor_applications(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<VisitorApplicationItem>, ApiError> {
-    sqlx::query_as::<_, VisitorApplicationItem>(
+    sqlx::query_as::<_, VisitorApplicationRow>(
         r#"
         select
             va.id,
@@ -665,6 +699,7 @@ pub async fn list_visitor_applications(
     .bind(offset)
     .fetch_all(pool)
     .await
+    .map(|rows| rows.into_iter().map(Into::into).collect())
     .map_err(|_| ApiError::Internal)
 }
 
@@ -672,7 +707,7 @@ pub async fn find_visitor_application_by_id(
     pool: &PgPool,
     application_id: &str,
 ) -> Result<Option<VisitorApplicationItem>, ApiError> {
-    sqlx::query_as::<_, VisitorApplicationItem>(
+    sqlx::query_as::<_, VisitorApplicationRow>(
         r#"
         select
             va.id,
@@ -694,6 +729,7 @@ pub async fn find_visitor_application_by_id(
     .bind(application_id)
     .fetch_optional(pool)
     .await
+    .map(|row| row.map(Into::into))
     .map_err(|_| ApiError::Internal)
 }
 
@@ -703,7 +739,7 @@ pub async fn upsert_visitor_application(
     home_facility: &str,
     why_visit: &str,
 ) -> Result<VisitorApplicationItem, ApiError> {
-    sqlx::query_as::<_, VisitorApplicationItem>(
+    sqlx::query_as::<_, VisitorApplicationRow>(
         r#"
         insert into org.visitor_applications (
             user_id,
@@ -744,6 +780,7 @@ pub async fn upsert_visitor_application(
     .bind(why_visit)
     .fetch_one(pool)
     .await
+    .map(Into::into)
     .map_err(|_| ApiError::Internal)
 }
 
@@ -755,7 +792,7 @@ pub async fn decide_visitor_application(
     decided_by_actor_id: Option<&str>,
     artcc: &str,
 ) -> Result<Option<VisitorApplicationItem>, ApiError> {
-    let updated = sqlx::query_as::<_, VisitorApplicationItem>(
+    let updated = sqlx::query_as::<_, VisitorApplicationRow>(
         r#"
         update org.visitor_applications
         set status = $2,
@@ -784,6 +821,7 @@ pub async fn decide_visitor_application(
     .bind(decided_by_actor_id)
     .fetch_optional(&mut **tx)
     .await
+    .map(|row| row.map(VisitorApplicationItem::from))
     .map_err(|_| ApiError::Internal)?;
 
     if let Some(application) = updated
@@ -834,6 +872,8 @@ async fn activate_visitor_membership(
     .execute(&mut **tx)
     .await
     .map_err(|_| ApiError::Internal)?;
+
+    crate::repos::org::controller_lifecycle::enable_welcome_message(&mut **tx, user_id).await?;
 
     Ok(())
 }

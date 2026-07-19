@@ -1,31 +1,14 @@
 use maud::html;
 use serde_json::Value;
 
+use crate::email::branding::EmailTheme;
 use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
+use crate::email::rsx::validate::{optional_string, required_string};
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
 use super::RsxTemplate;
-
-fn required_string(payload: &Value, key: &str) -> Result<String, ApiError> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .ok_or(ApiError::BadRequest)
-}
-
-fn optional_string(payload: &Value, key: &str) -> Option<String> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-}
 
 pub struct SoloAddedTemplate;
 
@@ -37,6 +20,7 @@ impl RsxTemplate for SoloAddedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let controller_name = required_string(payload, "controller_name")?;
@@ -59,7 +43,7 @@ impl RsxTemplate for SoloAddedTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("{controller_name} granted solo on {position}"))
             .heading("Solo Certification Granted")
             .unsubscribe_link(unsubscribe_link)
@@ -95,6 +79,7 @@ impl RsxTemplate for SoloDeletedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
@@ -119,7 +104,7 @@ impl RsxTemplate for SoloDeletedTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("Solo removed for {position}"))
             .heading("Solo Certification Removed")
             .unsubscribe_link(unsubscribe_link)
@@ -158,6 +143,7 @@ impl RsxTemplate for SoloExpiredTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
@@ -176,7 +162,7 @@ impl RsxTemplate for SoloExpiredTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("Solo expired for {position}"))
             .heading("Solo Certification Expired")
             .unsubscribe_link(unsubscribe_link)

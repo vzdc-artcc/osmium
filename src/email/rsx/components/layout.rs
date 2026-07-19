@@ -1,23 +1,26 @@
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
+use crate::email::branding::{EmailTheme, stylesheet};
+
 use super::footer::email_footer;
 use super::header::email_header;
-use super::styles::STYLE;
 
 pub struct EmailLayout<'a> {
     subject: &'a str,
     preheader: &'a str,
     heading: Option<&'a str>,
     unsubscribe_link: Option<&'a str>,
+    theme: &'a EmailTheme<'a>,
 }
 
 impl<'a> EmailLayout<'a> {
-    pub fn new(subject: &'a str) -> Self {
+    pub fn new(subject: &'a str, theme: &'a EmailTheme<'a>) -> Self {
         Self {
             subject,
             preheader: subject,
             heading: None,
             unsubscribe_link: None,
+            theme,
         }
     }
 
@@ -38,6 +41,7 @@ impl<'a> EmailLayout<'a> {
 
     pub fn render(self, body: Markup, cta: Option<(&str, &str)>) -> Markup {
         let title = self.heading.unwrap_or(self.subject);
+        let style = stylesheet(self.theme.branding);
 
         html! {
             (DOCTYPE)
@@ -46,7 +50,7 @@ impl<'a> EmailLayout<'a> {
                     meta charset="utf-8";
                     meta name="viewport" content="width=device-width, initial-scale=1";
                     title { (self.subject) }
-                    style { (PreEscaped(STYLE)) }
+                    style { (PreEscaped(style)) }
                 }
                 body {
                     div class="preheader" { (self.preheader) }
@@ -54,7 +58,7 @@ impl<'a> EmailLayout<'a> {
                         tr {
                             td align="center" {
                                 table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="shell" {
-                                    (email_header())
+                                    (email_header(self.theme))
                                     tr {
                                         td class="panel" {
                                             h1 { (title) }
@@ -66,7 +70,7 @@ impl<'a> EmailLayout<'a> {
                                             }
                                         }
                                     }
-                                    (email_footer(self.unsubscribe_link))
+                                    (email_footer(self.theme, self.unsubscribe_link))
                                 }
                             }
                         }

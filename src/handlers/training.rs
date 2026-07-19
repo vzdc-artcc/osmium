@@ -11,31 +11,53 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
-        middleware::ensure_permission,
+        permissions::{
+            TrainingAppointmentsCreate, TrainingAppointmentsDelete, TrainingAppointmentsRead,
+            TrainingAppointmentsUpdate, TrainingAssignmentRequestsDecide,
+            TrainingAssignmentRequestsInterestDelete, TrainingAssignmentRequestsInterestRequest,
+            TrainingAssignmentRequestsRead, TrainingAssignmentRequestsSelfRequest,
+            TrainingAssignmentsCreate, TrainingAssignmentsRead, TrainingLessonsCreate,
+            TrainingLessonsDelete, TrainingLessonsRead, TrainingLessonsUpdate,
+            TrainingOtsRecommendationsCreate, TrainingOtsRecommendationsDelete,
+            TrainingOtsRecommendationsRead, TrainingOtsRecommendationsUpdate,
+            TrainingReleaseRequestsDecide, TrainingReleaseRequestsRead,
+            TrainingReleaseRequestsSelfRequest, TrainingSessionsCreate, TrainingSessionsDelete,
+            TrainingSessionsRead, TrainingSessionsUpdate,
+        },
+        require_permission::RequirePermission,
     },
     errors::ApiError,
     models::{
-        ApiMessage, CreateOrUpdateTrainingSessionResult, CreateOtsRecommendationRequest,
-        CreateTrainerReleaseRequestRequest, CreateTrainingAppointmentRequest,
-        CreateTrainingAssignmentRequest, CreateTrainingAssignmentRequestRequest,
-        CreateTrainingLessonRequest, CreateTrainingSessionRequest,
-        DecideTrainerReleaseRequestRequest, DecideTrainingAssignmentRequestRequest,
-        LessonRosterChangeSummary, ListTrainingAppointmentsQuery, ListTrainingSessionsQuery,
-        OtsRecommendationListResponse, OtsRecommendationSummary, PaginationMeta, PaginationQuery,
-        TrainerReleaseRequest, TrainerReleaseRequestListResponse, TrainingAppointmentDetail,
-        TrainingAppointmentLessonSummary, TrainingAppointmentListItem,
-        TrainingAppointmentListResponse, TrainingAssignment, TrainingAssignmentListResponse,
-        TrainingAssignmentRequest, TrainingAssignmentRequestListResponse, TrainingLesson,
-        TrainingLessonListResponse, TrainingSessionDetail, TrainingSessionListItem,
-        TrainingSessionListResponse, TrainingSessionPerformanceIndicatorCategoryDetail,
-        TrainingSessionPerformanceIndicatorCriteriaDetail,
-        TrainingSessionPerformanceIndicatorDetail, TrainingTicketDetail,
-        UpdateOtsRecommendationRequest, UpdateTrainingAppointmentRequest,
-        UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
+        AdditionalTrainerRequest, ApiMessage, CreateLessonRubricCellRequest,
+        CreateLessonRubricCriteriaRequest, CreateOrUpdateTrainingSessionResult,
+        CreateOtsRecommendationRequest, CreateTrainerReleaseRequestRequest,
+        CreateTrainingAppointmentRequest, CreateTrainingAssignmentRequest,
+        CreateTrainingAssignmentRequestRequest, CreateTrainingLessonRequest,
+        CreateTrainingSessionRequest, DecideTrainerReleaseRequestRequest,
+        DecideTrainingAssignmentRequestRequest, LessonRosterChangeSummary,
+        LessonRubricCriteriaDetail, LessonRubricDetail, ListTrainingAppointmentsQuery,
+        ListTrainingSessionsQuery, OtsRecommendationListResponse, OtsRecommendationSummary,
+        PaginationMeta, PaginationQuery, TrainerReleaseRequest, TrainerReleaseRequestListResponse,
+        TrainingAppointmentDetail, TrainingAppointmentListResponse, TrainingAssignment,
+        TrainingAssignmentListResponse, TrainingAssignmentRequest,
+        TrainingAssignmentRequestListResponse, TrainingLesson, TrainingLessonListResponse,
+        TrainingSessionDetail, TrainingSessionListResponse, UpdateLessonRubricCellRequest,
+        UpdateLessonRubricCriteriaRequest, UpdateOtsRecommendationRequest,
+        UpdateTrainingAppointmentRequest, UpdateTrainingLessonRequest,
+        UpdateTrainingSessionRequest,
     },
-    repos::audit as audit_repo,
+    repos::{
+        audit as audit_repo,
+        training::{
+            appointments as training_appointments_repo,
+            assignment_requests as training_assignment_requests_repo,
+            assignments as training_assignments_repo, lessons as training_lessons_repo,
+            ots as training_ots_repo, release_requests as training_release_requests_repo,
+            rubrics as training_rubrics_repo, sessions as training_sessions_repo,
+            sessions::{LessonRow, RubricMembershipRow},
+        },
+    },
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
@@ -47,125 +69,6 @@ const VALID_PI_MARKERS: &[&str] = &[
     "NEEDS_IMPROVEMENT",
     "UNSATISFACTORY",
 ];
-
-#[derive(Debug, sqlx::FromRow)]
-struct SessionDetailRow {
-    id: String,
-    student_id: String,
-    instructor_id: String,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    additional_comments: Option<String>,
-    trainer_comments: Option<String>,
-    vatusa_id: Option<String>,
-    enable_markdown: bool,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    student_cid: i64,
-    student_name: String,
-    instructor_cid: i64,
-    instructor_name: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct TicketRow {
-    id: String,
-    session_id: String,
-    lesson_id: String,
-    passed: bool,
-    created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct ScoreRow {
-    id: String,
-    training_ticket_id: String,
-    criteria_id: String,
-    cell_id: String,
-    passed: bool,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct IndicatorRootRow {
-    id: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct IndicatorCategoryRow {
-    id: String,
-    name: String,
-    sort_order: i32,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct IndicatorCriteriaRow {
-    id: String,
-    category_id: String,
-    name: String,
-    sort_order: i32,
-    marker: Option<String>,
-    comments: Option<String>,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct LessonRow {
-    id: String,
-    identifier: String,
-    instructor_only: bool,
-    notify_instructor_on_pass: bool,
-    release_request_on_pass: bool,
-    performance_indicator_template_id: Option<String>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct RubricMembershipRow {
-    lesson_id: String,
-    criteria_id: String,
-    cell_id: Option<String>,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct ExistingTicketRow {
-    lesson_id: String,
-    passed: bool,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct MembershipRow {
-    controller_status: Option<String>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct UserIdentityRow {
-    id: String,
-    cid: i64,
-    full_name: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct SessionExistsRow {
-    id: String,
-    instructor_id: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct AppointmentDetailRow {
-    id: String,
-    student_id: String,
-    trainer_id: String,
-    start: DateTime<Utc>,
-    environment: Option<String>,
-    double_booking: bool,
-    preparation_completed: bool,
-    warning_email_sent: bool,
-    atc_booking_id: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    student_cid: i64,
-    student_name: String,
-    trainer_cid: i64,
-    trainer_name: String,
-}
 
 #[derive(Debug, Clone)]
 struct RubricRule {
@@ -185,40 +88,24 @@ struct RubricRule {
 )]
 pub async fn list_assignments(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingAssignmentListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["assignments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total =
-        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_assignments")
-            .fetch_one(db)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, TrainingAssignment>(
-        "select id, student_id, primary_trainer_id, created_at, updated_at from training.training_assignments order by created_at desc, id asc limit $1 offset $2",
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = training_assignments_repo::count_assignments(db).await?;
+    let rows =
+        training_assignments_repo::list_assignments(db, pagination.page_size, pagination.offset)
+            .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         TrainingAssignmentListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -238,33 +125,26 @@ pub async fn list_assignments(
 pub async fn create_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingAssignmentRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainingAssignment>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["assignments"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
     let now = Utc::now();
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
 
-    let row = sqlx::query_as::<_, TrainingAssignment>(
-        r#"
-        insert into training.training_assignments (id, student_id, primary_trainer_id, created_at, updated_at)
-        values ($1, $2, $3, $4, $5)
-        returning id, student_id, primary_trainer_id, created_at, updated_at
-        "#,
+    let row = training_assignments_repo::insert_assignment(
+        &mut *tx,
+        &id,
+        &payload.student_id,
+        &payload.primary_trainer_id,
+        now,
     )
-    .bind(&id)
-    .bind(&payload.student_id)
-    .bind(&payload.primary_trainer_id)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
     if let Some(other_trainer_ids) = payload.other_trainer_ids {
         for trainer_id in other_trainer_ids {
@@ -272,18 +152,7 @@ pub async fn create_assignment(
                 continue;
             }
 
-            sqlx::query(
-                r#"
-                insert into training.training_assignment_other_trainers (assignment_id, trainer_id)
-                values ($1, $2)
-                on conflict (assignment_id, trainer_id) do nothing
-                "#,
-            )
-            .bind(&id)
-            .bind(trainer_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ApiError::BadRequest)?;
+            training_assignments_repo::insert_other_trainer(&mut *tx, &id, &trainer_id).await?;
         }
     }
 
@@ -319,51 +188,24 @@ pub async fn create_assignment(
 )]
 pub async fn list_ots_recommendations(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingOtsRecommendationsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<OtsRecommendationListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["ots_recommendations"],
-        PermissionAction::Read,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total =
-        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.ots_recommendations")
-            .fetch_one(db)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, OtsRecommendationSummary>(
-        r#"
-        select id, student_id, assigned_instructor_id, notes, created_at, updated_at
-        from training.ots_recommendations
-        order by created_at desc, id asc
-        limit $1 offset $2
-        "#,
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = training_ots_repo::count_ots_recommendations(db).await?;
+    let rows =
+        training_ots_repo::list_ots_recommendations(db, pagination.page_size, pagination.offset)
+            .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         OtsRecommendationListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -383,18 +225,12 @@ pub async fn list_ots_recommendations(
 pub async fn create_ots_recommendation(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingOtsRecommendationsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateOtsRecommendationRequest>,
 ) -> Result<(StatusCode, ApiJson<OtsRecommendationSummary>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["ots_recommendations"],
-        PermissionAction::Create,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let notes = payload.notes.trim();
@@ -405,48 +241,22 @@ pub async fn create_ots_recommendation(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let student_exists =
-        sqlx::query_scalar::<_, String>("select id from identity.users where id = $1 limit 1")
-            .bind(&payload.student_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-    if student_exists.is_none() {
+    if !training_ots_repo::user_exists(&mut *tx, &payload.student_id).await? {
         return Err(ApiError::BadRequest);
     }
 
-    let existing = sqlx::query_scalar::<_, String>(
-        "select id from training.ots_recommendations where student_id = $1 limit 1",
-    )
-    .bind(&payload.student_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    if existing.is_some() {
+    if training_ots_repo::student_has_ots_recommendation(&mut *tx, &payload.student_id).await? {
         return Err(ApiError::BadRequest);
     }
 
-    let row = sqlx::query_as::<_, OtsRecommendationSummary>(
-        r#"
-        insert into training.ots_recommendations (
-            id,
-            student_id,
-            assigned_instructor_id,
-            notes,
-            created_at,
-            updated_at
-        )
-        values ($1, $2, null, $3, $4, $4)
-        returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
-        "#,
+    let row = training_ots_repo::insert_ots_recommendation(
+        &mut *tx,
+        &Uuid::new_v4().to_string(),
+        &payload.student_id,
+        notes,
+        Utc::now(),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&payload.student_id)
-    .bind(notes)
-    .bind(Utc::now())
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
     record_audit(
         &mut tx,
@@ -478,69 +288,42 @@ pub async fn create_ots_recommendation(
     responses(
         (status = 200, description = "OTS recommendation updated", body = OtsRecommendationSummary),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "OTS recommendation not found")
     )
 )]
 pub async fn update_ots_recommendation(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingOtsRecommendationsUpdate>,
     Path(recommendation_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateOtsRecommendationRequest>,
 ) -> Result<ApiJson<OtsRecommendationSummary>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["ots_recommendations"],
-        PermissionAction::Update,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let before = sqlx::query_as::<_, OtsRecommendationSummary>(
-        r#"
-        select id, student_id, assigned_instructor_id, notes, created_at, updated_at
-        from training.ots_recommendations
-        where id = $1
-        "#,
-    )
-    .bind(&recommendation_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     if let Some(instructor_id) = payload.assigned_instructor_id.as_deref() {
-        let instructor_exists =
-            sqlx::query_scalar::<_, String>("select id from identity.users where id = $1 limit 1")
-                .bind(instructor_id)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|_| ApiError::Internal)?;
-        if instructor_exists.is_none() {
+        if !training_ots_repo::user_exists(&mut *tx, instructor_id).await? {
             return Err(ApiError::BadRequest);
         }
     }
 
-    let row = sqlx::query_as::<_, OtsRecommendationSummary>(
-        r#"
-        update training.ots_recommendations
-        set assigned_instructor_id = $1
-        where id = $2
-        returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
-        "#,
+    let row = training_ots_repo::update_ots_recommendation_row(
+        &mut *tx,
+        &recommendation_id,
+        payload.assigned_instructor_id.as_deref(),
     )
-    .bind(payload.assigned_instructor_id.as_deref())
-    .bind(&recommendation_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     record_audit(
         &mut tx,
@@ -570,41 +353,26 @@ pub async fn update_ots_recommendation(
     ),
     responses(
         (status = 204, description = "OTS recommendation deleted"),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "OTS recommendation not found")
     )
 )]
 pub async fn delete_ots_recommendation(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingOtsRecommendationsDelete>,
     Path(recommendation_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["ots_recommendations"],
-        PermissionAction::Delete,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let deleted = sqlx::query_as::<_, OtsRecommendationSummary>(
-        r#"
-        delete from training.ots_recommendations
-        where id = $1
-        returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
-        "#,
-    )
-    .bind(&recommendation_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::BadRequest)?
-    .ok_or(ApiError::BadRequest)?;
+    let deleted = training_ots_repo::delete_ots_recommendation_row(&mut *tx, &recommendation_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     record_audit(
         &mut tx,
@@ -637,60 +405,23 @@ pub async fn delete_ots_recommendation(
 )]
 pub async fn list_lessons(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingLessonListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.lessons")
-        .fetch_one(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, TrainingLesson>(
-        r#"
-        select
-            id,
-            identifier,
-            location,
-            name,
-            description,
-            position,
-            facility,
-            rubric_id,
-            updated_at,
-            instructor_only,
-            notify_instructor_on_pass,
-            release_request_on_pass,
-            duration,
-            trainee_preparation,
-            performance_indicator_template_id,
-            created_at
-        from training.lessons
-        order by location asc, identifier asc, name asc, id asc
-        limit $1 offset $2
-        "#,
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = training_lessons_repo::count_lessons(db).await?;
+    let rows =
+        training_lessons_repo::list_lessons(db, pagination.page_size, pagination.offset).await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         TrainingLessonListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -710,12 +441,12 @@ pub async fn list_lessons(
 pub async fn create_lesson(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingLessonRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainingLesson>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     validate_training_lesson_payload(&payload.identifier, payload.location, payload.duration)?;
@@ -725,64 +456,24 @@ pub async fn create_lesson(
     let now = Utc::now();
     let lesson_id = Uuid::new_v4().to_string();
 
-    let row = sqlx::query_as::<_, TrainingLesson>(
-        r#"
-        insert into training.lessons (
-            id,
-            identifier,
-            location,
-            name,
-            description,
-            position,
-            facility,
-            updated_at,
-            instructor_only,
-            notify_instructor_on_pass,
-            release_request_on_pass,
-            duration,
-            trainee_preparation,
-            performance_indicator_template_id,
-            created_at
-        )
-        values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $8
-        )
-        returning
-            id,
-            identifier,
-            location,
-            name,
-            description,
-            position,
-            facility,
-            rubric_id,
-            updated_at,
-            instructor_only,
-            notify_instructor_on_pass,
-            release_request_on_pass,
-            duration,
-            trainee_preparation,
-            performance_indicator_template_id,
-            created_at
-        "#,
+    let row = training_lessons_repo::insert_lesson(
+        &mut *tx,
+        &lesson_id,
+        payload.identifier.trim(),
+        payload.location,
+        payload.name.trim(),
+        payload.description.trim(),
+        payload.position.trim(),
+        payload.facility.trim(),
+        now,
+        payload.instructor_only,
+        payload.notify_instructor_on_pass,
+        payload.release_request_on_pass,
+        payload.duration,
+        payload.trainee_preparation.as_deref(),
+        payload.performance_indicator_template_id.as_deref(),
     )
-    .bind(&lesson_id)
-    .bind(payload.identifier.trim())
-    .bind(payload.location)
-    .bind(payload.name.trim())
-    .bind(payload.description.trim())
-    .bind(payload.position.trim())
-    .bind(payload.facility.trim())
-    .bind(now)
-    .bind(payload.instructor_only)
-    .bind(payload.notify_instructor_on_pass)
-    .bind(payload.release_request_on_pass)
-    .bind(payload.duration)
-    .bind(payload.trainee_preparation.as_deref())
-    .bind(payload.performance_indicator_template_id.as_deref())
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
     record_audit(
         &mut tx,
@@ -814,19 +505,20 @@ pub async fn create_lesson(
     responses(
         (status = 200, description = "Training lesson updated", body = TrainingLesson),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Lesson not found")
     )
 )]
 pub async fn update_lesson(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(lesson_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingLessonRequest>,
 ) -> Result<ApiJson<TrainingLesson>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     validate_training_lesson_payload(&payload.identifier, payload.location, payload.duration)?;
@@ -834,77 +526,29 @@ pub async fn update_lesson(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
     let now = Utc::now();
-    let before = sqlx::query_as::<_, TrainingLesson>(
-        r#"
-        select
-            id, identifier, location, name, description, position, facility, rubric_id, updated_at,
-            instructor_only, notify_instructor_on_pass, release_request_on_pass, duration,
-            trainee_preparation, performance_indicator_template_id, created_at
-        from training.lessons
-        where id = $1
-        "#,
-    )
-    .bind(&lesson_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = training_lessons_repo::fetch_lesson(&mut *tx, &lesson_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let row = sqlx::query_as::<_, TrainingLesson>(
-        r#"
-        update training.lessons
-        set
-            identifier = $2,
-            location = $3,
-            name = $4,
-            description = $5,
-            position = $6,
-            facility = $7,
-            updated_at = $8,
-            instructor_only = $9,
-            notify_instructor_on_pass = $10,
-            release_request_on_pass = $11,
-            duration = $12,
-            trainee_preparation = $13,
-            performance_indicator_template_id = $14
-        where id = $1
-        returning
-            id,
-            identifier,
-            location,
-            name,
-            description,
-            position,
-            facility,
-            rubric_id,
-            updated_at,
-            instructor_only,
-            notify_instructor_on_pass,
-            release_request_on_pass,
-            duration,
-            trainee_preparation,
-            performance_indicator_template_id,
-            created_at
-        "#,
+    let row = training_lessons_repo::update_lesson_row(
+        &mut *tx,
+        &lesson_id,
+        payload.identifier.trim(),
+        payload.location,
+        payload.name.trim(),
+        payload.description.trim(),
+        payload.position.trim(),
+        payload.facility.trim(),
+        now,
+        payload.instructor_only,
+        payload.notify_instructor_on_pass,
+        payload.release_request_on_pass,
+        payload.duration,
+        payload.trainee_preparation.as_deref(),
+        payload.performance_indicator_template_id.as_deref(),
     )
-    .bind(&lesson_id)
-    .bind(payload.identifier.trim())
-    .bind(payload.location)
-    .bind(payload.name.trim())
-    .bind(payload.description.trim())
-    .bind(payload.position.trim())
-    .bind(payload.facility.trim())
-    .bind(now)
-    .bind(payload.instructor_only)
-    .bind(payload.notify_instructor_on_pass)
-    .bind(payload.release_request_on_pass)
-    .bind(payload.duration)
-    .bind(payload.trainee_preparation.as_deref())
-    .bind(payload.performance_indicator_template_id.as_deref())
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     record_audit(
         &mut tx,
@@ -934,51 +578,26 @@ pub async fn update_lesson(
     ),
     responses(
         (status = 204, description = "Training lesson deleted"),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Lesson not found")
     )
 )]
 pub async fn delete_lesson(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsDelete>,
     Path(lesson_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["lessons"], PermissionAction::Delete).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let deleted = sqlx::query_as::<_, TrainingLesson>(
-        r#"
-        delete from training.lessons
-        where id = $1
-        returning
-            id,
-            identifier,
-            location,
-            name,
-            description,
-            position,
-            facility,
-            rubric_id,
-            updated_at,
-            instructor_only,
-            notify_instructor_on_pass,
-            release_request_on_pass,
-            duration,
-            trainee_preparation,
-            performance_indicator_template_id,
-            created_at
-        "#,
-    )
-    .bind(&lesson_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::BadRequest)?
-    .ok_or(ApiError::BadRequest)?;
+    let deleted = training_lessons_repo::delete_lesson_row(&mut *tx, &lesson_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     record_audit(
         &mut tx,
@@ -1001,6 +620,562 @@ pub async fn delete_lesson(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/training/lessons/{lesson_id}/rubric",
+    tag = "training",
+    params(
+        ("lesson_id" = String, Path, description = "Training lesson ID")
+    ),
+    responses(
+        (status = 200, description = "Lesson rubric", body = LessonRubricDetail),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Lesson not found or has no rubric")
+    )
+)]
+pub async fn get_lesson_rubric(
+    State(state): State<AppState>,
+    _permission: RequirePermission<TrainingLessonsRead>,
+    Path(lesson_id): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<LessonRubricDetail>, ApiError> {
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let detail = training_rubrics_repo::fetch_lesson_rubric_detail(db, &lesson_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    Ok(ApiJson::new(detail, time))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/lessons/{lesson_id}/rubric-criteria",
+    tag = "training",
+    params(
+        ("lesson_id" = String, Path, description = "Training lesson ID")
+    ),
+    request_body = CreateLessonRubricCriteriaRequest,
+    responses(
+        (status = 201, description = "Rubric criteria created", body = LessonRubricCriteriaDetail),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Lesson not found")
+    )
+)]
+pub async fn create_lesson_rubric_criteria(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
+    Path(lesson_id): Path<String>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<CreateLessonRubricCriteriaRequest>,
+) -> Result<(StatusCode, ApiJson<LessonRubricCriteriaDetail>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    validate_rubric_criteria_payload(
+        &payload.criteria,
+        &payload.description,
+        payload.max_points,
+        payload.passing,
+    )?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let existing_rubric_id = training_rubrics_repo::fetch_lesson_rubric_id(&mut *tx, &lesson_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let now = Utc::now();
+    let rubric_id = match existing_rubric_id {
+        Some(id) => id,
+        None => {
+            let new_rubric_id = Uuid::new_v4().to_string();
+            training_rubrics_repo::insert_rubric(&mut *tx, &new_rubric_id, now).await?;
+            training_rubrics_repo::set_lesson_rubric_id(&mut *tx, &lesson_id, &new_rubric_id)
+                .await?;
+            new_rubric_id
+        }
+    };
+
+    let criteria_id = Uuid::new_v4().to_string();
+    let criteria = payload.criteria.trim().to_string();
+    let description = payload.description.trim().to_string();
+
+    training_rubrics_repo::insert_criteria(
+        &mut *tx,
+        &criteria_id,
+        &rubric_id,
+        &criteria,
+        &description,
+        payload.passing,
+        payload.max_points,
+        now,
+    )
+    .await?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "CREATE",
+        "LESSON_RUBRIC_CRITERIA",
+        Some(&criteria_id),
+        "training_session",
+        Some(&lesson_id),
+        None,
+        Some(serde_json::json!({
+            "id": criteria_id,
+            "rubric_id": rubric_id,
+            "lesson_id": lesson_id,
+            "criteria": criteria,
+            "description": description,
+            "passing": payload.passing,
+            "max_points": payload.max_points,
+        })),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok((
+        StatusCode::CREATED,
+        ApiJson::new(
+            LessonRubricCriteriaDetail {
+                id: criteria_id,
+                rubric_id,
+                criteria,
+                description,
+                passing: payload.passing,
+                max_points: payload.max_points,
+                cells: Vec::new(),
+            },
+            time,
+        ),
+    ))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}",
+    tag = "training",
+    params(
+        ("lesson_id" = String, Path, description = "Training lesson ID"),
+        ("criteria_id" = String, Path, description = "Rubric criteria ID")
+    ),
+    request_body = UpdateLessonRubricCriteriaRequest,
+    responses(
+        (status = 200, description = "Rubric criteria updated", body = LessonRubricCriteriaDetail),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Rubric criteria not found")
+    )
+)]
+pub async fn update_lesson_rubric_criteria(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
+    Path((lesson_id, criteria_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<UpdateLessonRubricCriteriaRequest>,
+) -> Result<ApiJson<LessonRubricCriteriaDetail>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    validate_rubric_criteria_payload(
+        &payload.criteria,
+        &payload.description,
+        payload.max_points,
+        payload.passing,
+    )?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let before =
+        training_rubrics_repo::fetch_criteria_for_lesson(&mut *tx, &lesson_id, &criteria_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+
+    let criteria = payload.criteria.trim().to_string();
+    let description = payload.description.trim().to_string();
+
+    training_rubrics_repo::update_criteria_row(
+        &mut *tx,
+        &criteria_id,
+        &criteria,
+        &description,
+        payload.passing,
+        payload.max_points,
+        Utc::now(),
+    )
+    .await?;
+
+    let cells = training_rubrics_repo::fetch_criteria_cells(&mut *tx, &criteria_id).await?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "UPDATE",
+        "LESSON_RUBRIC_CRITERIA",
+        Some(&criteria_id),
+        "training_session",
+        Some(&lesson_id),
+        Some(serde_json::json!({
+            "id": before.id,
+            "rubric_id": before.rubric_id,
+            "criteria": before.criteria,
+            "description": before.description,
+            "passing": before.passing,
+            "max_points": before.max_points,
+        })),
+        Some(serde_json::json!({
+            "id": criteria_id,
+            "rubric_id": before.rubric_id,
+            "criteria": criteria,
+            "description": description,
+            "passing": payload.passing,
+            "max_points": payload.max_points,
+        })),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(ApiJson::new(
+        LessonRubricCriteriaDetail {
+            id: criteria_id,
+            rubric_id: before.rubric_id,
+            criteria,
+            description,
+            passing: payload.passing,
+            max_points: payload.max_points,
+            cells,
+        },
+        time,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}",
+    tag = "training",
+    params(
+        ("lesson_id" = String, Path, description = "Training lesson ID"),
+        ("criteria_id" = String, Path, description = "Rubric criteria ID")
+    ),
+    responses(
+        (status = 204, description = "Rubric criteria deleted"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Rubric criteria not found")
+    )
+)]
+pub async fn delete_lesson_rubric_criteria(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsDelete>,
+    Path((lesson_id, criteria_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let deleted =
+        training_rubrics_repo::fetch_criteria_for_lesson(&mut *tx, &lesson_id, &criteria_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+
+    training_rubrics_repo::delete_criteria_row(&mut *tx, &criteria_id).await?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "DELETE",
+        "LESSON_RUBRIC_CRITERIA",
+        Some(&criteria_id),
+        "training_session",
+        Some(&lesson_id),
+        Some(serde_json::json!({
+            "id": deleted.id,
+            "rubric_id": deleted.rubric_id,
+            "criteria": deleted.criteria,
+            "description": deleted.description,
+            "passing": deleted.passing,
+            "max_points": deleted.max_points,
+        })),
+        None,
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells",
+    tag = "training",
+    params(
+        ("lesson_id" = String, Path, description = "Training lesson ID"),
+        ("criteria_id" = String, Path, description = "Rubric criteria ID")
+    ),
+    request_body = CreateLessonRubricCellRequest,
+    responses(
+        (status = 201, description = "Rubric cell created", body = crate::models::LessonRubricCellDetail),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Rubric criteria not found")
+    )
+)]
+pub async fn create_lesson_rubric_cell(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
+    Path((lesson_id, criteria_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<CreateLessonRubricCellRequest>,
+) -> Result<(StatusCode, ApiJson<crate::models::LessonRubricCellDetail>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let criteria =
+        training_rubrics_repo::fetch_criteria_for_lesson(&mut *tx, &lesson_id, &criteria_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+
+    validate_rubric_cell_payload(&payload.description, payload.points, criteria.max_points)?;
+
+    let duplicate = training_rubrics_repo::count_cells_with_points(
+        &mut *tx,
+        &criteria_id,
+        payload.points,
+        None,
+    )
+    .await?;
+    if duplicate > 0 {
+        return Err(ApiError::BadRequest);
+    }
+
+    let cell_id = Uuid::new_v4().to_string();
+    let description = payload.description.trim().to_string();
+
+    training_rubrics_repo::insert_cell(
+        &mut *tx,
+        &cell_id,
+        &criteria_id,
+        payload.points,
+        &description,
+        Utc::now(),
+    )
+    .await?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "CREATE",
+        "LESSON_RUBRIC_CELL",
+        Some(&cell_id),
+        "training_session",
+        Some(&lesson_id),
+        None,
+        Some(serde_json::json!({
+            "id": cell_id,
+            "criteria_id": criteria_id,
+            "points": payload.points,
+            "description": description,
+        })),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok((
+        StatusCode::CREATED,
+        ApiJson::new(
+            crate::models::LessonRubricCellDetail {
+                id: cell_id,
+                criteria_id,
+                points: payload.points,
+                description,
+            },
+            time,
+        ),
+    ))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells/{cell_id}",
+    tag = "training",
+    params(
+        ("lesson_id" = String, Path, description = "Training lesson ID"),
+        ("criteria_id" = String, Path, description = "Rubric criteria ID"),
+        ("cell_id" = String, Path, description = "Rubric cell ID")
+    ),
+    request_body = UpdateLessonRubricCellRequest,
+    responses(
+        (status = 200, description = "Rubric cell updated", body = crate::models::LessonRubricCellDetail),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Rubric cell not found")
+    )
+)]
+pub async fn update_lesson_rubric_cell(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
+    Path((lesson_id, criteria_id, cell_id)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<UpdateLessonRubricCellRequest>,
+) -> Result<ApiJson<crate::models::LessonRubricCellDetail>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    let criteria =
+        training_rubrics_repo::fetch_criteria_for_lesson(&mut *tx, &lesson_id, &criteria_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+
+    let before = training_rubrics_repo::fetch_cell_for_criteria(&mut *tx, &criteria_id, &cell_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    validate_rubric_cell_payload(&payload.description, payload.points, criteria.max_points)?;
+
+    let duplicate = training_rubrics_repo::count_cells_with_points(
+        &mut *tx,
+        &criteria_id,
+        payload.points,
+        Some(&cell_id),
+    )
+    .await?;
+    if duplicate > 0 {
+        return Err(ApiError::BadRequest);
+    }
+
+    let description = payload.description.trim().to_string();
+
+    training_rubrics_repo::update_cell_row(&mut *tx, &cell_id, payload.points, &description)
+        .await?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "UPDATE",
+        "LESSON_RUBRIC_CELL",
+        Some(&cell_id),
+        "training_session",
+        Some(&lesson_id),
+        Some(serde_json::json!({
+            "id": before.id,
+            "criteria_id": before.criteria_id,
+            "points": before.points,
+            "description": before.description,
+        })),
+        Some(serde_json::json!({
+            "id": cell_id,
+            "criteria_id": criteria_id,
+            "points": payload.points,
+            "description": description,
+        })),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(ApiJson::new(
+        crate::models::LessonRubricCellDetail {
+            id: cell_id,
+            criteria_id,
+            points: payload.points,
+            description,
+        },
+        time,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells/{cell_id}",
+    tag = "training",
+    params(
+        ("lesson_id" = String, Path, description = "Training lesson ID"),
+        ("criteria_id" = String, Path, description = "Rubric criteria ID"),
+        ("cell_id" = String, Path, description = "Rubric cell ID")
+    ),
+    responses(
+        (status = 204, description = "Rubric cell deleted"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Rubric cell not found")
+    )
+)]
+pub async fn delete_lesson_rubric_cell(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsDelete>,
+    Path((lesson_id, criteria_id, cell_id)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+    let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
+
+    training_rubrics_repo::fetch_criteria_for_lesson(&mut *tx, &lesson_id, &criteria_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let deleted = training_rubrics_repo::fetch_cell_for_criteria(&mut *tx, &criteria_id, &cell_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    training_rubrics_repo::delete_cell_row(&mut *tx, &cell_id).await?;
+
+    record_audit(
+        &mut tx,
+        actor_id.as_deref(),
+        "DELETE",
+        "LESSON_RUBRIC_CELL",
+        Some(&cell_id),
+        "training_session",
+        Some(&lesson_id),
+        Some(serde_json::json!({
+            "id": deleted.id,
+            "criteria_id": deleted.criteria_id,
+            "points": deleted.points,
+            "description": deleted.description,
+        })),
+        None,
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/training/assignment-requests",
     tag = "training",
     params(PaginationQuery),
@@ -1011,47 +1186,27 @@ pub async fn delete_lesson(
 )]
 pub async fn list_assignment_requests(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentRequestsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingAssignmentRequestListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["assignment_requests"],
-        PermissionAction::Read,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from training.training_assignment_requests",
+    let total = training_assignment_requests_repo::count_assignment_requests(db).await?;
+    let rows = training_assignment_requests_repo::list_assignment_requests(
+        db,
+        pagination.page_size,
+        pagination.offset,
     )
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, TrainingAssignmentRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.training_assignment_requests order by submitted_at desc, id asc limit $1 offset $2",
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         TrainingAssignmentRequestListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -1070,36 +1225,19 @@ pub async fn list_assignment_requests(
 pub async fn create_assignment_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentRequestsSelfRequest>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(_payload): Json<CreateTrainingAssignmentRequestRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainingAssignmentRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["assignment_requests"],
-        PermissionAction::Request,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    let row = sqlx::query_as::<_, TrainingAssignmentRequest>(
-        r#"
-        insert into training.training_assignment_requests (id, student_id, submitted_at, status)
-        values ($1, $2, $3, 'PENDING')
-        returning id, student_id, submitted_at, status, decided_at, decided_by
-        "#,
-    )
-    .bind(&id)
-    .bind(&user.id)
-    .bind(now)
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    let row = training_assignment_requests_repo::insert_assignment_request(db, &id, &user.id, now)
+        .await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1132,25 +1270,20 @@ pub async fn create_assignment_request(
     responses(
         (status = 200, description = "Assignment request updated", body = TrainingAssignmentRequest),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Assignment request not found")
     )
 )]
 pub async fn decide_assignment_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentRequestsDecide>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<DecideTrainingAssignmentRequestRequest>,
 ) -> Result<ApiJson<TrainingAssignmentRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["assignment_requests"],
-        PermissionAction::Decide,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -1159,31 +1292,19 @@ pub async fn decide_assignment_request(
     }
 
     let now = Utc::now();
-    let before = sqlx::query_as::<_, TrainingAssignmentRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.training_assignment_requests where id = $1",
-    )
-    .bind(&request_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = training_assignment_requests_repo::fetch_assignment_request(db, &request_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let row = sqlx::query_as::<_, TrainingAssignmentRequest>(
-        r#"
-        update training.training_assignment_requests
-        set status = $1, decided_at = $2, decided_by = $3
-        where id = $4
-        returning id, student_id, submitted_at, status, decided_at, decided_by
-        "#,
+    let row = training_assignment_requests_repo::decide_assignment_request_row(
+        db,
+        &request_id,
+        &normalized_status,
+        now,
+        &user.id,
     )
-    .bind(&normalized_status)
-    .bind(now)
-    .bind(&user.id)
-    .bind(&request_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1217,41 +1338,27 @@ pub async fn decide_assignment_request(
 )]
 pub async fn list_release_requests(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingReleaseRequestsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainerReleaseRequestListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["release_requests"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from training.trainer_release_requests",
+    let total = training_release_requests_repo::count_release_requests(db).await?;
+    let rows = training_release_requests_repo::list_release_requests(
+        db,
+        pagination.page_size,
+        pagination.offset,
     )
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, TrainerReleaseRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.trainer_release_requests order by submitted_at desc, id asc limit $1 offset $2",
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         TrainerReleaseRequestListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -1270,36 +1377,19 @@ pub async fn list_release_requests(
 pub async fn create_release_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingReleaseRequestsSelfRequest>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(_payload): Json<CreateTrainerReleaseRequestRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainerReleaseRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["release_requests"],
-        PermissionAction::Request,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let id = Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    let row = sqlx::query_as::<_, TrainerReleaseRequest>(
-        r#"
-        insert into training.trainer_release_requests (id, student_id, submitted_at, status)
-        values ($1, $2, $3, 'PENDING')
-        returning id, student_id, submitted_at, status, decided_at, decided_by
-        "#,
-    )
-    .bind(&id)
-    .bind(&user.id)
-    .bind(now)
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    let row =
+        training_release_requests_repo::insert_release_request(db, &id, &user.id, now).await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1332,25 +1422,20 @@ pub async fn create_release_request(
     responses(
         (status = 200, description = "Trainer release request updated", body = TrainerReleaseRequest),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Release request not found")
     )
 )]
 pub async fn decide_release_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingReleaseRequestsDecide>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<DecideTrainerReleaseRequestRequest>,
 ) -> Result<ApiJson<TrainerReleaseRequest>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["release_requests"],
-        PermissionAction::Decide,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -1359,31 +1444,19 @@ pub async fn decide_release_request(
     }
 
     let now = Utc::now();
-    let before = sqlx::query_as::<_, TrainerReleaseRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.trainer_release_requests where id = $1",
-    )
-    .bind(&request_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = training_release_requests_repo::fetch_release_request(db, &request_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let row = sqlx::query_as::<_, TrainerReleaseRequest>(
-        r#"
-        update training.trainer_release_requests
-        set status = $1, decided_at = $2, decided_by = $3
-        where id = $4
-        returning id, student_id, submitted_at, status, decided_at, decided_by
-        "#,
+    let row = training_release_requests_repo::decide_release_request_row(
+        db,
+        &request_id,
+        &normalized_status,
+        now,
+        &user.id,
     )
-    .bind(&normalized_status)
-    .bind(now)
-    .bind(&user.id)
-    .bind(&request_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1421,43 +1494,18 @@ pub async fn decide_release_request(
 pub async fn add_assignment_request_interest(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentRequestsInterestRequest>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["assignment_requests", "interest"],
-        PermissionAction::Request,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let exists = sqlx::query_scalar::<_, String>(
-        "select id from training.training_assignment_requests where id = $1",
-    )
-    .bind(&request_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    if exists.is_none() {
+    if !training_assignment_requests_repo::assignment_request_exists(db, &request_id).await? {
         return Err(ApiError::BadRequest);
     }
 
-    sqlx::query(
-        r#"
-        insert into training.training_assignment_request_interested_trainers (assignment_request_id, trainer_id)
-        values ($1, $2)
-        on conflict (assignment_request_id, trainer_id) do nothing
-        "#,
-    )
-    .bind(&request_id)
-    .bind(&user.id)
-    .execute(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    training_assignment_requests_repo::add_interested_trainer(db, &request_id, &user.id).await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1494,27 +1542,14 @@ pub async fn add_assignment_request_interest(
 pub async fn remove_assignment_request_interest(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentRequestsInterestDelete>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(
-        &state,
-        user,
-        &["assignment_requests", "interest"],
-        PermissionAction::Delete,
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    sqlx::query(
-        "delete from training.training_assignment_request_interested_trainers where assignment_request_id = $1 and trainer_id = $2",
-    )
-    .bind(&request_id)
-    .bind(&user.id)
-    .execute(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    training_assignment_requests_repo::remove_interested_trainer(db, &request_id, &user.id).await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1555,12 +1590,10 @@ pub async fn remove_assignment_request_interest(
 )]
 pub async fn list_training_appointments(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAppointmentsRead>,
     Query(query): Query<ListTrainingAppointmentsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingAppointmentListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination =
@@ -1576,85 +1609,32 @@ pub async fn list_training_appointments(
         _ => "asc",
     };
 
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from training.training_appointments ta
-        where ($1::text is null or ta.trainer_id = $1)
-          and ($2::text is null or ta.student_id = $2)
-          and ($3::text is null or (ta.trainer_id = $3 or ta.student_id = $3))
-        "#,
+    let total = training_appointments_repo::count_appointments(
+        db,
+        query.trainer_id.as_deref(),
+        query.student_id.as_deref(),
+        query.user_id.as_deref(),
     )
-    .bind(query.trainer_id.as_deref())
-    .bind(query.student_id.as_deref())
-    .bind(query.user_id.as_deref())
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
-    let sql = format!(
-        r#"
-        select
-            ta.id,
-            ta.student_id,
-            ta.trainer_id,
-            ta.start,
-            ta.environment,
-            ta.double_booking,
-            ta.preparation_completed,
-            ta.warning_email_sent,
-            ta.atc_booking_id,
-            ta.created_at,
-            ta.updated_at,
-            su.cid as student_cid,
-            su.full_name as student_name,
-            tu.cid as trainer_cid,
-            tu.full_name as trainer_name,
-            count(tal.lesson_id)::bigint as lesson_count,
-            case
-                when count(tal.lesson_id) = 0 then null
-                else sum(l.duration)::bigint
-            end as estimated_duration_minutes,
-            case
-                when count(tal.lesson_id) = 0 then null
-                else ta.start + make_interval(mins => sum(l.duration)::int)
-            end as estimated_end
-        from training.training_appointments ta
-        join identity.users su on su.id = ta.student_id
-        join identity.users tu on tu.id = ta.trainer_id
-        left join training.training_appointment_lessons tal on tal.appointment_id = ta.id
-        left join training.lessons l on l.id = tal.lesson_id
-        where ($1::text is null or ta.trainer_id = $1)
-          and ($2::text is null or ta.student_id = $2)
-          and ($3::text is null or (ta.trainer_id = $3 or ta.student_id = $3))
-        group by
-            ta.id, su.cid, su.full_name, tu.cid, tu.full_name
-        order by {sort_column} {sort_direction}, ta.id asc
-        limit $4 offset $5
-        "#
-    );
-
-    let items = sqlx::query_as::<_, TrainingAppointmentListItem>(&sql)
-        .bind(query.trainer_id.as_deref())
-        .bind(query.student_id.as_deref())
-        .bind(query.user_id.as_deref())
-        .bind(pagination.page_size)
-        .bind(pagination.offset)
-        .fetch_all(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let items = training_appointments_repo::list_appointments(
+        db,
+        query.trainer_id.as_deref(),
+        query.student_id.as_deref(),
+        query.user_id.as_deref(),
+        sort_column,
+        sort_direction,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         TrainingAppointmentListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -1669,23 +1649,21 @@ pub async fn list_training_appointments(
     ),
     responses(
         (status = 200, description = "Training appointment detail", body = TrainingAppointmentDetail),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Training appointment not found")
     )
 )]
 pub async fn get_training_appointment(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAppointmentsRead>,
     Path(appointment_id): Path<String>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingAppointmentDetail>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let detail = fetch_training_appointment_detail(db, &appointment_id)
+    let detail = training_appointments_repo::fetch_appointment_detail(db, &appointment_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     Ok(ApiJson::new(detail, time))
 }
@@ -1698,55 +1676,59 @@ pub async fn get_training_appointment(
     responses(
         (status = 201, description = "Training appointment created", body = TrainingAppointmentDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Student not found")
     )
 )]
 pub async fn create_training_appointment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAppointmentsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingAppointmentRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainingAppointmentDetail>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
     let lesson_ids = validate_appointment_lesson_ids(&payload.lesson_ids)?;
     let student_id = validate_user_exists(&mut tx, &payload.student_id).await?;
-    resolve_appointment_lessons(&mut tx, &lesson_ids).await?;
+    training_appointments_repo::resolve_appointment_lessons(&mut *tx, &lesson_ids).await?;
+    let notes = validate_appointment_notes(payload.notes.as_deref())?;
+    let additional_trainers =
+        validate_appointment_additional_trainers(&payload.additional_trainers, &user.id)?;
+    ensure_additional_trainers_exist(&mut tx, &additional_trainers).await?;
 
     let appointment_id = Uuid::new_v4().to_string();
     let now = Utc::now();
     let environment = normalize_optional_text(payload.environment.as_deref());
 
-    sqlx::query(
-        r#"
-        insert into training.training_appointments (
-            id,
-            student_id,
-            trainer_id,
-            start,
-            environment,
-            created_at,
-            updated_at
-        )
-        values ($1, $2, $3, $4, $5, $6, $6)
-        "#,
+    training_appointments_repo::insert_appointment(
+        &mut *tx,
+        &appointment_id,
+        &student_id,
+        &user.id,
+        payload.start,
+        environment.as_deref(),
+        &notes,
+        now,
     )
-    .bind(&appointment_id)
-    .bind(&student_id)
-    .bind(&user.id)
-    .bind(payload.start)
-    .bind(environment.as_deref())
-    .bind(now)
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
-    replace_appointment_lessons(&mut tx, &appointment_id, &lesson_ids).await?;
+    training_appointments_repo::replace_appointment_lessons(&mut tx, &appointment_id, &lesson_ids)
+        .await?;
+
+    for trainer in &additional_trainers {
+        training_appointments_repo::insert_appointment_additional_trainer_row(
+            &mut tx,
+            &appointment_id,
+            &trainer.trainer_id,
+            &trainer.description,
+        )
+        .await?;
+    }
 
     let created_snapshot = serde_json::json!({
         "id": appointment_id,
@@ -1755,6 +1737,8 @@ pub async fn create_training_appointment(
         "start": payload.start,
         "environment": environment,
         "lesson_ids": lesson_ids,
+        "notes": notes,
+        "additional_trainers": additional_trainers,
         "double_booking": false,
         "preparation_completed": false,
         "warning_email_sent": false,
@@ -1785,7 +1769,7 @@ pub async fn create_training_appointment(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    let detail = fetch_training_appointment_detail(db, &appointment_id)
+    let detail = training_appointments_repo::fetch_appointment_detail(db, &appointment_id)
         .await?
         .ok_or(ApiError::Internal)?;
 
@@ -1803,70 +1787,46 @@ pub async fn create_training_appointment(
     responses(
         (status = 200, description = "Training appointment updated", body = TrainingAppointmentDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Training appointment not found")
     )
 )]
 pub async fn update_training_appointment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAppointmentsUpdate>,
     Path(appointment_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingAppointmentRequest>,
 ) -> Result<ApiJson<TrainingAppointmentDetail>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let existing = sqlx::query_as::<_, AppointmentDetailRow>(
-        r#"
-        select
-            ta.id,
-            ta.student_id,
-            ta.trainer_id,
-            ta.start,
-            ta.environment,
-            ta.double_booking,
-            ta.preparation_completed,
-            ta.warning_email_sent,
-            ta.atc_booking_id,
-            ta.created_at,
-            ta.updated_at,
-            su.cid as student_cid,
-            su.full_name as student_name,
-            tu.cid as trainer_cid,
-            tu.full_name as trainer_name
-        from training.training_appointments ta
-        join identity.users su on su.id = ta.student_id
-        join identity.users tu on tu.id = ta.trainer_id
-        where ta.id = $1
-        "#,
-    )
-    .bind(&appointment_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let existing = training_appointments_repo::fetch_appointment_row(&mut *tx, &appointment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let existing_lesson_ids = sqlx::query_scalar::<_, String>(
-        r#"
-        select lesson_id
-        from training.training_appointment_lessons
-        where appointment_id = $1
-        order by lesson_id asc
-        "#,
-    )
-    .bind(&appointment_id)
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let existing_lesson_ids =
+        training_appointments_repo::fetch_appointment_lesson_ids(&mut *tx, &appointment_id).await?;
+
+    let existing_additional_trainers =
+        training_appointments_repo::fetch_appointment_additional_trainers(
+            &mut *tx,
+            &appointment_id,
+        )
+        .await?;
 
     let lesson_ids = validate_appointment_lesson_ids(&payload.lesson_ids)?;
     let student_id = validate_user_exists(&mut tx, &payload.student_id).await?;
-    resolve_appointment_lessons(&mut tx, &lesson_ids).await?;
+    training_appointments_repo::resolve_appointment_lessons(&mut *tx, &lesson_ids).await?;
+    let notes = validate_appointment_notes(payload.notes.as_deref())?;
+    let additional_trainers =
+        validate_appointment_additional_trainers(&payload.additional_trainers, &user.id)?;
+    ensure_additional_trainers_exist(&mut tx, &additional_trainers).await?;
 
     let environment = normalize_optional_text(payload.environment.as_deref());
     let atc_booking_id = payload
@@ -1874,48 +1834,42 @@ pub async fn update_training_appointment(
         .as_ref()
         .map(|value| normalize_optional_text(value.as_deref()));
 
-    sqlx::query(
-        r#"
-        update training.training_appointments
-        set
-            student_id = $2,
-            start = $3,
-            environment = $4,
-            double_booking = $5,
-            preparation_completed = $6,
-            warning_email_sent = $7,
-            atc_booking_id = $8,
-            updated_at = $9
-        where id = $1
-        "#,
-    )
-    .bind(&appointment_id)
-    .bind(&student_id)
-    .bind(payload.start)
-    .bind(environment.as_deref())
-    .bind(payload.double_booking.unwrap_or(existing.double_booking))
-    .bind(
+    training_appointments_repo::update_appointment_row(
+        &mut *tx,
+        &appointment_id,
+        &student_id,
+        payload.start,
+        environment.as_deref(),
+        payload.double_booking.unwrap_or(existing.double_booking),
         payload
             .preparation_completed
             .unwrap_or(existing.preparation_completed),
-    )
-    .bind(
         payload
             .warning_email_sent
             .unwrap_or(existing.warning_email_sent),
-    )
-    .bind(
         atc_booking_id
             .as_ref()
             .map(|value| value.as_deref())
             .unwrap_or(existing.atc_booking_id.as_deref()),
+        &notes,
+        Utc::now(),
     )
-    .bind(Utc::now())
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
-    replace_appointment_lessons(&mut tx, &appointment_id, &lesson_ids).await?;
+    training_appointments_repo::replace_appointment_lessons(&mut tx, &appointment_id, &lesson_ids)
+        .await?;
+
+    training_appointments_repo::delete_appointment_additional_trainers(&mut tx, &appointment_id)
+        .await?;
+    for trainer in &additional_trainers {
+        training_appointments_repo::insert_appointment_additional_trainer_row(
+            &mut tx,
+            &appointment_id,
+            &trainer.trainer_id,
+            &trainer.description,
+        )
+        .await?;
+    }
 
     let before_snapshot = serde_json::json!({
         "id": existing.id,
@@ -1927,6 +1881,8 @@ pub async fn update_training_appointment(
         "preparation_completed": existing.preparation_completed,
         "warning_email_sent": existing.warning_email_sent,
         "atc_booking_id": existing.atc_booking_id,
+        "notes": existing.notes,
+        "additional_trainers": existing_additional_trainers,
         "lesson_ids": existing_lesson_ids
     });
     let after_snapshot = serde_json::json!({
@@ -1939,6 +1895,8 @@ pub async fn update_training_appointment(
         "preparation_completed": payload.preparation_completed.unwrap_or(existing.preparation_completed),
         "warning_email_sent": payload.warning_email_sent.unwrap_or(existing.warning_email_sent),
         "atc_booking_id": atc_booking_id.unwrap_or(existing.atc_booking_id),
+        "notes": notes,
+        "additional_trainers": additional_trainers,
         "lesson_ids": lesson_ids
     });
     let update_scope_key = after_snapshot["student_id"]
@@ -1962,7 +1920,7 @@ pub async fn update_training_appointment(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    let detail = fetch_training_appointment_detail(db, &appointment_id)
+    let detail = training_appointments_repo::fetch_appointment_detail(db, &appointment_id)
         .await?
         .ok_or(ApiError::Internal)?;
 
@@ -1978,66 +1936,29 @@ pub async fn update_training_appointment(
     ),
     responses(
         (status = 204, description = "Training appointment deleted"),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Training appointment not found")
     )
 )]
 pub async fn delete_training_appointment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAppointmentsDelete>,
     Path(appointment_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["appointments"], PermissionAction::Delete).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let lesson_ids = sqlx::query_scalar::<_, String>(
-        r#"
-        select lesson_id
-        from training.training_appointment_lessons
-        where appointment_id = $1
-        order by lesson_id asc
-        "#,
-    )
-    .bind(&appointment_id)
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let lesson_ids =
+        training_appointments_repo::fetch_appointment_lesson_ids(&mut *tx, &appointment_id).await?;
 
-    let deleted = sqlx::query_as::<_, AppointmentDetailRow>(
-        r#"
-        delete from training.training_appointments ta
-        using identity.users su, identity.users tu
-        where ta.id = $1
-          and su.id = ta.student_id
-          and tu.id = ta.trainer_id
-        returning
-            ta.id,
-            ta.student_id,
-            ta.trainer_id,
-            ta.start,
-            ta.environment,
-            ta.double_booking,
-            ta.preparation_completed,
-            ta.warning_email_sent,
-            ta.atc_booking_id,
-            ta.created_at,
-            ta.updated_at,
-            su.cid as student_cid,
-            su.full_name as student_name,
-            tu.cid as trainer_cid,
-            tu.full_name as trainer_name
-        "#,
-    )
-    .bind(&appointment_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let deleted = training_appointments_repo::delete_appointment_row(&mut *tx, &appointment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     let deleted_snapshot = serde_json::json!({
         "id": deleted.id,
@@ -2096,12 +2017,10 @@ pub async fn delete_training_appointment(
 )]
 pub async fn list_training_sessions(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingSessionsRead>,
     Query(query): Query<ListTrainingSessionsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingSessionListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination =
@@ -2128,125 +2047,29 @@ pub async fn list_training_sessions(
         .map(|op| build_filter_pattern(op, &filter_value))
         .unwrap_or_else(|| filter_value.clone());
 
-    let count = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(distinct ts.id)::bigint
-        from training.training_sessions ts
-        join identity.users su on su.id = ts.student_id
-        join identity.users iu on iu.id = ts.instructor_id
-        left join training.training_tickets tt on tt.session_id = ts.id
-        left join training.lessons l on l.id = tt.lesson_id
-        where ($1::text is null or ts.student_id = $1)
-          and ($2::text is null or ts.instructor_id = $2)
-          and (
-            $3::text = ''
-            or (
-                $3 = 'student'
-                and (
-                    ($5 and (cast(su.cid as text) = $4 or su.full_name = $4))
-                    or
-                    (not $5 and (cast(su.cid as text) ilike $4 or su.full_name ilike $4))
-                )
-            )
-            or (
-                $3 = 'instructor'
-                and (
-                    ($5 and (cast(iu.cid as text) = $4 or iu.full_name = $4))
-                    or
-                    (not $5 and (cast(iu.cid as text) ilike $4 or iu.full_name ilike $4))
-                )
-            )
-            or (
-                $3 = 'lessons'
-                and (
-                    ($5 and (l.identifier = $4 or l.name = $4))
-                    or
-                    (not $5 and (l.identifier ilike $4 or l.name ilike $4))
-                )
-            )
-          )
-        "#,
+    let count = training_sessions_repo::count_sessions(
+        db,
+        query.student_id.as_deref(),
+        query.instructor_id.as_deref(),
+        &filter_field,
+        &filter_pattern,
+        filter_is_exact,
     )
-    .bind(query.student_id.as_deref())
-    .bind(query.instructor_id.as_deref())
-    .bind(&filter_field)
-    .bind(&filter_pattern)
-    .bind(filter_is_exact)
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
-    let sql = format!(
-        r#"
-        select
-            ts.id,
-            ts.student_id,
-            ts.instructor_id,
-            ts.start,
-            ts."end" as "end",
-            ts.additional_comments,
-            ts.trainer_comments,
-            ts.vatusa_id,
-            ts.enable_markdown,
-            ts.created_at,
-            ts.updated_at,
-            su.cid as student_cid,
-            su.full_name as student_name,
-            iu.cid as instructor_cid,
-            iu.full_name as instructor_name,
-            count(tt.id)::bigint as ticket_count
-        from training.training_sessions ts
-        join identity.users su on su.id = ts.student_id
-        join identity.users iu on iu.id = ts.instructor_id
-        left join training.training_tickets tt on tt.session_id = ts.id
-        left join training.lessons l on l.id = tt.lesson_id
-        where ($1::text is null or ts.student_id = $1)
-          and ($2::text is null or ts.instructor_id = $2)
-          and (
-            $3::text = ''
-            or (
-                $3 = 'student'
-                and (
-                    ($5 and (cast(su.cid as text) = $4 or su.full_name = $4))
-                    or
-                    (not $5 and (cast(su.cid as text) ilike $4 or su.full_name ilike $4))
-                )
-            )
-            or (
-                $3 = 'instructor'
-                and (
-                    ($5 and (cast(iu.cid as text) = $4 or iu.full_name = $4))
-                    or
-                    (not $5 and (cast(iu.cid as text) ilike $4 or iu.full_name ilike $4))
-                )
-            )
-            or (
-                $3 = 'lessons'
-                and (
-                    ($5 and (l.identifier = $4 or l.name = $4))
-                    or
-                    (not $5 and (l.identifier ilike $4 or l.name ilike $4))
-                )
-            )
-          )
-        group by
-            ts.id, su.cid, su.full_name, iu.cid, iu.full_name
-        order by {sort_column} {sort_direction}
-        limit $6 offset $7
-        "#
-    );
-
-    let mut items = sqlx::query_as::<_, TrainingSessionListItem>(&sql)
-        .bind(query.student_id.as_deref())
-        .bind(query.instructor_id.as_deref())
-        .bind(&filter_field)
-        .bind(&filter_pattern)
-        .bind(filter_is_exact)
-        .bind(pagination.page_size)
-        .bind(pagination.offset)
-        .fetch_all(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let mut items = training_sessions_repo::list_sessions(
+        db,
+        query.student_id.as_deref(),
+        query.instructor_id.as_deref(),
+        &filter_field,
+        &filter_pattern,
+        filter_is_exact,
+        sort_column,
+        sort_direction,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
 
     if count == 0 {
         items.clear();
@@ -2257,12 +2080,7 @@ pub async fn list_training_sessions(
     Ok(ApiJson::new(
         TrainingSessionListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -2277,23 +2095,21 @@ pub async fn list_training_sessions(
     ),
     responses(
         (status = 200, description = "Training session detail", body = TrainingSessionDetail),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Training session not found")
     )
 )]
 pub async fn get_training_session(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingSessionsRead>,
     Path(session_id): Path<String>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingSessionDetail>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Read).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let detail = fetch_training_session_detail(db, &session_id)
+    let detail = training_sessions_repo::fetch_session_detail(db, &session_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     Ok(ApiJson::new(detail, time))
 }
@@ -2312,11 +2128,11 @@ pub async fn get_training_session(
 pub async fn create_training_session(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingSessionsCreate>,
     time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingSessionRequest>,
 ) -> Result<(StatusCode, ApiJson<CreateOrUpdateTrainingSessionResult>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Create).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, None, payload.into_update_request()).await? {
@@ -2339,18 +2155,19 @@ pub async fn create_training_session(
     responses(
         (status = 200, description = "Training session updated", body = CreateOrUpdateTrainingSessionResult),
         (status = 400, description = "Invalid request", body = CreateOrUpdateTrainingSessionResult),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Training session not found")
     )
 )]
 pub async fn update_training_session(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingSessionsUpdate>,
     Path(session_id): Path<String>,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingSessionRequest>,
 ) -> Result<ApiJson<CreateOrUpdateTrainingSessionResult>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Update).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(db, user, Some(session_id), payload).await? {
@@ -2368,35 +2185,26 @@ pub async fn update_training_session(
     ),
     responses(
         (status = 204, description = "Training session deleted"),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Training session not found")
     )
 )]
 pub async fn delete_training_session(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingSessionsDelete>,
     Path(session_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_permission(&state, user, &["sessions"], PermissionAction::Delete).await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let deleted = sqlx::query_as::<_, SessionExistsRow>(
-        r#"
-        delete from training.training_sessions
-        where id = $1
-        returning id, instructor_id
-        "#,
-    )
-    .bind(&session_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let deleted = training_sessions_repo::delete_session_row(&mut tx, &session_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     record_audit(
         &mut tx,
@@ -2417,122 +2225,6 @@ pub async fn delete_training_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn fetch_training_appointment_detail(
-    db: &sqlx::PgPool,
-    appointment_id: &str,
-) -> Result<Option<TrainingAppointmentDetail>, ApiError> {
-    let appointment = sqlx::query_as::<_, AppointmentDetailRow>(
-        r#"
-        select
-            ta.id,
-            ta.student_id,
-            ta.trainer_id,
-            ta.start,
-            ta.environment,
-            ta.double_booking,
-            ta.preparation_completed,
-            ta.warning_email_sent,
-            ta.atc_booking_id,
-            ta.created_at,
-            ta.updated_at,
-            su.cid as student_cid,
-            su.full_name as student_name,
-            tu.cid as trainer_cid,
-            tu.full_name as trainer_name
-        from training.training_appointments ta
-        join identity.users su on su.id = ta.student_id
-        join identity.users tu on tu.id = ta.trainer_id
-        where ta.id = $1
-        "#,
-    )
-    .bind(appointment_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let Some(appointment) = appointment else {
-        return Ok(None);
-    };
-
-    let lessons = sqlx::query_as::<_, TrainingAppointmentLessonSummary>(
-        r#"
-        select
-            l.id,
-            l.identifier,
-            l.name,
-            l.location,
-            l.duration
-        from training.training_appointment_lessons tal
-        join training.lessons l on l.id = tal.lesson_id
-        where tal.appointment_id = $1
-        order by l.location asc, l.identifier asc, l.name asc, l.id asc
-        "#,
-    )
-    .bind(appointment_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let (estimated_duration_minutes, estimated_end) =
-        estimate_appointment_end(appointment.start, &lessons);
-
-    Ok(Some(TrainingAppointmentDetail {
-        id: appointment.id,
-        student_id: appointment.student_id,
-        trainer_id: appointment.trainer_id,
-        start: appointment.start,
-        environment: appointment.environment,
-        double_booking: appointment.double_booking,
-        preparation_completed: appointment.preparation_completed,
-        warning_email_sent: appointment.warning_email_sent,
-        atc_booking_id: appointment.atc_booking_id,
-        created_at: appointment.created_at,
-        updated_at: appointment.updated_at,
-        student_cid: appointment.student_cid,
-        student_name: appointment.student_name,
-        trainer_cid: appointment.trainer_cid,
-        trainer_name: appointment.trainer_name,
-        estimated_duration_minutes,
-        estimated_end,
-        lessons,
-    }))
-}
-
-async fn ensure_training_permission(
-    state: &AppState,
-    user: &CurrentUser,
-    segments: &[&str],
-    action: PermissionAction,
-) -> Result<(), ApiError> {
-    let path = match segments {
-        ["assignments"] => PermissionPath::from_segments(["training", "assignments"], action),
-        ["ots_recommendations"] => {
-            PermissionPath::from_segments(["training", "ots_recommendations"], action)
-        }
-        ["lessons"] => PermissionPath::from_segments(["training", "lessons"], action),
-        ["appointments"] => PermissionPath::from_segments(["training", "appointments"], action),
-        ["sessions"] => PermissionPath::from_segments(["training", "sessions"], action),
-        ["assignment_requests"] => match action {
-            PermissionAction::Request => {
-                PermissionPath::from_segments(["training", "assignment_requests", "self"], action)
-            }
-            _ => PermissionPath::from_segments(["training", "assignment_requests"], action),
-        },
-        ["assignment_requests", "interest"] => {
-            PermissionPath::from_segments(["training", "assignment_requests", "interest"], action)
-        }
-        ["release_requests"] => match action {
-            PermissionAction::Request => {
-                PermissionPath::from_segments(["training", "release_requests", "self"], action)
-            }
-            _ => PermissionPath::from_segments(["training", "release_requests"], action),
-        },
-        _ => return Err(ApiError::Internal),
-    };
-
-    ensure_permission(state, Some(user), None, path).await
-}
-
 fn validate_training_lesson_payload(
     identifier: &str,
     location: i32,
@@ -2543,6 +2235,40 @@ fn validate_training_lesson_payload(
         || location > 2
         || duration < 10
         || duration > 12 * 60
+    {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(())
+}
+
+fn validate_rubric_criteria_payload(
+    criteria: &str,
+    description: &str,
+    max_points: i32,
+    passing: i32,
+) -> Result<(), ApiError> {
+    if criteria.trim().is_empty()
+        || criteria.trim().chars().count() > 255
+        || description.trim().is_empty()
+        || max_points < 1
+        || passing < 0
+    {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(())
+}
+
+fn validate_rubric_cell_payload(
+    description: &str,
+    points: i32,
+    criteria_max_points: i32,
+) -> Result<(), ApiError> {
+    if description.trim().is_empty()
+        || description.trim().chars().count() > 255
+        || points < 0
+        || points > criteria_max_points
     {
         return Err(ApiError::BadRequest);
     }
@@ -2569,6 +2295,54 @@ fn validate_appointment_lesson_ids(lesson_ids: &[String]) -> Result<Vec<String>,
     Ok(normalized)
 }
 
+fn validate_appointment_notes(notes: Option<&str>) -> Result<String, ApiError> {
+    let notes = notes.unwrap_or("").trim().to_ascii_uppercase();
+    if notes.chars().count() > 50 {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(notes)
+}
+
+fn validate_appointment_additional_trainers(
+    additional_trainers: &[AdditionalTrainerRequest],
+    forbidden_trainer_id: &str,
+) -> Result<Vec<AdditionalTrainerRequest>, ApiError> {
+    let forbidden_ids: HashSet<&str> = [forbidden_trainer_id].into_iter().collect();
+    if !validate_additional_trainer_shapes(additional_trainers, &forbidden_ids).is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(additional_trainers
+        .iter()
+        .map(|trainer| AdditionalTrainerRequest {
+            trainer_id: trainer.trainer_id.trim().to_string(),
+            description: trainer.description.trim().to_ascii_uppercase(),
+        })
+        .collect())
+}
+
+async fn ensure_additional_trainers_exist(
+    tx: &mut Transaction<'_, Postgres>,
+    additional_trainers: &[AdditionalTrainerRequest],
+) -> Result<(), ApiError> {
+    if additional_trainers.is_empty() {
+        return Ok(());
+    }
+
+    let trainer_ids = additional_trainers
+        .iter()
+        .map(|trainer| trainer.trainer_id.clone())
+        .collect::<Vec<_>>();
+    let found =
+        training_appointments_repo::fetch_user_identities_by_ids(&mut **tx, &trainer_ids).await?;
+    if found.len() != trainer_ids.len() {
+        return Err(ApiError::BadRequest);
+    }
+
+    Ok(())
+}
+
 fn normalize_optional_text(value: Option<&str>) -> Option<String> {
     value.and_then(|item| {
         let trimmed = item.trim();
@@ -2580,24 +2354,6 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
     })
 }
 
-fn estimate_appointment_end(
-    start: DateTime<Utc>,
-    lessons: &[TrainingAppointmentLessonSummary],
-) -> (Option<i64>, Option<DateTime<Utc>>) {
-    if lessons.is_empty() {
-        return (None, None);
-    }
-
-    let total_minutes = lessons
-        .iter()
-        .map(|lesson| i64::from(lesson.duration))
-        .sum();
-    (
-        Some(total_minutes),
-        Some(start + chrono::Duration::minutes(total_minutes)),
-    )
-}
-
 async fn validate_user_exists(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
@@ -2607,256 +2363,9 @@ async fn validate_user_exists(
         return Err(ApiError::BadRequest);
     }
 
-    let exists = sqlx::query_scalar::<_, String>("select id from identity.users where id = $1")
-        .bind(normalized)
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let exists = training_appointments_repo::user_exists(&mut **tx, normalized).await?;
 
-    exists.ok_or(ApiError::BadRequest)
-}
-
-async fn resolve_appointment_lessons(
-    tx: &mut Transaction<'_, Postgres>,
-    lesson_ids: &[String],
-) -> Result<Vec<TrainingAppointmentLessonSummary>, ApiError> {
-    let lessons = sqlx::query_as::<_, TrainingAppointmentLessonSummary>(
-        r#"
-        select id, identifier, name, location, duration
-        from training.lessons
-        where id = any($1)
-        "#,
-    )
-    .bind(lesson_ids)
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    if lessons.len() != lesson_ids.len() {
-        return Err(ApiError::BadRequest);
-    }
-
-    Ok(lessons)
-}
-
-async fn replace_appointment_lessons(
-    tx: &mut Transaction<'_, Postgres>,
-    appointment_id: &str,
-    lesson_ids: &[String],
-) -> Result<(), ApiError> {
-    sqlx::query("delete from training.training_appointment_lessons where appointment_id = $1")
-        .bind(appointment_id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-
-    for lesson_id in lesson_ids {
-        sqlx::query(
-            r#"
-            insert into training.training_appointment_lessons (appointment_id, lesson_id)
-            values ($1, $2)
-            "#,
-        )
-        .bind(appointment_id)
-        .bind(lesson_id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-    }
-
-    Ok(())
-}
-
-async fn fetch_training_session_detail(
-    db: &sqlx::PgPool,
-    session_id: &str,
-) -> Result<Option<TrainingSessionDetail>, ApiError> {
-    let session = sqlx::query_as::<_, SessionDetailRow>(
-        r#"
-        select
-            ts.id,
-            ts.student_id,
-            ts.instructor_id,
-            ts.start,
-            ts."end" as "end",
-            ts.additional_comments,
-            ts.trainer_comments,
-            ts.vatusa_id,
-            ts.enable_markdown,
-            ts.created_at,
-            ts.updated_at,
-            su.cid as student_cid,
-            su.full_name as student_name,
-            iu.cid as instructor_cid,
-            iu.full_name as instructor_name
-        from training.training_sessions ts
-        join identity.users su on su.id = ts.student_id
-        join identity.users iu on iu.id = ts.instructor_id
-        where ts.id = $1
-        "#,
-    )
-    .bind(session_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let Some(session) = session else {
-        return Ok(None);
-    };
-
-    let ticket_rows = sqlx::query_as::<_, TicketRow>(
-        r#"
-        select id, session_id, lesson_id, passed, created_at
-        from training.training_tickets
-        where session_id = $1
-        order by created_at asc, id asc
-        "#,
-    )
-    .bind(session_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let score_rows = sqlx::query_as::<_, ScoreRow>(
-        r#"
-        select id, training_ticket_id, criteria_id, cell_id, passed
-        from training.rubric_scores
-        where training_ticket_id in (
-            select id from training.training_tickets where session_id = $1
-        )
-        order by id asc
-        "#,
-    )
-    .bind(session_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let mut scores_by_ticket: HashMap<String, Vec<_>> = HashMap::new();
-    for row in score_rows {
-        scores_by_ticket
-            .entry(row.training_ticket_id)
-            .or_default()
-            .push(crate::models::RubricScoreDetail {
-                id: row.id,
-                criteria_id: row.criteria_id,
-                cell_id: row.cell_id,
-                passed: row.passed,
-            });
-    }
-
-    let tickets = ticket_rows
-        .into_iter()
-        .map(|row| TrainingTicketDetail {
-            id: row.id.clone(),
-            session_id: row.session_id,
-            lesson_id: row.lesson_id,
-            passed: row.passed,
-            created_at: row.created_at,
-            scores: scores_by_ticket.remove(&row.id).unwrap_or_default(),
-        })
-        .collect::<Vec<_>>();
-
-    let performance_indicator = fetch_session_performance_indicator(db, session_id).await?;
-
-    Ok(Some(TrainingSessionDetail {
-        id: session.id,
-        student_id: session.student_id,
-        instructor_id: session.instructor_id,
-        start: session.start,
-        end: session.end,
-        additional_comments: session.additional_comments,
-        trainer_comments: session.trainer_comments,
-        vatusa_id: session.vatusa_id,
-        enable_markdown: session.enable_markdown,
-        created_at: session.created_at,
-        updated_at: session.updated_at,
-        student_cid: session.student_cid,
-        student_name: session.student_name,
-        instructor_cid: session.instructor_cid,
-        instructor_name: session.instructor_name,
-        tickets,
-        performance_indicator,
-    }))
-}
-
-async fn fetch_session_performance_indicator(
-    db: &sqlx::PgPool,
-    session_id: &str,
-) -> Result<Option<TrainingSessionPerformanceIndicatorDetail>, ApiError> {
-    let root = sqlx::query_as::<_, IndicatorRootRow>(
-        "select id from training.session_performance_indicators where training_session_id = $1",
-    )
-    .bind(session_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let Some(root) = root else {
-        return Ok(None);
-    };
-
-    let category_rows = sqlx::query_as::<_, IndicatorCategoryRow>(
-        r#"
-        select id, name, sort_order
-        from training.session_performance_indicator_categories
-        where session_performance_indicator_id = $1
-        order by sort_order asc, id asc
-        "#,
-    )
-    .bind(&root.id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let criteria_rows = sqlx::query_as::<_, IndicatorCriteriaRow>(
-        r#"
-        select id, category_id, name, sort_order, marker, comments
-        from training.session_performance_indicator_criteria
-        where category_id in (
-            select id
-            from training.session_performance_indicator_categories
-            where session_performance_indicator_id = $1
-        )
-        order by sort_order asc, id asc
-        "#,
-    )
-    .bind(&root.id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let mut criteria_by_category: HashMap<
-        String,
-        Vec<TrainingSessionPerformanceIndicatorCriteriaDetail>,
-    > = HashMap::new();
-    for row in criteria_rows {
-        criteria_by_category
-            .entry(row.category_id)
-            .or_default()
-            .push(TrainingSessionPerformanceIndicatorCriteriaDetail {
-                id: row.id,
-                name: row.name,
-                order: row.sort_order,
-                marker: row.marker,
-                comments: row.comments,
-            });
-    }
-
-    let categories = category_rows
-        .into_iter()
-        .map(|row| TrainingSessionPerformanceIndicatorCategoryDetail {
-            id: row.id.clone(),
-            name: row.name,
-            order: row.sort_order,
-            criteria: criteria_by_category.remove(&row.id).unwrap_or_default(),
-        })
-        .collect();
-
-    Ok(Some(TrainingSessionPerformanceIndicatorDetail {
-        id: root.id,
-        categories,
-    }))
+    exists.ok_or(ApiError::NotFound)
 }
 
 async fn upsert_training_session(
@@ -2868,168 +2377,99 @@ async fn upsert_training_session(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let student = sqlx::query_as::<_, UserIdentityRow>(
-        "select id, cid, full_name from identity.users where id = $1",
-    )
-    .bind(&payload.student_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let student =
+        training_sessions_repo::fetch_student_identity(&mut tx, &payload.student_id).await?;
 
     let Some(student) = student else {
         return Ok(Err(vec![message("Student does not exist.")]));
     };
 
-    let lessons = sqlx::query_as::<_, LessonRow>(
-        r#"
-        select
-            id,
-            identifier,
-            instructor_only,
-            notify_instructor_on_pass,
-            release_request_on_pass,
-            performance_indicator_template_id
-        from training.lessons
-        where id = any($1)
-        "#,
-    )
-    .bind(payload.ticket_lesson_ids())
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let lessons =
+        training_sessions_repo::fetch_lessons_by_ids(&mut tx, &payload.ticket_lesson_ids()).await?;
 
     let lesson_map = lessons
         .into_iter()
         .map(|lesson| (lesson.id.clone(), lesson))
         .collect::<HashMap<_, _>>();
 
-    let rubric_rows = sqlx::query_as::<_, RubricMembershipRow>(
-        r#"
-        select
-            l.id as lesson_id,
-            c.id as criteria_id,
-            cell.id as cell_id
-        from training.lessons l
-        join training.lesson_rubrics r on r.id = l.rubric_id
-        join training.lesson_rubric_criteria c on c.rubric_id = r.id
-        left join training.lesson_rubric_cells cell on cell.criteria_id = c.id
-        where l.id = any($1)
-        "#,
-    )
-    .bind(payload.ticket_lesson_ids())
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let rubric_rows =
+        training_sessions_repo::fetch_rubric_membership_rows(&mut tx, &payload.ticket_lesson_ids())
+            .await?;
 
     let rules = build_rubric_rules(rubric_rows);
-    let validation_errors = validate_training_session_payload(&payload, &lesson_map, &rules);
+    let mut validation_errors = validate_training_session_payload(&payload, &lesson_map, &rules);
+
+    let forbidden_trainer_ids: HashSet<&str> = [student.id.as_str(), user.id.as_str()]
+        .into_iter()
+        .collect();
+    validation_errors.extend(validate_additional_trainer_shapes(
+        &payload.additional_trainers,
+        &forbidden_trainer_ids,
+    ));
+
     if !validation_errors.is_empty() {
         return Ok(Err(validation_errors));
     }
 
-    let membership = sqlx::query_as::<_, MembershipRow>(
-        "select controller_status from org.memberships where user_id = $1",
-    )
-    .bind(&student.id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    if !payload.additional_trainers.is_empty() {
+        let trainer_ids = payload
+            .additional_trainers
+            .iter()
+            .map(|trainer| trainer.trainer_id.clone())
+            .collect::<Vec<_>>();
+        let found =
+            training_sessions_repo::fetch_user_identities_by_ids(&mut tx, &trainer_ids).await?;
+        if found.len() != trainer_ids.len() {
+            return Ok(Err(vec![message(
+                "One or more additional trainers do not exist.",
+            )]));
+        }
+    }
+
+    let membership = training_sessions_repo::fetch_membership_row(&mut tx, &student.id).await?;
 
     let now = Utc::now();
     let existing_id = session_id.clone();
     let (session_id, _instructor_id, old_tickets) = if let Some(ref id) = existing_id {
-        let existing = sqlx::query_as::<_, SessionExistsRow>(
-            "select id, instructor_id from training.training_sessions where id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?
-        .ok_or(ApiError::BadRequest)?;
+        let existing = training_sessions_repo::fetch_session_exists_row(&mut tx, id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
 
-        let old_tickets = sqlx::query_as::<_, ExistingTicketRow>(
-            r#"
-            select lesson_id, passed
-            from training.training_tickets
-            where session_id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        let old_tickets = training_sessions_repo::fetch_old_tickets(&mut tx, id).await?;
 
-        sqlx::query(
-            "delete from training.session_performance_indicators where training_session_id = $1",
-        )
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        training_sessions_repo::delete_session_performance_indicators(&mut tx, id).await?;
+        training_sessions_repo::delete_session_tickets(&mut tx, id).await?;
+        training_sessions_repo::delete_session_additional_trainers(&mut tx, id).await?;
 
-        sqlx::query("delete from training.training_tickets where session_id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-
-        sqlx::query(
-            r#"
-            update training.training_sessions
-            set student_id = $2,
-                start = $3,
-                "end" = $4,
-                additional_comments = $5,
-                trainer_comments = $6,
-                enable_markdown = $7,
-                updated_at = $8
-            where id = $1
-            "#,
+        training_sessions_repo::update_session_row(
+            &mut tx,
+            id,
+            &payload.student_id,
+            payload.start,
+            payload.end,
+            payload.additional_comments.as_deref(),
+            payload.trainer_comments.as_deref(),
+            payload.enable_markdown.unwrap_or(false),
+            now,
         )
-        .bind(id)
-        .bind(&payload.student_id)
-        .bind(payload.start)
-        .bind(payload.end)
-        .bind(payload.additional_comments.as_deref())
-        .bind(payload.trainer_comments.as_deref())
-        .bind(payload.enable_markdown.unwrap_or(false))
-        .bind(now)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
 
         (existing.id, existing.instructor_id, old_tickets)
     } else {
         let new_id = Uuid::new_v4().to_string();
-        sqlx::query(
-            r#"
-            insert into training.training_sessions (
-                id,
-                student_id,
-                instructor_id,
-                start,
-                "end",
-                additional_comments,
-                trainer_comments,
-                enable_markdown,
-                created_at,
-                updated_at
-            )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-            "#,
+        training_sessions_repo::insert_session_row(
+            &mut tx,
+            &new_id,
+            &payload.student_id,
+            &user.id,
+            payload.start,
+            payload.end,
+            payload.additional_comments.as_deref(),
+            payload.trainer_comments.as_deref(),
+            payload.enable_markdown.unwrap_or(false),
+            now,
         )
-        .bind(&new_id)
-        .bind(&payload.student_id)
-        .bind(&user.id)
-        .bind(payload.start)
-        .bind(payload.end)
-        .bind(payload.additional_comments.as_deref())
-        .bind(payload.trainer_comments.as_deref())
-        .bind(payload.enable_markdown.unwrap_or(false))
-        .bind(now)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
 
         (new_id, user.id.clone(), Vec::new())
     };
@@ -3037,42 +2477,26 @@ async fn upsert_training_session(
     let mut new_passed_lessons = Vec::new();
     for ticket in &payload.tickets {
         let ticket_id = Uuid::new_v4().to_string();
-        sqlx::query(
-            r#"
-            insert into training.training_tickets (id, session_id, lesson_id, passed, created_at)
-            values ($1, $2, $3, $4, $5)
-            "#,
+        training_sessions_repo::insert_ticket_row(
+            &mut tx,
+            &ticket_id,
+            &session_id,
+            &ticket.lesson_id,
+            ticket.passed,
+            now,
         )
-        .bind(&ticket_id)
-        .bind(&session_id)
-        .bind(&ticket.lesson_id)
-        .bind(ticket.passed)
-        .bind(now)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
 
         for score in &ticket.scores {
-            sqlx::query(
-                r#"
-                insert into training.rubric_scores (
-                    id,
-                    training_ticket_id,
-                    criteria_id,
-                    cell_id,
-                    passed
-                )
-                values ($1, $2, $3, $4, $5)
-                "#,
+            training_sessions_repo::insert_rubric_score_row(
+                &mut tx,
+                &Uuid::new_v4().to_string(),
+                &ticket_id,
+                &score.criteria_id,
+                &score.cell_id,
+                score.passed,
             )
-            .bind(Uuid::new_v4().to_string())
-            .bind(&ticket_id)
-            .bind(&score.criteria_id)
-            .bind(&score.cell_id)
-            .bind(score.passed)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+            .await?;
         }
 
         if ticket.passed {
@@ -3082,65 +2506,48 @@ async fn upsert_training_session(
         }
     }
 
+    for trainer in &payload.additional_trainers {
+        training_sessions_repo::insert_session_additional_trainer_row(
+            &mut tx,
+            &session_id,
+            &trainer.trainer_id,
+            trainer.description.trim(),
+        )
+        .await?;
+    }
+
     if let Some(ref indicator) = payload.performance_indicator {
         let indicator_id = Uuid::new_v4().to_string();
-        sqlx::query(
-            r#"
-            insert into training.session_performance_indicators (id, training_session_id, created_at)
-            values ($1, $2, $3)
-            "#,
+        training_sessions_repo::insert_performance_indicator_row(
+            &mut tx,
+            &indicator_id,
+            &session_id,
+            now,
         )
-        .bind(&indicator_id)
-        .bind(&session_id)
-        .bind(now)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
 
         for category in &indicator.categories {
             let category_id = Uuid::new_v4().to_string();
-            sqlx::query(
-                r#"
-                insert into training.session_performance_indicator_categories (
-                    id,
-                    session_performance_indicator_id,
-                    name,
-                    sort_order
-                )
-                values ($1, $2, $3, $4)
-                "#,
+            training_sessions_repo::insert_performance_indicator_category_row(
+                &mut tx,
+                &category_id,
+                &indicator_id,
+                &category.name,
+                category.order,
             )
-            .bind(&category_id)
-            .bind(&indicator_id)
-            .bind(&category.name)
-            .bind(category.order)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+            .await?;
 
             for criteria in &category.criteria {
-                sqlx::query(
-                    r#"
-                    insert into training.session_performance_indicator_criteria (
-                        id,
-                        category_id,
-                        name,
-                        sort_order,
-                        marker,
-                        comments
-                    )
-                    values ($1, $2, $3, $4, $5, $6)
-                    "#,
+                training_sessions_repo::insert_performance_indicator_criteria_row(
+                    &mut tx,
+                    &Uuid::new_v4().to_string(),
+                    &category_id,
+                    &criteria.name,
+                    criteria.order,
+                    &criteria.marker.trim().to_ascii_uppercase(),
+                    criteria.comments.as_deref(),
                 )
-                .bind(Uuid::new_v4().to_string())
-                .bind(&category_id)
-                .bind(&criteria.name)
-                .bind(criteria.order)
-                .bind(criteria.marker.trim().to_ascii_uppercase())
-                .bind(criteria.comments.as_deref())
-                .execute(&mut *tx)
-                .await
-                .map_err(|_| ApiError::Internal)?;
+                .await?;
             }
         }
     }
@@ -3207,7 +2614,7 @@ async fn upsert_training_session(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    let session = fetch_training_session_detail(db, &session_id)
+    let session = training_sessions_repo::fetch_session_detail(db, &session_id)
         .await?
         .ok_or(ApiError::Internal)?;
 
@@ -3239,6 +2646,37 @@ fn build_rubric_rules(rows: Vec<RubricMembershipRow>) -> HashMap<String, RubricR
     }
 
     rules
+}
+
+fn validate_additional_trainer_shapes(
+    additional_trainers: &[AdditionalTrainerRequest],
+    forbidden_ids: &HashSet<&str>,
+) -> Vec<ApiMessage> {
+    let mut errors = Vec::new();
+    let mut seen = HashSet::new();
+
+    for trainer in additional_trainers {
+        let trainer_id = trainer.trainer_id.trim();
+        if trainer_id.is_empty() {
+            errors.push(message("You must select an additional trainer."));
+            continue;
+        }
+        if trainer.description.trim().is_empty() {
+            errors.push(message(
+                "You must provide a description for the additional trainer.",
+            ));
+        }
+        if forbidden_ids.contains(trainer_id) {
+            errors.push(message(
+                "You cannot add the student or yourself as an additional trainer.",
+            ));
+        }
+        if !seen.insert(trainer_id.to_string()) {
+            errors.push(message("Duplicate additional trainers are not allowed."));
+        }
+    }
+
+    errors
 }
 
 fn validate_training_session_payload(
@@ -3368,78 +2806,39 @@ async fn apply_roster_changes(
         return Ok(Vec::new());
     }
 
-    let updates = sqlx::query_as::<_, LessonRosterChangeSummary>(
-        r#"
-        select
-            id,
-            lesson_id,
-            certification_type_id,
-            certification_option,
-            dossier_text
-        from training.lesson_roster_changes
-        where lesson_id = any($1)
-        "#,
-    )
-    .bind(&lesson_ids)
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let updates = training_sessions_repo::fetch_lesson_roster_changes(tx, &lesson_ids).await?;
 
     let now = Utc::now();
     for update in &updates {
-        sqlx::query(
-            "delete from org.user_solo_certifications where user_id = $1 and certification_type_id = $2",
+        training_sessions_repo::delete_solo_certification_for_roster(
+            tx,
+            student_user_id,
+            &update.certification_type_id,
         )
-        .bind(student_user_id)
-        .bind(&update.certification_type_id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
 
-        sqlx::query(
-            r#"
-            insert into org.user_certifications (
-                id,
-                user_id,
-                certification_type_id,
-                certification_option,
-                granted_at,
-                granted_by_actor_id
-            )
-            values ($1, $2, $3, $4, $5, $6)
-            on conflict (user_id, certification_type_id) do update
-            set certification_option = excluded.certification_option,
-                granted_by_actor_id = excluded.granted_by_actor_id
-            "#,
+        training_sessions_repo::upsert_user_certification(
+            tx,
+            &Uuid::new_v4().to_string(),
+            student_user_id,
+            &update.certification_type_id,
+            &update.certification_option,
+            now,
+            actor_id,
         )
-        .bind(Uuid::new_v4().to_string())
-        .bind(student_user_id)
-        .bind(&update.certification_type_id)
-        .bind(&update.certification_option)
-        .bind(now)
-        .bind(actor_id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
 
-        sqlx::query(
-            r#"
-            insert into feedback.dossier_entries (id, user_id, writer_id, message, timestamp, created_at)
-            values ($1, $2, $3, $4, $5, $5)
-            "#,
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(student_user_id)
-        .bind(writer_user_id)
-        .bind(
-            update
+        training_sessions_repo::insert_dossier_entry(
+            tx,
+            &Uuid::new_v4().to_string(),
+            student_user_id,
+            writer_user_id,
+            &update
                 .dossier_text
                 .replace("{cid}", &student_cid.to_string()),
+            now,
         )
-        .bind(now)
-        .execute(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
     }
 
     Ok(updates)
@@ -3460,42 +2859,27 @@ async fn maybe_create_release_request(
         return Ok(None);
     }
 
-    let assignment = sqlx::query_scalar::<_, String>(
-        "select id from training.training_assignments where student_id = $1",
-    )
-    .bind(student_user_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let assignment =
+        training_sessions_repo::fetch_assignment_for_student(tx, student_user_id).await?;
     if assignment.is_none() {
         return Ok(None);
     }
 
-    let existing = sqlx::query_scalar::<_, String>(
-        "select id from training.trainer_release_requests where student_id = $1",
-    )
-    .bind(student_user_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let existing =
+        training_sessions_repo::fetch_existing_release_request_for_student(tx, student_user_id)
+            .await?;
     if existing.is_some() {
         return Ok(None);
     }
 
     let now = Utc::now();
-    let row = sqlx::query_as::<_, TrainerReleaseRequest>(
-        r#"
-        insert into training.trainer_release_requests (id, student_id, submitted_at, status, created_at, updated_at)
-        values ($1, $2, $3, 'PENDING', $3, $3)
-        returning id, student_id, submitted_at, status, decided_at, decided_by
-        "#,
+    let row = training_sessions_repo::insert_release_request_from_session(
+        tx,
+        &Uuid::new_v4().to_string(),
+        student_user_id,
+        now,
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(student_user_id)
-    .bind(now)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     record_audit(
         tx,
@@ -3525,13 +2909,9 @@ async fn sync_ots_recommendations(
     start: DateTime<Utc>,
 ) -> Result<Option<OtsRecommendationSummary>, ApiError> {
     if passed_lessons.iter().any(|lesson| lesson.instructor_only) {
-        let deleted_ids = sqlx::query_scalar::<_, String>(
-            "delete from training.ots_recommendations where student_id = $1 returning id",
-        )
-        .bind(student_user_id)
-        .fetch_all(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        let deleted_ids =
+            training_sessions_repo::delete_ots_recommendations_for_student(tx, student_user_id)
+                .await?;
 
         for deleted_id in deleted_ids {
             record_audit(
@@ -3555,13 +2935,9 @@ async fn sync_ots_recommendations(
             continue;
         }
 
-        let existing = sqlx::query_scalar::<_, String>(
-            "select id from training.ots_recommendations where student_id = $1 limit 1",
-        )
-        .bind(student_user_id)
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        let existing =
+            training_sessions_repo::fetch_ots_recommendation_for_student(tx, student_user_id)
+                .await?;
         if existing.is_some() {
             return Ok(None);
         }
@@ -3574,27 +2950,14 @@ async fn sync_ots_recommendations(
             format_zulu(start)
         );
 
-        let rec = sqlx::query_as::<_, OtsRecommendationSummary>(
-            r#"
-            insert into training.ots_recommendations (
-                id,
-                student_id,
-                assigned_instructor_id,
-                notes,
-                created_at,
-                updated_at
-            )
-            values ($1, $2, null, $3, $4, $4)
-            returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
-            "#,
+        let rec = training_sessions_repo::insert_ots_recommendation_note(
+            tx,
+            &Uuid::new_v4().to_string(),
+            student_user_id,
+            &note,
+            now,
         )
-        .bind(Uuid::new_v4().to_string())
-        .bind(student_user_id)
-        .bind(note)
-        .bind(now)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
 
         record_audit(
             tx,
@@ -3715,6 +3078,7 @@ impl IntoUpdateTrainingSessionRequest for CreateTrainingSessionRequest {
             enable_markdown: self.enable_markdown,
             tickets: self.tickets,
             performance_indicator: self.performance_indicator,
+            additional_trainers: self.additional_trainers,
         }
     }
 }

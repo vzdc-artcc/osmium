@@ -88,13 +88,13 @@ Permission-gated routes:
 - `POST /api/v1/admin/publications/categories` -> `publications.categories.create`
 - `PATCH /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.update`
 - `DELETE /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.delete`
-- `GET /api/v1/user` -> `users.directory.read`
-- `GET /api/v1/user/{cid}` -> `auth.profile.read` for self, `users.directory.read` for other users, `users.directory_private.read` for private fields
-- `GET /api/v1/user/{cid}/feedback` -> `feedback.items.self.read` for self, `users.directory_private.read` for other users
-- `POST /api/v1/user/refresh-vatusa` -> `users.vatusa_refresh.self.request`
-- `POST /api/v1/user/visit-artcc` -> `users.visit_artcc.request`
-- `GET /api/v1/user/visitor-application` -> `users.visitor_applications.self.read`
-- `POST /api/v1/user/visitor-application` -> `users.visitor_applications.self.request`
+- `GET /api/v1/users` -> `users.directory.read`
+- `GET /api/v1/users/{cid}` -> `auth.profile.read` for self, `users.directory.read` for other users, `users.directory_private.read` for private fields
+- `GET /api/v1/users/{cid}/feedback` -> `feedback.items.self.read` for self, `users.directory_private.read` for other users
+- `POST /api/v1/users/refresh-vatusa` -> `users.vatusa_refresh.self.request`
+- `POST /api/v1/users/visit-artcc` -> `users.visit_artcc.request`
+- `GET /api/v1/users/visitor-application` -> `users.visitor_applications.self.read`
+- `POST /api/v1/users/visitor-application` -> `users.visitor_applications.self.request`
 - `POST /api/v1/events` -> `events.items.create`
 - `PATCH /api/v1/events/{event_id}` -> `events.items.update`
 - `DELETE /api/v1/events/{event_id}` -> `events.items.delete`

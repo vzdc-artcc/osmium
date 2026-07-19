@@ -1,11 +1,18 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 
-use crate::{errors::ApiError, models::RosterUserRow, repos::users as user_repo, state::AppState};
+use crate::{
+    errors::ApiError,
+    jobs::{Job, TickOutcome},
+    models::RosterUserRow,
+    repos::users as user_repo,
+    state::AppState,
+};
 
 const DEFAULT_INTERVAL_SECS: u64 = 900;
 const DEFAULT_API_BASE_URL: &str = "https://api.vatusa.net/v2";
@@ -17,6 +24,75 @@ struct RosterSyncConfig {
     facility_id: String,
     api_base_url: String,
     interval_secs: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RosterSyncMetrics {
+    pub processed: Option<usize>,
+    pub matched: Option<usize>,
+    pub updated: Option<usize>,
+    pub demoted: Option<usize>,
+    pub skipped: Option<usize>,
+}
+
+struct RosterSyncJob {
+    config: RosterSyncConfig,
+}
+
+impl Job for RosterSyncJob {
+    type Metrics = RosterSyncMetrics;
+
+    fn name(&self) -> &'static str {
+        "roster_sync"
+    }
+
+    fn interval(&self) -> Duration {
+        Duration::from_secs(self.config.interval_secs)
+    }
+
+    async fn tick(&self, state: &AppState) -> Result<TickOutcome<Self::Metrics>, String> {
+        tracing::info!(
+            facility_id = self.config.facility_id.as_str(),
+            interval_secs = self.config.interval_secs,
+            started_at = %Utc::now(),
+            "roster sync started"
+        );
+
+        match run_roster_sync(state.clone(), &self.config).await {
+            Ok(result) => {
+                tracing::info!(
+                    facility_id = self.config.facility_id.as_str(),
+                    processed = result.processed,
+                    matched = result.matched,
+                    updated = result.updated,
+                    demoted = result.demoted,
+                    skipped = result.skipped,
+                    created_memberships = result.created_memberships,
+                    changed_ratings = result.changed_ratings,
+                    detail_failures = result.detail_failures,
+                    desired_missing_local_users = result.desired_missing_local_users,
+                    warning = result.warning.as_deref(),
+                    "roster sync completed"
+                );
+
+                Ok(TickOutcome {
+                    metrics: RosterSyncMetrics {
+                        processed: Some(result.processed),
+                        matched: Some(result.matched),
+                        updated: Some(result.updated),
+                        demoted: Some(result.demoted),
+                        skipped: Some(result.skipped),
+                    },
+                    ok: result.warning.is_none(),
+                    error: result.warning,
+                })
+            }
+            Err(RosterSyncError::DatabaseUnavailable) => {
+                Err("database unavailable for roster sync".to_string())
+            }
+            Err(RosterSyncError::Api(err)) => Err(format_roster_sync_error(&err)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -194,81 +270,9 @@ pub fn start_roster_sync_worker(state: AppState) {
                 "starting roster sync worker"
             );
 
-            tokio::spawn(async move {
-                let mut ticker =
-                    tokio::time::interval(std::time::Duration::from_secs(config.interval_secs));
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-                loop {
-                    ticker.tick().await;
-                    let started_at = Utc::now();
-
-                    tracing::info!(
-                        facility_id = config.facility_id.as_str(),
-                        interval_secs = config.interval_secs,
-                        started_at = %started_at,
-                        "roster sync started"
-                    );
-
-                    if let Ok(mut health) = state.job_health.write() {
-                        health.roster_sync.last_started_at = Some(started_at);
-                        health.roster_sync.last_error = None;
-                    }
-
-                    match run_roster_sync(state.clone(), &config).await {
-                        Ok(result) => {
-                            let last_error = result.warning.clone();
-                            if let Ok(mut health) = state.job_health.write() {
-                                health.roster_sync.last_finished_at = Some(Utc::now());
-                                health.roster_sync.last_success_at = Some(Utc::now());
-                                health.roster_sync.last_result_ok = Some(last_error.is_none());
-                                health.roster_sync.last_error = last_error.clone();
-                                health.roster_sync.processed = Some(result.processed);
-                                health.roster_sync.matched = Some(result.matched);
-                                health.roster_sync.updated = Some(result.updated);
-                                health.roster_sync.demoted = Some(result.demoted);
-                                health.roster_sync.skipped = Some(result.skipped);
-                            }
-
-                            tracing::info!(
-                                facility_id = config.facility_id.as_str(),
-                                processed = result.processed,
-                                matched = result.matched,
-                                updated = result.updated,
-                                demoted = result.demoted,
-                                skipped = result.skipped,
-                                created_memberships = result.created_memberships,
-                                changed_ratings = result.changed_ratings,
-                                detail_failures = result.detail_failures,
-                                desired_missing_local_users = result.desired_missing_local_users,
-                                warning = result.warning.as_deref(),
-                                "roster sync completed"
-                            );
-                        }
-                        Err(RosterSyncError::DatabaseUnavailable) => {
-                            if let Ok(mut health) = state.job_health.write() {
-                                health.roster_sync.last_finished_at = Some(Utc::now());
-                                health.roster_sync.last_result_ok = Some(false);
-                                health.roster_sync.last_error =
-                                    Some("database unavailable for roster sync".to_string());
-                            }
-                        }
-                        Err(RosterSyncError::Api(err)) => {
-                            let message = format_roster_sync_error(&err);
-                            if let Ok(mut health) = state.job_health.write() {
-                                health.roster_sync.last_finished_at = Some(Utc::now());
-                                health.roster_sync.last_result_ok = Some(false);
-                                health.roster_sync.last_error = Some(message.clone());
-                            }
-
-                            tracing::warn!(
-                                facility_id = config.facility_id.as_str(),
-                                ?err,
-                                "roster sync failed"
-                            );
-                        }
-                    }
-                }
+            let job_health = state.job_health.clone();
+            crate::jobs::spawn(RosterSyncJob { config }, state, job_health, |health| {
+                &mut health.roster_sync
             });
         }
         Ok(None) => {
@@ -1108,6 +1112,9 @@ fn format_roster_sync_error(err: &ApiError) -> String {
         ApiError::OAuthStateCookieMissing => "oauth state cookie missing".to_string(),
         ApiError::OAuthStateMismatch => "oauth state mismatch".to_string(),
         ApiError::Unauthorized => "unauthorized".to_string(),
+        ApiError::Forbidden => "forbidden".to_string(),
+        ApiError::NotFound => "not found".to_string(),
+        ApiError::Conflict => "conflict".to_string(),
         ApiError::ServiceUnavailable => "service unavailable".to_string(),
         ApiError::Internal => "internal error".to_string(),
     }

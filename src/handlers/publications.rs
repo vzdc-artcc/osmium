@@ -9,9 +9,13 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionPath},
         context::{CurrentServiceAccount, CurrentUser},
-        middleware::ensure_permission,
+        permissions::{
+            PublicationsCategoriesCreate, PublicationsCategoriesDelete, PublicationsCategoriesRead,
+            PublicationsCategoriesUpdate, PublicationsItemsCreate, PublicationsItemsDelete,
+            PublicationsItemsRead, PublicationsItemsUpdate,
+        },
+        require_permission::RequirePermission,
     },
     errors::ApiError,
     models::{
@@ -19,73 +23,10 @@ use crate::{
         PaginationMeta, PaginationQuery, Publication, PublicationCategory, PublicationListResponse,
         UpdatePublicationCategoryRequest, UpdatePublicationRequest,
     },
-    repos::audit as audit_repo,
+    repos::{audit as audit_repo, publications as publications_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
-
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
-struct PublicationRow {
-    id: String,
-    category_id: String,
-    category_key: String,
-    category_name: String,
-    title: String,
-    description: Option<String>,
-    effective_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
-    file_id: String,
-    file_filename: String,
-    file_content_type: String,
-    file_size_bytes: i64,
-    is_public: bool,
-    sort_order: i32,
-    status: String,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct PublicationRecord {
-    id: String,
-    category_id: String,
-    title: String,
-    description: Option<String>,
-    effective_at: chrono::DateTime<chrono::Utc>,
-    file_id: String,
-    is_public: bool,
-    sort_order: i32,
-    status: String,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct FileAssetLinkRow {
-    is_public: bool,
-    domain_type: Option<String>,
-    domain_id: Option<String>,
-    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl From<PublicationRow> for Publication {
-    fn from(row: PublicationRow) -> Self {
-        Self {
-            id: row.id,
-            category_id: row.category_id,
-            category_key: row.category_key,
-            category_name: row.category_name,
-            title: row.title,
-            description: row.description,
-            effective_at: row.effective_at,
-            updated_at: row.updated_at,
-            file_id: row.file_id.clone(),
-            cdn_url: format!("/cdn/{}", row.file_id),
-            file_filename: row.file_filename,
-            file_content_type: row.file_content_type,
-            file_size_bytes: row.file_size_bytes,
-            is_public: row.is_public,
-            sort_order: row.sort_order,
-            status: row.status,
-        }
-    }
-}
 
 #[utoipa::path(
     get,
@@ -100,7 +41,7 @@ pub async fn list_publication_categories(
     time: ResponseTimeContext,
 ) -> Result<ApiJson<Vec<PublicationCategory>>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let categories = fetch_publication_categories(pool).await?;
+    let categories = publications_repo::fetch_publication_categories(pool).await?;
     Ok(ApiJson::new(categories, time))
 }
 
@@ -122,18 +63,15 @@ pub async fn list_publications(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total = count_publications(pool, true).await?;
-    let rows = fetch_publications(pool, true, pagination.page_size, pagination.offset).await?;
+    let total = publications_repo::count_publications(pool, true).await?;
+    let rows =
+        publications_repo::fetch_publications(pool, true, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         PublicationListResponse {
             items: rows.into_iter().map(Publication::from).collect(),
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -148,7 +86,7 @@ pub async fn list_publications(
     ),
     responses(
         (status = 200, description = "Publication details", body = Publication),
-        (status = 400, description = "Invalid publication ID")
+        (status = 404, description = "Publication not found")
     )
 )]
 pub async fn get_publication(
@@ -157,9 +95,9 @@ pub async fn get_publication(
     time: ResponseTimeContext,
 ) -> Result<ApiJson<Publication>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let publication = fetch_publication(pool, &publication_id, true)
+    let publication = publications_repo::fetch_publication(pool, &publication_id, true)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     Ok(ApiJson::new(publication.into(), time))
 }
 
@@ -174,19 +112,11 @@ pub async fn get_publication(
 )]
 pub async fn admin_list_publication_categories(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsCategoriesRead>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<Vec<PublicationCategory>>, ApiError> {
-    ensure_publication_category_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Read,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let categories = fetch_publication_categories(pool).await?;
+    let categories = publications_repo::fetch_publication_categories(pool).await?;
     Ok(ApiJson::new(categories, time))
 }
 
@@ -205,17 +135,11 @@ pub async fn create_publication_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsCategoriesCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreatePublicationCategoryRequest>,
 ) -> Result<(StatusCode, ApiJson<PublicationCategory>), ApiError> {
-    ensure_publication_category_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Create,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let key = normalize_category_key(&payload.key)?;
@@ -224,21 +148,15 @@ pub async fn create_publication_category(
     let sort_order = payload.sort_order.unwrap_or(0);
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let category = sqlx::query_as::<_, PublicationCategory>(
-        r#"
-        insert into web.publication_categories (id, key, name, description, sort_order)
-        values ($1, $2, $3, $4, $5)
-        returning id, key, name, description, sort_order, created_at, updated_at
-        "#,
+    let category = publications_repo::insert_category(
+        &mut *tx,
+        &Uuid::new_v4().to_string(),
+        &key,
+        &name,
+        description.as_deref(),
+        sort_order,
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(key)
-    .bind(name)
-    .bind(description)
-    .bind(sort_order)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(map_constraint_error)?;
+    .await?;
 
     record_audit_entry(
         &mut tx,
@@ -268,31 +186,26 @@ pub async fn create_publication_category(
     responses(
         (status = 200, description = "Publication category updated", body = PublicationCategory),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Publication category not found")
     )
 )]
 pub async fn update_publication_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsCategoriesUpdate>,
     Path(category_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdatePublicationCategoryRequest>,
 ) -> Result<ApiJson<PublicationCategory>, ApiError> {
-    ensure_publication_category_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Update,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let before = fetch_publication_category_for_update(&mut tx, &category_id)
+    let before = publications_repo::fetch_publication_category_for_update(&mut *tx, &category_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     let key = match payload.key {
         Some(value) => Some(normalize_category_key(&value)?),
@@ -304,27 +217,16 @@ pub async fn update_publication_category(
     };
     let description = payload.description.and_then(normalize_optional_text_value);
 
-    let category = sqlx::query_as::<_, PublicationCategory>(
-        r#"
-        update web.publication_categories
-        set
-            key = coalesce($1, key),
-            name = coalesce($2, name),
-            description = coalesce($3, description),
-            sort_order = coalesce($4, sort_order)
-        where id = $5
-        returning id, key, name, description, sort_order, created_at, updated_at
-        "#,
+    let category = publications_repo::update_category(
+        &mut *tx,
+        &category_id,
+        key.as_deref(),
+        name.as_deref(),
+        description.as_deref(),
+        payload.sort_order,
     )
-    .bind(key)
-    .bind(name)
-    .bind(description)
-    .bind(payload.sort_order)
-    .bind(&category_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(map_constraint_error)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     record_audit_entry(
         &mut tx,
@@ -352,38 +254,27 @@ pub async fn update_publication_category(
     ),
     responses(
         (status = 204, description = "Publication category deleted"),
-        (status = 400, description = "Invalid category ID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Publication category not found")
     )
 )]
 pub async fn delete_publication_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsCategoriesDelete>,
     Path(category_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
-    ensure_publication_category_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Delete,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let before = fetch_publication_category_for_update(&mut tx, &category_id)
+    let before = publications_repo::fetch_publication_category_for_update(&mut *tx, &category_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
-    let result = sqlx::query("delete from web.publication_categories where id = $1")
-        .bind(&category_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_constraint_error)?;
-
-    if result.rows_affected() == 0 {
+    let rows_affected = publications_repo::delete_category(&mut tx, &category_id).await?;
+    if rows_affected == 0 {
         return Err(ApiError::BadRequest);
     }
 
@@ -416,34 +307,23 @@ pub async fn delete_publication_category(
 )]
 pub async fn admin_list_publications(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsItemsRead>,
     Query(query): Query<ListPublicationsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<PublicationListResponse>, ApiError> {
-    ensure_publication_item_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Read,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total = count_publications(pool, false).await?;
-    let rows = fetch_publications(pool, false, pagination.page_size, pagination.offset).await?;
+    let total = publications_repo::count_publications(pool, false).await?;
+    let rows =
+        publications_repo::fetch_publications(pool, false, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         PublicationListResponse {
             items: rows.into_iter().map(Publication::from).collect(),
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -458,28 +338,20 @@ pub async fn admin_list_publications(
     ),
     responses(
         (status = 200, description = "Publication details for admin", body = Publication),
-        (status = 400, description = "Invalid publication ID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Publication not found")
     )
 )]
 pub async fn admin_get_publication(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsItemsRead>,
     Path(publication_id): Path<String>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<Publication>, ApiError> {
-    ensure_publication_item_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Read,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let publication = fetch_publication(pool, &publication_id, false)
+    let publication = publications_repo::fetch_publication(pool, &publication_id, false)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     Ok(ApiJson::new(publication.into(), time))
 }
 
@@ -491,24 +363,19 @@ pub async fn admin_get_publication(
     responses(
         (status = 201, description = "Publication created", body = Publication),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Referenced file not found")
     )
 )]
 pub async fn create_publication(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsItemsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreatePublicationRequest>,
 ) -> Result<(StatusCode, ApiJson<Publication>), ApiError> {
-    ensure_publication_item_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Create,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let publication_id = Uuid::new_v4().to_string();
@@ -524,53 +391,29 @@ pub async fn create_publication(
     };
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    ensure_category_exists(&mut tx, &input.category_id).await?;
-    let file = fetch_file_asset_for_update(&mut tx, &input.file_id)
+    publications_repo::ensure_category_exists(&mut *tx, &input.category_id).await?;
+    let file = publications_repo::fetch_file_asset_for_update(&mut *tx, &input.file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     ensure_file_can_link(&file, None, input.is_public)?;
 
-    let publication = sqlx::query_as::<_, PublicationRecord>(
-        r#"
-        insert into web.publications (
-            id,
-            category_id,
-            title,
-            description,
-            effective_at,
-            file_id,
-            is_public,
-            sort_order,
-            status
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        returning
-            id,
-            category_id,
-            title,
-            description,
-            effective_at,
-            file_id,
-            is_public,
-            sort_order,
-            status
-        "#,
+    let publication = publications_repo::insert_publication(
+        &mut *tx,
+        &publication_id,
+        &input.category_id,
+        &input.title,
+        input.description.as_deref(),
+        input.effective_at,
+        &input.file_id,
+        input.is_public,
+        input.sort_order,
+        &input.status,
     )
-    .bind(&publication_id)
-    .bind(&input.category_id)
-    .bind(&input.title)
-    .bind(&input.description)
-    .bind(input.effective_at)
-    .bind(&input.file_id)
-    .bind(input.is_public)
-    .bind(input.sort_order)
-    .bind(&input.status)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(map_constraint_error)?;
+    .await?;
 
-    attach_file_to_publication(&mut tx, &publication.file_id, &publication.id).await?;
-    let response = fetch_publication_in_tx(&mut tx, &publication.id)
+    publications_repo::attach_file_to_publication(&mut *tx, &publication.file_id, &publication.id)
+        .await?;
+    let response = publications_repo::fetch_publication_in_tx(&mut *tx, &publication.id)
         .await?
         .ok_or(ApiError::Internal)?;
     let response = Publication::from(response);
@@ -603,41 +446,37 @@ pub async fn create_publication(
     responses(
         (status = 200, description = "Publication updated", body = Publication),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Publication not found")
     )
 )]
 pub async fn update_publication(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsItemsUpdate>,
     Path(publication_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdatePublicationRequest>,
 ) -> Result<ApiJson<Publication>, ApiError> {
-    ensure_publication_item_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Update,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let before_row = fetch_publication_record_for_update(&mut tx, &publication_id)
+    let before_row =
+        publications_repo::fetch_publication_record_for_update(&mut *tx, &publication_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    let before = publications_repo::fetch_publication_in_tx(&mut *tx, &publication_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
-    let before = fetch_publication_in_tx(&mut tx, &publication_id)
-        .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let before = Publication::from(before);
 
     let category_id = match payload.category_id {
         Some(value) => normalize_id(&value)?,
         None => before_row.category_id.clone(),
     };
-    ensure_category_exists(&mut tx, &category_id).await?;
+    publications_repo::ensure_category_exists(&mut *tx, &category_id).await?;
 
     let title = match payload.title {
         Some(value) => normalize_required_text(&value)?,
@@ -659,59 +498,49 @@ pub async fn update_publication(
         None => before_row.status.clone(),
     };
 
-    let file = fetch_file_asset_for_update(&mut tx, &file_id)
+    let file = publications_repo::fetch_file_asset_for_update(&mut *tx, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     ensure_file_can_link(&file, Some(&publication_id), is_public)?;
 
-    let publication = sqlx::query_as::<_, PublicationRecord>(
-        r#"
-        update web.publications
-        set
-            category_id = $1,
-            title = $2,
-            description = $3,
-            effective_at = $4,
-            file_id = $5,
-            is_public = $6,
-            sort_order = $7,
-            status = $8
-        where id = $9
-        returning
-            id,
-            category_id,
-            title,
-            description,
-            effective_at,
-            updated_at,
-            file_id,
-            is_public,
-            sort_order,
-            status
-        "#,
+    let publication = publications_repo::update_publication_row(
+        &mut *tx,
+        &publication_id,
+        &category_id,
+        &title,
+        description.as_deref(),
+        effective_at,
+        &file_id,
+        is_public,
+        sort_order,
+        &status,
     )
-    .bind(&category_id)
-    .bind(&title)
-    .bind(&description)
-    .bind(effective_at)
-    .bind(&file_id)
-    .bind(is_public)
-    .bind(sort_order)
-    .bind(&status)
-    .bind(&publication_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(map_constraint_error)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     if before_row.file_id != publication.file_id {
-        detach_file_from_publication(&mut tx, &before_row.file_id, &publication.id).await?;
-        attach_file_to_publication(&mut tx, &publication.file_id, &publication.id).await?;
+        publications_repo::detach_file_from_publication(
+            &mut *tx,
+            &before_row.file_id,
+            &publication.id,
+        )
+        .await?;
+        publications_repo::attach_file_to_publication(
+            &mut *tx,
+            &publication.file_id,
+            &publication.id,
+        )
+        .await?;
     } else {
-        attach_file_to_publication(&mut tx, &publication.file_id, &publication.id).await?;
+        publications_repo::attach_file_to_publication(
+            &mut *tx,
+            &publication.file_id,
+            &publication.id,
+        )
+        .await?;
     }
 
-    let response = fetch_publication_in_tx(&mut tx, &publication_id)
+    let response = publications_repo::fetch_publication_in_tx(&mut *tx, &publication_id)
         .await?
         .ok_or(ApiError::Internal)?;
     let response = Publication::from(response);
@@ -742,47 +571,42 @@ pub async fn update_publication(
     ),
     responses(
         (status = 204, description = "Publication deleted"),
-        (status = 400, description = "Invalid publication ID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Publication not found")
     )
 )]
 pub async fn delete_publication(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<PublicationsItemsDelete>,
     Path(publication_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
-    ensure_publication_item_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionAction::Delete,
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let before = fetch_publication_in_tx(&mut tx, &publication_id)
+    let before = publications_repo::fetch_publication_in_tx(&mut *tx, &publication_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let before = Publication::from(before);
 
-    let publication = fetch_publication_record_for_update(&mut tx, &publication_id)
-        .await?
-        .ok_or(ApiError::BadRequest)?;
+    let publication =
+        publications_repo::fetch_publication_record_for_update(&mut *tx, &publication_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
 
-    let result = sqlx::query("delete from web.publications where id = $1")
-        .bind(&publication_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_constraint_error)?;
-
-    if result.rows_affected() == 0 {
+    let rows_affected = publications_repo::delete_publication_row(&mut tx, &publication_id).await?;
+    if rows_affected == 0 {
         return Err(ApiError::BadRequest);
     }
 
-    detach_file_from_publication(&mut tx, &publication.file_id, &publication.id).await?;
+    publications_repo::detach_file_from_publication(
+        &mut *tx,
+        &publication.file_id,
+        &publication.id,
+    )
+    .await?;
 
     record_audit_entry(
         &mut tx,
@@ -801,334 +625,8 @@ pub async fn delete_publication(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn ensure_publication_item_permission(
-    state: &AppState,
-    current_user: Option<&CurrentUser>,
-    current_service_account: Option<&CurrentServiceAccount>,
-    action: PermissionAction,
-) -> Result<(), ApiError> {
-    ensure_permission(
-        state,
-        current_user,
-        current_service_account,
-        PermissionPath::from_segments(["publications", "items"], action),
-    )
-    .await
-}
-
-async fn ensure_publication_category_permission(
-    state: &AppState,
-    current_user: Option<&CurrentUser>,
-    current_service_account: Option<&CurrentServiceAccount>,
-    action: PermissionAction,
-) -> Result<(), ApiError> {
-    ensure_permission(
-        state,
-        current_user,
-        current_service_account,
-        PermissionPath::from_segments(["publications", "categories"], action),
-    )
-    .await
-}
-
-async fn fetch_publication_categories(
-    pool: &sqlx::PgPool,
-) -> Result<Vec<PublicationCategory>, ApiError> {
-    sqlx::query_as::<_, PublicationCategory>(
-        r#"
-        select id, key, name, description, sort_order, created_at, updated_at
-        from web.publication_categories
-        order by sort_order asc, name asc
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
-}
-
-async fn fetch_publications(
-    pool: &sqlx::PgPool,
-    public_only: bool,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<PublicationRow>, ApiError> {
-    let query = if public_only {
-        r#"
-        select
-            p.id,
-            p.category_id,
-            c.key as category_key,
-            c.name as category_name,
-            p.title,
-            p.description,
-            p.effective_at,
-            p.updated_at,
-            p.file_id,
-            fa.filename as file_filename,
-            fa.content_type as file_content_type,
-            fa.size_bytes as file_size_bytes,
-            p.is_public,
-            p.sort_order,
-            p.status
-        from web.publications p
-        join web.publication_categories c on c.id = p.category_id
-        join media.file_assets fa on fa.id = p.file_id
-        where p.is_public = true
-          and p.status = 'published'
-          and p.effective_at <= now()
-          and fa.deleted_at is null
-          and fa.is_public = true
-        order by c.sort_order asc, p.sort_order asc, p.effective_at desc, p.title asc, p.id asc
-        limit $1 offset $2
-        "#
-    } else {
-        r#"
-        select
-            p.id,
-            p.category_id,
-            c.key as category_key,
-            c.name as category_name,
-            p.title,
-            p.description,
-            p.effective_at,
-            p.updated_at,
-            p.file_id,
-            fa.filename as file_filename,
-            fa.content_type as file_content_type,
-            fa.size_bytes as file_size_bytes,
-            p.is_public,
-            p.sort_order,
-            p.status
-        from web.publications p
-        join web.publication_categories c on c.id = p.category_id
-        join media.file_assets fa on fa.id = p.file_id
-        where fa.deleted_at is null
-        order by c.sort_order asc, p.sort_order asc, p.effective_at desc, p.title asc, p.id asc
-        limit $1 offset $2
-        "#
-    };
-
-    sqlx::query_as::<_, PublicationRow>(query)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)
-}
-
-async fn count_publications(pool: &sqlx::PgPool, public_only: bool) -> Result<i64, ApiError> {
-    let query = if public_only {
-        r#"
-        select count(*)::bigint
-        from web.publications p
-        join media.file_assets fa on fa.id = p.file_id
-        where p.is_public = true
-          and p.status = 'published'
-          and p.effective_at <= now()
-          and fa.deleted_at is null
-          and fa.is_public = true
-        "#
-    } else {
-        r#"
-        select count(*)::bigint
-        from web.publications p
-        join media.file_assets fa on fa.id = p.file_id
-        where fa.deleted_at is null
-        "#
-    };
-
-    sqlx::query_scalar::<_, i64>(query)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)
-}
-
-async fn fetch_publication(
-    pool: &sqlx::PgPool,
-    publication_id: &str,
-    public_only: bool,
-) -> Result<Option<PublicationRow>, ApiError> {
-    let query = if public_only {
-        r#"
-        select
-            p.id,
-            p.category_id,
-            c.key as category_key,
-            c.name as category_name,
-            p.title,
-            p.description,
-            p.effective_at,
-            p.updated_at,
-            p.file_id,
-            fa.filename as file_filename,
-            fa.content_type as file_content_type,
-            fa.size_bytes as file_size_bytes,
-            p.is_public,
-            p.sort_order,
-            p.status
-        from web.publications p
-        join web.publication_categories c on c.id = p.category_id
-        join media.file_assets fa on fa.id = p.file_id
-        where p.id = $1
-          and p.is_public = true
-          and p.status = 'published'
-          and p.effective_at <= now()
-          and fa.deleted_at is null
-          and fa.is_public = true
-        "#
-    } else {
-        r#"
-        select
-            p.id,
-            p.category_id,
-            c.key as category_key,
-            c.name as category_name,
-            p.title,
-            p.description,
-            p.effective_at,
-            p.updated_at,
-            p.file_id,
-            fa.filename as file_filename,
-            fa.content_type as file_content_type,
-            fa.size_bytes as file_size_bytes,
-            p.is_public,
-            p.sort_order,
-            p.status
-        from web.publications p
-        join web.publication_categories c on c.id = p.category_id
-        join media.file_assets fa on fa.id = p.file_id
-        where p.id = $1
-          and fa.deleted_at is null
-        "#
-    };
-
-    sqlx::query_as::<_, PublicationRow>(query)
-        .bind(publication_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|_| ApiError::Internal)
-}
-
-async fn fetch_publication_in_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    publication_id: &str,
-) -> Result<Option<PublicationRow>, ApiError> {
-    sqlx::query_as::<_, PublicationRow>(
-        r#"
-        select
-            p.id,
-            p.category_id,
-            c.key as category_key,
-            c.name as category_name,
-            p.title,
-            p.description,
-            p.effective_at,
-            p.updated_at,
-            p.file_id,
-            fa.filename as file_filename,
-            fa.content_type as file_content_type,
-            fa.size_bytes as file_size_bytes,
-            p.is_public,
-            p.sort_order,
-            p.status
-        from web.publications p
-        join web.publication_categories c on c.id = p.category_id
-        join media.file_assets fa on fa.id = p.file_id
-        where p.id = $1
-          and fa.deleted_at is null
-        "#,
-    )
-    .bind(publication_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)
-}
-
-async fn fetch_publication_record_for_update(
-    tx: &mut Transaction<'_, Postgres>,
-    publication_id: &str,
-) -> Result<Option<PublicationRecord>, ApiError> {
-    sqlx::query_as::<_, PublicationRecord>(
-        r#"
-        select
-            id,
-            category_id,
-            title,
-            description,
-            effective_at,
-            updated_at,
-            file_id,
-            is_public,
-            sort_order,
-            status
-        from web.publications
-        where id = $1
-        for update
-        "#,
-    )
-    .bind(publication_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)
-}
-
-async fn fetch_publication_category_for_update(
-    tx: &mut Transaction<'_, Postgres>,
-    category_id: &str,
-) -> Result<Option<PublicationCategory>, ApiError> {
-    sqlx::query_as::<_, PublicationCategory>(
-        r#"
-        select id, key, name, description, sort_order, created_at, updated_at
-        from web.publication_categories
-        where id = $1
-        for update
-        "#,
-    )
-    .bind(category_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)
-}
-
-async fn ensure_category_exists(
-    tx: &mut Transaction<'_, Postgres>,
-    category_id: &str,
-) -> Result<(), ApiError> {
-    let exists = sqlx::query_scalar::<_, bool>(
-        "select exists(select 1 from web.publication_categories where id = $1)",
-    )
-    .bind(category_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    if exists {
-        Ok(())
-    } else {
-        Err(ApiError::BadRequest)
-    }
-}
-
-async fn fetch_file_asset_for_update(
-    tx: &mut Transaction<'_, Postgres>,
-    file_id: &str,
-) -> Result<Option<FileAssetLinkRow>, ApiError> {
-    sqlx::query_as::<_, FileAssetLinkRow>(
-        r#"
-        select is_public, domain_type, domain_id, deleted_at
-        from media.file_assets
-        where id = $1
-        for update
-        "#,
-    )
-    .bind(file_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)
-}
-
 fn ensure_file_can_link(
-    file: &FileAssetLinkRow,
+    file: &publications_repo::FileAssetLinkRow,
     publication_id: Option<&str>,
     publication_is_public: bool,
 ) -> Result<(), ApiError> {
@@ -1145,50 +643,6 @@ fn ensure_file_can_link(
         (Some("publication"), Some(existing_id)) if Some(existing_id) == publication_id => Ok(()),
         _ => Err(ApiError::BadRequest),
     }
-}
-
-async fn attach_file_to_publication(
-    tx: &mut Transaction<'_, Postgres>,
-    file_id: &str,
-    publication_id: &str,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        r#"
-        update media.file_assets
-        set domain_type = 'publication', domain_id = $1
-        where id = $2
-        "#,
-    )
-    .bind(publication_id)
-    .bind(file_id)
-    .execute(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    Ok(())
-}
-
-async fn detach_file_from_publication(
-    tx: &mut Transaction<'_, Postgres>,
-    file_id: &str,
-    publication_id: &str,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        r#"
-        update media.file_assets
-        set domain_type = null, domain_id = null
-        where id = $1
-          and domain_type = 'publication'
-          and domain_id = $2
-        "#,
-    )
-    .bind(file_id)
-    .bind(publication_id)
-    .execute(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    Ok(())
 }
 
 async fn record_audit_entry<TBefore, TAfter>(
@@ -1281,18 +735,6 @@ fn normalize_id(value: &str) -> Result<String, ApiError> {
         Err(ApiError::BadRequest)
     } else {
         Ok(normalized.to_string())
-    }
-}
-
-fn map_constraint_error(error: sqlx::Error) -> ApiError {
-    match &error {
-        sqlx::Error::Database(database_error) => match database_error.code().as_deref() {
-            Some("23503") | Some("23505") | Some("23514") | Some("22P02") | Some("23502") => {
-                ApiError::BadRequest
-            }
-            _ => ApiError::Internal,
-        },
-        _ => ApiError::Internal,
     }
 }
 

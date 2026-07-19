@@ -136,12 +136,8 @@ pub struct UserListItem {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct UserListResponse {
     pub items: Vec<UserListItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -228,12 +224,8 @@ pub struct UserFeedbackQuery {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct UserFeedbackListResponse {
     pub items: Vec<crate::models::FeedbackItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -249,7 +241,7 @@ pub struct SetControllerStatusBody {
     pub artcc: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct VisitorApplicationItem {
     pub id: String,
     pub user_id: String,
@@ -284,23 +276,15 @@ pub struct ListVisitorApplicationsQuery {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct VisitorApplicationListResponse {
     pub items: Vec<VisitorApplicationItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AdminUserListResponse {
     pub items: Vec<AdminUserListItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

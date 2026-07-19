@@ -40,6 +40,53 @@ pub struct EmailPreviewRequest {
     pub template_id: String,
     #[schema(value_type = Object)]
     pub payload: Value,
+    pub branding_override: Option<UpdateEmailBrandingRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct EmailBranding {
+    pub brand_name: String,
+    pub tagline: String,
+    pub footer_text: String,
+    pub logo_file_id: Option<String>,
+    pub header_background_color: String,
+    pub header_text_color: String,
+    pub page_background_color: String,
+    pub panel_background_color: String,
+    pub text_color: String,
+    pub heading_color: String,
+    pub link_color: String,
+    pub accent_color: String,
+    pub button_background_color: String,
+    pub button_text_color: String,
+    pub heading_font_family: String,
+    pub body_font_family: String,
+    pub font_size_scale: String,
+    pub corner_style: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateEmailBrandingRequest {
+    pub brand_name: String,
+    pub tagline: String,
+    pub footer_text: String,
+    pub logo_file_id: Option<String>,
+    pub header_background_color: String,
+    pub header_text_color: String,
+    pub page_background_color: String,
+    pub panel_background_color: String,
+    pub text_color: String,
+    pub heading_color: String,
+    pub link_color: String,
+    pub accent_color: String,
+    pub button_background_color: String,
+    pub button_text_color: String,
+    pub heading_font_family: String,
+    pub body_font_family: String,
+    pub font_size_scale: String,
+    pub corner_style: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -196,13 +243,9 @@ pub struct EmailSuppressionRecordResponse {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct EmailOutboxListResponse {
     pub items: Vec<EmailOutboxListItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }

@@ -7,7 +7,7 @@ info:
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+  url: "{{baseUrl}}/api/v1/users/:cid/feedback"
   params:
     - name: cid
       value: ""
@@ -44,7 +44,7 @@ examples:
   - name: 200 Response
     description: Feedback for a user
     request:
-      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      url: "{{baseUrl}}/api/v1/users/:cid/feedback"
       method: GET
       headers:
         - name: X-Response-Timezone
@@ -98,7 +98,7 @@ examples:
   - name: 400 Response
     description: Invalid request
     request:
-      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      url: "{{baseUrl}}/api/v1/users/:cid/feedback"
       method: GET
       params:
         - name: cid
@@ -129,7 +129,7 @@ examples:
   - name: 401 Response
     description: Not authenticated
     request:
-      url: "{{baseUrl}}/api/v1/user/:cid/feedback"
+      url: "{{baseUrl}}/api/v1/users/:cid/feedback"
       method: GET
       params:
         - name: cid

@@ -91,15 +91,98 @@ pub struct ListPublicationsQuery {
     pub offset: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PublicationListResponse {
     pub items: Vec<Publication>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct ChangeBroadcastListItem {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub file_id: Option<String>,
+    pub file_filename: Option<String>,
+    pub exempt_staff: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub seen_count: i64,
+    pub agreed_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ChangeBroadcastListResponse {
+    pub items: Vec<ChangeBroadcastListItem>,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ListChangeBroadcastsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub title: Option<String>,
+    pub exempt_staff: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateChangeBroadcastRequest {
+    pub title: String,
+    pub description: String,
+    pub file_id: Option<String>,
+    pub exempt_staff: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateChangeBroadcastRequest {
+    pub title: String,
+    pub description: String,
+    pub file_id: Option<String>,
+    pub exempt_staff: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct MyChangeBroadcastItem {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub file_id: Option<String>,
+    pub file_filename: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub seen_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub agreed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MyChangeBroadcastListResponse {
+    pub items: Vec<MyChangeBroadcastItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct WelcomeMessageContent {
+    pub home_text: String,
+    pub visitor_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateWelcomeMessageContentRequest {
+    pub home_text: String,
+    pub visitor_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct MyWelcomeMessageResponse {
+    pub show: bool,
+    pub text: Option<String>,
 }
 
 fn deserialize_optional_i32<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>

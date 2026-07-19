@@ -1,6 +1,39 @@
-use chrono::Utc;
+use std::time::Duration;
 
-use crate::state::AppState;
+use sqlx::PgPool;
+
+use crate::{
+    email::EmailWorkerMetrics,
+    jobs::{Job, TickOutcome},
+    state::AppState,
+};
+
+struct EmailDeliveryJob {
+    pool: PgPool,
+    interval_secs: u64,
+}
+
+impl Job for EmailDeliveryJob {
+    type Metrics = EmailWorkerMetrics;
+
+    fn name(&self) -> &'static str {
+        "email_delivery"
+    }
+
+    fn interval(&self) -> Duration {
+        Duration::from_secs(self.interval_secs)
+    }
+
+    async fn tick(&self, state: &AppState) -> Result<TickOutcome<Self::Metrics>, String> {
+        let result = state.email.process_pending_batch(&self.pool).await;
+        let pending_count = state.email.pending_count(&self.pool).await.ok();
+
+        match result {
+            Ok(_) => Ok(TickOutcome::success(EmailWorkerMetrics { pending_count })),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+}
 
 pub fn start_email_delivery_worker(state: AppState) {
     let enabled = state.email.worker_enabled();
@@ -18,32 +51,11 @@ pub fn start_email_delivery_worker(state: AppState) {
         return;
     };
 
-    tokio::spawn(async move {
-        let interval = std::time::Duration::from_secs(state.email.config.worker_interval_secs);
-        loop {
-            if let Ok(mut health) = state.email_health.write() {
-                health.worker.last_started_at = Some(Utc::now());
-                health.worker.last_error = None;
-            }
-
-            let result = state.email.process_pending_batch(&pool).await;
-            let pending_count = state.email.pending_count(&pool).await.ok();
-
-            if let Ok(mut health) = state.email_health.write() {
-                health.worker.last_finished_at = Some(Utc::now());
-                health.worker.last_result_ok = Some(result.is_ok());
-                match result {
-                    Ok(_) => {
-                        health.worker.last_success_at = Some(Utc::now());
-                        health.worker.pending_count = pending_count;
-                    }
-                    Err(err) => {
-                        health.worker.last_error = Some(err.to_string());
-                    }
-                }
-            }
-
-            tokio::time::sleep(interval).await;
-        }
-    });
+    let interval_secs = state.email.config.worker_interval_secs;
+    let job = EmailDeliveryJob {
+        pool,
+        interval_secs,
+    };
+    let email_health = state.email_health.clone();
+    crate::jobs::spawn(job, state, email_health, |health| &mut health.worker);
 }

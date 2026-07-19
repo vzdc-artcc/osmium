@@ -4,10 +4,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Duration, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
-use sqlx::{PgPool, Postgres, Transaction};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
@@ -15,11 +14,32 @@ use crate::{
         acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
         middleware::ensure_permission,
+        permissions::{
+            AuthProfileRead, AuthProfileUpdate, SystemRead, UsersControllerStatusUpdate,
+            UsersDirectoryRead,
+        },
+        require_permission::RequirePermission,
     },
     email::service::EmailActor,
     errors::ApiError,
-    models::{PaginationMeta, PaginationQuery},
-    repos::{audit as audit_repo, users as user_repo},
+    models::{
+        ControllerLifecycleCleanupSummary, ControllerLifecycleRequest, ControllerLifecycleResponse,
+        CreateLoaRequest, CreateSoloCertificationRequest, CreateStaffingRequestRequest,
+        CreateSuaRequest, DecideLoaRequest, JobDetailResponse, JobRunItem, JobRunResponse,
+        JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery, ListStaffingRequestsQuery,
+        ListSuaQuery, LoaItem, LoaListResponse, PaginationMeta, PaginationQuery,
+        SoloCertificationItem, SoloCertificationListResponse, StaffingRequestItem,
+        StaffingRequestListResponse, SuaBlockItem, SuaListResponse, UpdateLoaRequest,
+        UpdateSoloCertificationRequest,
+    },
+    repos::{
+        audit as audit_repo,
+        org::{
+            controller_lifecycle, jobs as jobs_repo, loas, solo_certs, staffing_requests,
+            sua_requests,
+        },
+        users as user_repo,
+    },
     state::{AppState, JobHealth},
     time::{ApiJson, ResponseTimeContext},
 };
@@ -29,375 +49,36 @@ const SUA_MAX_ACTIVE_REQUESTS: i64 = 2;
 const SUA_MIN_DURATION_MINUTES: i64 = 30;
 const SUA_MAX_DURATION_HOURS: i64 = 12;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct LoaItem {
-    pub id: String,
-    pub user_id: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub start: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub end: DateTime<Utc>,
-    pub reason: String,
-    pub status: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub submitted_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub decided_at: Option<DateTime<Utc>>,
-    pub decided_by_actor_id: Option<String>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-    pub cid: Option<i64>,
-    pub display_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateLoaRequest {
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
-    pub reason: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateLoaRequest {
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
-    pub reason: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct DecideLoaRequest {
-    pub status: String,
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ListLoasQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-    pub status: Option<String>,
-    pub cid: Option<i64>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct LoaListResponse {
-    pub items: Vec<LoaItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct SoloCertificationItem {
-    pub id: String,
-    pub user_id: String,
-    pub certification_type_id: String,
-    pub position: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub expires: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub granted_at: DateTime<Utc>,
-    pub granted_by_actor_id: Option<String>,
-    pub cid: Option<i64>,
-    pub display_name: Option<String>,
-    pub certification_type_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateSoloCertificationRequest {
-    pub user_id: String,
-    pub certification_type_id: String,
-    pub position: String,
-    pub expires: DateTime<Utc>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateSoloCertificationRequest {
-    pub certification_type_id: Option<String>,
-    pub position: Option<String>,
-    pub expires: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ListSoloCertificationsQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-    pub cid: Option<i64>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SoloCertificationListResponse {
-    pub items: Vec<SoloCertificationItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct StaffingRequestItem {
-    pub id: String,
-    pub user_id: String,
-    pub name: String,
-    pub description: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-    pub cid: Option<i64>,
-    pub display_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateStaffingRequestRequest {
-    pub name: String,
-    pub description: String,
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ListStaffingRequestsQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-    pub cid: Option<i64>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct StaffingRequestListResponse {
-    pub items: Vec<StaffingRequestItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct SuaAirspaceItem {
-    pub id: String,
-    pub sua_block_id: String,
-    pub identifier: String,
-    pub bottom_altitude: String,
-    pub top_altitude: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct SuaBlockItem {
-    pub id: String,
-    pub user_id: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub start_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub end_at: DateTime<Utc>,
-    pub afiliation: String,
-    pub details: String,
-    pub mission_number: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-    pub cid: Option<i64>,
-    pub display_name: Option<String>,
-    pub airspace: Vec<SuaAirspaceItem>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateSuaAirspaceRequest {
-    pub identifier: String,
-    pub bottom_altitude: String,
-    pub top_altitude: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateSuaRequest {
-    pub afiliation: String,
-    pub start_at: DateTime<Utc>,
-    pub end_at: DateTime<Utc>,
-    pub details: String,
-    pub airspace: Vec<CreateSuaAirspaceRequest>,
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ListSuaQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-    pub cid: Option<i64>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SuaListResponse {
-    pub items: Vec<SuaBlockItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct ControllerLifecycleRequest {
-    pub controller_status: String,
-    pub artcc: Option<String>,
-    pub cleanup_on_none: Option<bool>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ControllerLifecycleCleanupSummary {
-    pub training_assignment_requests_deleted: i64,
-    pub training_assignments_deleted: i64,
-    pub loas_deleted: i64,
-    pub operating_initials_assigned: bool,
-    pub operating_initials_cleared: bool,
-    pub welcome_message_enabled: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ControllerLifecycleResponse {
-    pub cid: i64,
-    pub controller_status: String,
-    pub artcc: Option<String>,
-    pub cleanup: ControllerLifecycleCleanupSummary,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct JobRunItem {
-    pub id: String,
-    pub job_name: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub started_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub finished_at: Option<DateTime<Utc>>,
-    pub status: String,
-    pub result_summary: Option<Value>,
-    pub error_text: Option<String>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct JobStatusItem {
-    pub job_name: String,
-    pub enabled: bool,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub last_started_at: Option<DateTime<Utc>>,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub last_finished_at: Option<DateTime<Utc>>,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub last_success_at: Option<DateTime<Utc>>,
-    pub last_result_ok: Option<bool>,
-    pub last_error: Option<String>,
-    pub latest_run: Option<JobRunItem>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct JobDetailResponse {
-    pub status: JobStatusItem,
-    pub recent_runs: Vec<JobRunItem>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct JobRunResponse {
-    pub run: JobRunItem,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct SuaBlockRow {
-    id: String,
-    user_id: String,
-    start_at: DateTime<Utc>,
-    end_at: DateTime<Utc>,
-    afiliation: String,
-    details: String,
-    mission_number: String,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    cid: Option<i64>,
-    display_name: Option<String>,
-}
-
-#[derive(Debug, Serialize, sqlx::FromRow)]
-struct MembershipLifecycleRow {
-    user_id: String,
-    cid: i64,
-    controller_status: String,
-    artcc: String,
-    operating_initials: Option<String>,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    display_name: String,
-    show_welcome_message: bool,
-}
-
 #[derive(Debug, Serialize)]
 struct JobExecutionSummary {
     processed: i64,
     details: Value,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ApiMessageBody {
+    pub message: String,
+}
+
 #[utoipa::path(get, path = "/api/v1/loa/me", tag = "workflows", params(PaginationQuery), responses((status = 200, description = "Current user's LOAs", body = LoaListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_my_loas(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<LoaListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total =
-        sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.loas where user_id = $1")
-            .bind(&user.id)
-            .fetch_one(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, LoaItem>(
-        r#"
-        select id, user_id, start, "end", reason, status, submitted_at, decided_at, decided_by_actor_id, created_at, updated_at, null::bigint as cid, null::text as display_name
-        from org.loas
-        where user_id = $1
-        order by start desc, created_at desc, id asc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(&user.id)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = loas::count_my_loas(pool, &user.id).await?;
+    let rows = loas::list_my_loas(pool, &user.id, pagination.page_size, pagination.offset).await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         LoaListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -407,49 +88,24 @@ pub async fn list_my_loas(
 pub async fn create_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileUpdate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateLoaRequest>,
 ) -> Result<(StatusCode, ApiJson<LoaItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Update),
-    )
-    .await?;
     validate_loa_range(payload.start, payload.end, payload.reason.trim())?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let row = sqlx::query_as::<_, LoaItem>(
-        r#"
-        insert into org.loas (id, user_id, start, "end", reason, status, submitted_at, created_at, updated_at)
-        values ($1, $2, $3, $4, $5, 'PENDING', now(), now(), now())
-        returning
-            id,
-            user_id,
-            start,
-            "end",
-            reason,
-            status,
-            submitted_at,
-            decided_at,
-            decided_by_actor_id,
-            created_at,
-            updated_at,
-            null::bigint as cid,
-            null::text as display_name
-        "#,
+    let row = loas::insert_loa(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &user.id,
+        payload.start,
+        payload.end,
+        payload.reason.trim(),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&user.id)
-    .bind(payload.start)
-    .bind(payload.end)
-    .bind(payload.reason.trim())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
     record_simple_audit(
         pool,
@@ -465,65 +121,33 @@ pub async fn create_loa(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/loa/{loa_id}", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = UpdateLoaRequest, responses((status = 200, description = "Updated LOA", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/loa/{loa_id}", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = UpdateLoaRequest, responses((status = 200, description = "Updated LOA", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "LOA not found")))]
 pub async fn update_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileUpdate>,
     Path(loa_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateLoaRequest>,
 ) -> Result<ApiJson<LoaItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Update),
-    )
-    .await?;
     validate_loa_range(payload.start, payload.end, payload.reason.trim())?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let before = fetch_loa_owned_by(pool, &loa_id, &user.id).await?;
-    let row = sqlx::query_as::<_, LoaItem>(
-        r#"
-        update org.loas
-        set start = $3,
-            "end" = $4,
-            reason = $5,
-            status = 'PENDING',
-            decided_at = null,
-            decided_by_actor_id = null,
-            updated_at = now()
-        where id = $1
-          and user_id = $2
-          and status = 'PENDING'
-        returning
-            id,
-            user_id,
-            start,
-            "end",
-            reason,
-            status,
-            submitted_at,
-            decided_at,
-            decided_by_actor_id,
-            created_at,
-            updated_at,
-            null::bigint as cid,
-            null::text as display_name
-        "#,
+    let before = loas::fetch_loa_owned_by(pool, &loa_id, &user.id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = loas::update_loa_row(
+        pool,
+        &loa_id,
+        &user.id,
+        payload.start,
+        payload.end,
+        payload.reason.trim(),
     )
-    .bind(&loa_id)
-    .bind(&user.id)
-    .bind(payload.start)
-    .bind(payload.end)
-    .bind(payload.reason.trim())
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     record_full_audit(
         pool,
@@ -543,18 +167,10 @@ pub async fn update_loa(
 #[utoipa::path(get, path = "/api/v1/admin/loa", tag = "workflows", params(PaginationQuery, ("status" = Option<String>, Query, description = "Optional LOA status filter"), ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "LOA list", body = LoaListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_loas(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersDirectoryRead>,
     Query(query): Query<ListLoasQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<LoaListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
@@ -564,123 +180,47 @@ pub async fn admin_list_loas(
         .as_deref()
         .map(|value| value.trim().to_ascii_uppercase());
 
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from org.loas l
-        join identity.users u on u.id = l.user_id
-        where ($1::text is null or l.status = $1)
-          and ($2::bigint is null or u.cid = $2)
-        "#,
+    let total = loas::count_admin_loas(pool, status.as_deref(), query.cid).await?;
+    let items = loas::list_admin_loas(
+        pool,
+        status.as_deref(),
+        query.cid,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(status.as_deref())
-    .bind(query.cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let items = sqlx::query_as::<_, LoaItem>(
-        r#"
-        select
-            l.id,
-            l.user_id,
-            l.start,
-            l."end",
-            l.reason,
-            l.status,
-            l.submitted_at,
-            l.decided_at,
-            l.decided_by_actor_id,
-            l.created_at,
-            l.updated_at,
-            u.cid,
-            u.display_name
-        from org.loas l
-        join identity.users u on u.id = l.user_id
-        where ($1::text is null or l.status = $1)
-          and ($2::bigint is null or u.cid = $2)
-        order by l.start desc, l.created_at desc, l.id asc
-        limit $3 offset $4
-        "#,
-    )
-    .bind(status.as_deref())
-    .bind(query.cid)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         LoaListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/loa/{loa_id}/decision", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = DecideLoaRequest, responses((status = 200, description = "Updated LOA decision", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/loa/{loa_id}/decision", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = DecideLoaRequest, responses((status = 200, description = "Updated LOA decision", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "LOA not found")))]
 pub async fn decide_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     Path(loa_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<DecideLoaRequest>,
 ) -> Result<ApiJson<LoaItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let normalized = normalize_loa_admin_status(&payload.status)?;
-    let before = fetch_loa_by_id(pool, &loa_id).await?;
+    let before = loas::fetch_loa_by_id(pool, &loa_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
 
-    let row = sqlx::query_as::<_, LoaItem>(
-        r#"
-        update org.loas l
-        set status = $2,
-            decided_at = now(),
-            decided_by_actor_id = $3,
-            updated_at = now()
-        from identity.users u
-        where l.id = $1
-          and u.id = l.user_id
-        returning
-            l.id,
-            l.user_id,
-            l.start,
-            l."end",
-            l.reason,
-            l.status,
-            l.submitted_at,
-            l.decided_at,
-            l.decided_by_actor_id,
-            l.created_at,
-            l.updated_at,
-            u.cid,
-            u.display_name
-        "#,
-    )
-    .bind(&loa_id)
-    .bind(normalized)
-    .bind(actor.actor_id.as_deref())
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let row = loas::decide_loa_row(pool, &loa_id, normalized, actor.actor_id.as_deref())
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     maybe_send_loa_email(&state, pool, actor, &row, payload.reason.as_deref()).await;
 
@@ -703,20 +243,14 @@ pub async fn decide_loa(
 pub async fn run_loa_expiration(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<JobRunResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let run_id = create_job_run(pool, "loa_expiration").await?;
+    let run_id = jobs_repo::create_job_run(pool, "loa_expiration").await?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
     let result = execute_loa_expiration(&state, pool, actor).await;
     let run = finish_job_run(pool, &run_id, result).await?;
@@ -744,6 +278,9 @@ pub async fn get_user_solo_certifications(
     time: ResponseTimeContext,
 ) -> Result<ApiJson<SoloCertificationListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    // Data-dependent authorization: viewing one's own certifications only requires the
+    // self-service "auth.profile.read" permission, not the admin "users.directory.read"
+    // permission required to view someone else's. Not a single RequirePermission<P> case.
     if user.cid != cid {
         ensure_permission(
             &state,
@@ -764,7 +301,7 @@ pub async fn get_user_solo_certifications(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let (items, total) = list_solo_certifications(
+    let (items, total) = solo_certs::list_solo_certifications(
         pool,
         None,
         Some(cid),
@@ -776,12 +313,7 @@ pub async fn get_user_solo_certifications(
     Ok(ApiJson::new(
         SoloCertificationListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -790,23 +322,15 @@ pub async fn get_user_solo_certifications(
 #[utoipa::path(get, path = "/api/v1/admin/solo-certifications", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "Solo certification list", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_solo_certifications(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersDirectoryRead>,
     Query(query): Query<ListSoloCertificationsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<SoloCertificationListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let (items, total) = list_solo_certifications(
+    let (items, total) = solo_certs::list_solo_certifications(
         pool,
         query.cid,
         query.cid,
@@ -819,12 +343,7 @@ pub async fn admin_list_solo_certifications(
     Ok(ApiJson::new(
         SoloCertificationListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -834,61 +353,37 @@ pub async fn admin_list_solo_certifications(
 pub async fn create_solo_certification(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateSoloCertificationRequest>,
 ) -> Result<(StatusCode, ApiJson<SoloCertificationItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     if payload.position.trim().is_empty() || payload.expires <= Utc::now() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    ensure_solo_certification_type(pool, &payload.certification_type_id).await?;
+    if !solo_certs::ensure_solo_certification_type_exists(pool, &payload.certification_type_id)
+        .await?
+    {
+        return Err(ApiError::BadRequest);
+    }
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
 
-    let row = sqlx::query_as::<_, SoloCertificationItem>(
-        r#"
-        insert into org.user_solo_certifications (
-            id,
-            user_id,
-            certification_type_id,
-            position,
-            expires,
-            granted_at,
-            granted_by_actor_id
-        )
-        values ($1, $2, $3, $4, $5, now(), $6)
-        returning
-            id,
-            user_id,
-            certification_type_id,
-            position,
-            expires,
-            granted_at,
-            granted_by_actor_id,
-            null::bigint as cid,
-            null::text as display_name,
-            null::text as certification_type_name
-        "#,
+    let row = solo_certs::insert_solo_certification(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &payload.user_id,
+        &payload.certification_type_id,
+        payload.position.trim(),
+        payload.expires,
+        actor.actor_id.as_deref(),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&payload.user_id)
-    .bind(&payload.certification_type_id)
-    .bind(payload.position.trim())
-    .bind(payload.expires)
-    .bind(actor.actor_id.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
-    let full = fetch_solo_certification(pool, &row.id).await?;
+    let full = solo_certs::fetch_solo_certification(pool, &row.id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     maybe_send_solo_email(&state, pool, actor, "solo.added", &full, None).await;
 
     record_simple_audit(
@@ -905,28 +400,26 @@ pub async fn create_solo_certification(
     Ok((StatusCode::CREATED, ApiJson::new(full, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), request_body = UpdateSoloCertificationRequest, responses((status = 200, description = "Updated solo certification", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), request_body = UpdateSoloCertificationRequest, responses((status = 200, description = "Updated solo certification", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Solo certification not found")))]
 pub async fn update_solo_certification(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     Path(solo_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateSoloCertificationRequest>,
 ) -> Result<ApiJson<SoloCertificationItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_solo_certification(pool, &solo_id).await?;
+    let before = solo_certs::fetch_solo_certification(pool, &solo_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     if let Some(certification_type_id) = payload.certification_type_id.as_deref() {
-        ensure_solo_certification_type(pool, certification_type_id).await?;
+        if !solo_certs::ensure_solo_certification_type_exists(pool, certification_type_id).await? {
+            return Err(ApiError::BadRequest);
+        }
     }
     if let Some(expires) = payload.expires {
         if expires <= Utc::now() {
@@ -934,42 +427,23 @@ pub async fn update_solo_certification(
         }
     }
 
-    let row = sqlx::query_as::<_, SoloCertificationItem>(
-        r#"
-        update org.user_solo_certifications
-        set certification_type_id = coalesce($2, certification_type_id),
-            position = coalesce($3, position),
-            expires = coalesce($4, expires)
-        where id = $1
-        returning
-            id,
-            user_id,
-            certification_type_id,
-            position,
-            expires,
-            granted_at,
-            granted_by_actor_id,
-            null::bigint as cid,
-            null::text as display_name,
-            null::text as certification_type_name
-        "#,
-    )
-    .bind(&solo_id)
-    .bind(payload.certification_type_id.as_deref())
-    .bind(
+    let row = solo_certs::update_solo_certification_row(
+        pool,
+        &solo_id,
+        payload.certification_type_id.as_deref(),
         payload
             .position
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty()),
+        payload.expires,
     )
-    .bind(payload.expires)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
-    let full = fetch_solo_certification(pool, &row.id).await?;
+    let full = solo_certs::fetch_solo_certification(pool, &row.id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     record_full_audit(
         pool,
         user,
@@ -985,30 +459,22 @@ pub async fn update_solo_certification(
     Ok(ApiJson::new(full, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), responses((status = 200, description = "Deleted solo certification", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), responses((status = 200, description = "Deleted solo certification", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Solo certification not found")))]
 pub async fn delete_solo_certification(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     Path(solo_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_solo_certification(pool, &solo_id).await?;
+    let before = solo_certs::fetch_solo_certification(pool, &solo_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
 
-    sqlx::query("delete from org.user_solo_certifications where id = $1")
-        .bind(&solo_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    solo_certs::delete_solo_certification_row(pool, &solo_id).await?;
 
     maybe_send_solo_email(&state, pool, actor, "solo.deleted", &before, None).await;
 
@@ -1033,62 +499,28 @@ pub async fn delete_solo_certification(
 pub async fn list_my_staffing_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<StaffingRequestListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from org.staffing_requests where user_id = $1",
+    let total = staffing_requests::count_my_staffing_requests(pool, &user.id).await?;
+    let rows = staffing_requests::list_my_staffing_requests(
+        pool,
+        &user.id,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(&user.id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, StaffingRequestItem>(
-        r#"
-        select
-            sr.id,
-            sr.user_id,
-            sr.name,
-            sr.description,
-            sr.created_at,
-            sr.updated_at,
-            u.cid,
-            u.display_name
-        from org.staffing_requests sr
-        join identity.users u on u.id = sr.user_id
-        where sr.user_id = $1
-        order by sr.created_at desc, sr.id asc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(&user.id)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         StaffingRequestListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -1098,18 +530,12 @@ pub async fn list_my_staffing_requests(
 pub async fn create_staffing_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateStaffingRequestRequest>,
 ) -> Result<(StatusCode, ApiJson<StaffingRequestItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let name = payload.name.trim();
     let description = payload.description.trim();
     if name.is_empty() || description.is_empty() {
@@ -1117,30 +543,18 @@ pub async fn create_staffing_request(
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let row = sqlx::query_as::<_, StaffingRequestItem>(
-        r#"
-        insert into org.staffing_requests (id, user_id, name, description, created_at, updated_at)
-        values ($1, $2, $3, $4, now(), now())
-        returning
-            id,
-            user_id,
-            name,
-            description,
-            created_at,
-            updated_at,
-            null::bigint as cid,
-            null::text as display_name
-        "#,
+    let row = staffing_requests::insert_staffing_request(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &user.id,
+        name,
+        description,
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&user.id)
-    .bind(name)
-    .bind(description)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
-    let full = fetch_staffing_request(pool, &row.id).await?;
+    let full = staffing_requests::fetch_staffing_request(pool, &row.id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     record_simple_audit(
         pool,
         user,
@@ -1158,99 +572,49 @@ pub async fn create_staffing_request(
 #[utoipa::path(get, path = "/api/v1/admin/staffing-requests", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "Staffing request list", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_staffing_requests(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersDirectoryRead>,
     Query(query): Query<ListStaffingRequestsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<StaffingRequestListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
 
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from org.staffing_requests sr
-        join identity.users u on u.id = sr.user_id
-        where ($1::bigint is null or u.cid = $1)
-        "#,
+    let total = staffing_requests::count_admin_staffing_requests(pool, query.cid).await?;
+    let items = staffing_requests::list_admin_staffing_requests(
+        pool,
+        query.cid,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(query.cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let items = sqlx::query_as::<_, StaffingRequestItem>(
-        r#"
-        select
-            sr.id,
-            sr.user_id,
-            sr.name,
-            sr.description,
-            sr.created_at,
-            sr.updated_at,
-            u.cid,
-            u.display_name
-        from org.staffing_requests sr
-        join identity.users u on u.id = sr.user_id
-        where ($1::bigint is null or u.cid = $1)
-        order by sr.created_at desc, sr.id asc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(query.cid)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         StaffingRequestListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/staffing-requests/{request_id}", tag = "workflows", params(("request_id" = String, Path, description = "Staffing request ID")), responses((status = 200, description = "Deleted staffing request", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/staffing-requests/{request_id}", tag = "workflows", params(("request_id" = String, Path, description = "Staffing request ID")), responses((status = 200, description = "Deleted staffing request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Staffing request not found")))]
 pub async fn delete_staffing_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_staffing_request(pool, &request_id).await?;
+    let before = staffing_requests::fetch_staffing_request(pool, &request_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    sqlx::query("delete from org.staffing_requests where id = $1")
-        .bind(&request_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    staffing_requests::delete_staffing_request_row(pool, &request_id).await?;
 
     record_full_audit(
         pool,
@@ -1273,20 +637,14 @@ pub async fn delete_staffing_request(
 pub async fn list_my_sua_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<SuaListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let (items, total) = list_sua_blocks(
+    let (items, total) = sua_requests::list_sua_blocks(
         pool,
         Some(user.cid),
         pagination.page_size,
@@ -1297,12 +655,7 @@ pub async fn list_my_sua_requests(
     Ok(ApiJson::new(
         SuaListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -1312,33 +665,16 @@ pub async fn list_my_sua_requests(
 pub async fn create_sua_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateSuaRequest>,
 ) -> Result<(StatusCode, ApiJson<SuaBlockItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     validate_sua_request(&payload)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let active_count = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from org.sua_blocks
-        where user_id = $1
-          and end_at >= now()
-        "#,
-    )
-    .bind(&user.id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let active_count = sua_requests::count_active_sua_for_user(pool, &user.id).await?;
     if active_count >= SUA_MAX_ACTIVE_REQUESTS {
         return Err(ApiError::BadRequest);
     }
@@ -1346,58 +682,34 @@ pub async fn create_sua_request(
     let mission_number = generate_mission_number(payload.start_at);
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     let id = Uuid::new_v4().to_string();
-    sqlx::query(
-        r#"
-        insert into org.sua_blocks (
-            id,
-            user_id,
-            start_at,
-            end_at,
-            afiliation,
-            details,
-            mission_number,
-            created_at,
-            updated_at
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, now(), now())
-        "#,
+    sua_requests::insert_sua_block(
+        &mut *tx,
+        &id,
+        &user.id,
+        payload.start_at,
+        payload.end_at,
+        payload.afiliation.trim(),
+        payload.details.trim(),
+        &mission_number,
     )
-    .bind(&id)
-    .bind(&user.id)
-    .bind(payload.start_at)
-    .bind(payload.end_at)
-    .bind(payload.afiliation.trim())
-    .bind(payload.details.trim())
-    .bind(&mission_number)
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
     for airspace in &payload.airspace {
-        sqlx::query(
-            r#"
-            insert into org.sua_block_airspace (
-                id,
-                sua_block_id,
-                identifier,
-                bottom_altitude,
-                top_altitude
-            )
-            values ($1, $2, $3, $4, $5)
-            "#,
+        sua_requests::insert_sua_airspace(
+            &mut *tx,
+            &Uuid::new_v4().to_string(),
+            &id,
+            &airspace.identifier.trim().to_ascii_uppercase(),
+            airspace.bottom_altitude.trim(),
+            airspace.top_altitude.trim(),
         )
-        .bind(Uuid::new_v4().to_string())
-        .bind(&id)
-        .bind(airspace.identifier.trim().to_ascii_uppercase())
-        .bind(airspace.bottom_altitude.trim())
-        .bind(airspace.top_altitude.trim())
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::BadRequest)?;
+        .await?;
     }
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-    let item = fetch_sua_block(pool, &id).await?;
+    let item = sua_requests::fetch_sua_block(pool, &id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     record_simple_audit(
         pool,
@@ -1413,33 +725,24 @@ pub async fn create_sua_request(
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "SUA request not found")))]
 pub async fn delete_sua_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     Path(mission_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_sua_block(pool, &mission_id).await?;
+    let before = sua_requests::fetch_sua_block(pool, &mission_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     if before.user_id != user.id {
         return Err(ApiError::Unauthorized);
     }
 
-    sqlx::query("delete from org.sua_blocks where id = $1 and user_id = $2")
-        .bind(&mission_id)
-        .bind(&user.id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    sua_requests::delete_sua_block_owned(pool, &mission_id, &user.id).await?;
 
     record_full_audit(
         pool,
@@ -1461,60 +764,44 @@ pub async fn delete_sua_request(
 #[utoipa::path(get, path = "/api/v1/admin/sua", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "SUA request list", body = SuaListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_sua_requests(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersDirectoryRead>,
     Query(query): Query<ListSuaQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<SuaListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
     let (items, total) =
-        list_sua_blocks(pool, query.cid, pagination.page_size, pagination.offset).await?;
+        sua_requests::list_sua_blocks(pool, query.cid, pagination.page_size, pagination.offset)
+            .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         SuaListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/users/{cid}/controller-lifecycle", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = ControllerLifecycleRequest, responses((status = 200, description = "Updated controller lifecycle", body = ControllerLifecycleResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/users/{cid}/controller-lifecycle", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = ControllerLifecycleRequest, responses((status = 200, description = "Updated controller lifecycle", body = ControllerLifecycleResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "User not found")))]
 pub async fn update_controller_lifecycle(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     Path(cid): Path<i64>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<ControllerLifecycleRequest>,
 ) -> Result<ApiJson<ControllerLifecycleResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let normalized_status = normalize_controller_status(&payload.controller_status)?;
-    let before = fetch_membership_lifecycle_row(pool, cid).await?;
+    let before = controller_lifecycle::fetch_membership_lifecycle_row(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
 
     let cleanup_on_none = payload.cleanup_on_none.unwrap_or(true);
@@ -1534,57 +821,32 @@ pub async fn update_controller_lifecycle(
         .filter(|value| !value.is_empty())
         .map(str::to_ascii_uppercase);
 
-    sqlx::query(
-        r#"
-        update org.memberships
-        set controller_status = $2,
-            artcc = coalesce($3, artcc),
-            updated_at = now()
-        where user_id = $1
-        "#,
+    controller_lifecycle::update_membership_status(
+        &mut *tx,
+        &before.user_id,
+        normalized_status,
+        artcc.as_deref(),
     )
-    .bind(&before.user_id)
-    .bind(normalized_status)
-    .bind(artcc.as_deref())
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     if normalized_status == "NONE" {
-        let result = sqlx::query(
-            r#"
-            update org.memberships
-            set operating_initials = null,
-                updated_at = now()
-            where user_id = $1
-              and operating_initials is not null
-            "#,
-        )
-        .bind(&before.user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-        cleanup.operating_initials_cleared = result.rows_affected() > 0;
+        cleanup.operating_initials_cleared =
+            controller_lifecycle::clear_operating_initials(&mut *tx, &before.user_id).await?;
 
         if cleanup_on_none {
-            cleanup.training_assignment_requests_deleted = delete_count(
-                &mut tx,
-                "delete from training.training_assignment_requests where student_id = $1",
-                &before.user_id,
-            )
-            .await?;
-            cleanup.training_assignments_deleted = delete_count(
-                &mut tx,
-                "delete from training.training_assignments where student_id = $1",
-                &before.user_id,
-            )
-            .await?;
-            cleanup.loas_deleted = delete_count(
-                &mut tx,
-                "delete from org.loas where user_id = $1",
-                &before.user_id,
-            )
-            .await?;
+            cleanup.training_assignment_requests_deleted =
+                controller_lifecycle::delete_training_assignment_requests_for_user(
+                    &mut *tx,
+                    &before.user_id,
+                )
+                .await?;
+            cleanup.training_assignments_deleted =
+                controller_lifecycle::delete_training_assignments_for_user(
+                    &mut *tx,
+                    &before.user_id,
+                )
+                .await?;
+            cleanup.loas_deleted = loas::delete_loas_for_user(&mut *tx, &before.user_id).await?;
         }
     } else {
         if before.operating_initials.is_none() {
@@ -1600,19 +862,15 @@ pub async fn update_controller_lifecycle(
         }
 
         if before.controller_status == "NONE" && !before.show_welcome_message {
-            let result = sqlx::query(
-                "update identity.user_profiles set show_welcome_message = true, updated_at = now() where user_id = $1",
-            )
-            .bind(&before.user_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-            cleanup.welcome_message_enabled = result.rows_affected() > 0;
+            cleanup.welcome_message_enabled =
+                controller_lifecycle::enable_welcome_message(&mut *tx, &before.user_id).await?;
         }
     }
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-    let after = fetch_membership_lifecycle_row(pool, cid).await?;
+    let after = controller_lifecycle::fetch_membership_lifecycle_row(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     let response = ControllerLifecycleResponse {
         cid: after.cid,
         controller_status: after.controller_status,
@@ -1638,17 +896,9 @@ pub async fn update_controller_lifecycle(
 #[utoipa::path(get, path = "/api/v1/admin/jobs", tag = "workflows", responses((status = 200, description = "Backend jobs", body = [JobStatusItem]), (status = 401, description = "Not authenticated")))]
 pub async fn list_jobs(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<SystemRead>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<Vec<JobStatusItem>>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["system"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let health = state
         .job_health
@@ -1671,18 +921,10 @@ pub async fn list_jobs(
 #[utoipa::path(get, path = "/api/v1/admin/jobs/{job_name}", tag = "workflows", params(("job_name" = String, Path, description = "Job name")), responses((status = 200, description = "Backend job detail", body = JobDetailResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
 pub async fn get_job(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<SystemRead>,
     Path(job_name): Path<String>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<JobDetailResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["system"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let health = state
         .job_health
@@ -1690,19 +932,7 @@ pub async fn get_job(
         .map_err(|_| ApiError::Internal)?
         .clone();
     let status = build_job_status(pool, &health, &job_name).await?;
-    let recent_runs = sqlx::query_as::<_, JobRunItem>(
-        r#"
-        select id, job_name, started_at, finished_at, status, result_summary, error_text, created_at
-        from platform.job_runs
-        where job_name = $1
-        order by started_at desc
-        limit 10
-        "#,
-    )
-    .bind(&job_name)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let recent_runs = jobs_repo::list_recent_job_runs(pool, &job_name).await?;
     Ok(ApiJson::new(
         JobDetailResponse {
             status,
@@ -1716,21 +946,15 @@ pub async fn get_job(
 pub async fn run_job(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     Path(job_name): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<JobRunResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let run_id = create_job_run(pool, &job_name).await?;
+    let run_id = jobs_repo::create_job_run(pool, &job_name).await?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
     let result = match job_name.as_str() {
         "loa_expiration" => execute_loa_expiration(&state, pool, actor).await,
@@ -1755,23 +979,11 @@ pub async fn run_job(
 }
 
 async fn build_job_status(
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     health: &JobHealth,
     job_name: &str,
 ) -> Result<JobStatusItem, ApiError> {
-    let latest_run = sqlx::query_as::<_, JobRunItem>(
-        r#"
-        select id, job_name, started_at, finished_at, status, result_summary, error_text, created_at
-        from platform.job_runs
-        where job_name = $1
-        order by started_at desc
-        limit 1
-        "#,
-    )
-    .bind(job_name)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let latest_run = jobs_repo::fetch_latest_job_run(pool, job_name).await?;
 
     let item = match job_name {
         "stats_sync" => JobStatusItem {
@@ -1823,45 +1035,14 @@ async fn build_job_status(
 
 async fn execute_loa_expiration(
     state: &AppState,
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     actor: audit_repo::AuditActor,
 ) -> Result<JobExecutionSummary, ApiError> {
-    let items = sqlx::query_as::<_, LoaItem>(
-        r#"
-        select
-            l.id,
-            l.user_id,
-            l.start,
-            l."end",
-            l.reason,
-            l.status,
-            l.submitted_at,
-            l.decided_at,
-            l.decided_by_actor_id,
-            l.created_at,
-            l.updated_at,
-            u.cid,
-            u.display_name
-        from org.loas l
-        join identity.users u on u.id = l.user_id
-        where l.status = 'APPROVED'
-          and l."end" < now()
-        order by l."end" asc
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let items = loas::list_expired_approved_loas(pool).await?;
 
     let mut processed = 0;
     for item in &items {
-        sqlx::query(
-            "update org.loas set status = 'INACTIVE', updated_at = now() where id = $1 and status = 'APPROVED'",
-        )
-        .bind(&item.id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        loas::expire_loa_row(pool, &item.id).await?;
         maybe_send_loa_email(state, pool, actor.clone(), item, None).await;
         processed += 1;
     }
@@ -1874,40 +1055,14 @@ async fn execute_loa_expiration(
 
 async fn execute_solo_expiration(
     state: &AppState,
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     actor: audit_repo::AuditActor,
 ) -> Result<JobExecutionSummary, ApiError> {
-    let items = sqlx::query_as::<_, SoloCertificationItem>(
-        r#"
-        select
-            s.id,
-            s.user_id,
-            s.certification_type_id,
-            s.position,
-            s.expires,
-            s.granted_at,
-            s.granted_by_actor_id,
-            u.cid,
-            u.display_name,
-            ct.name as certification_type_name
-        from org.user_solo_certifications s
-        join identity.users u on u.id = s.user_id
-        left join org.certification_types ct on ct.id = s.certification_type_id
-        where s.expires < now()
-        order by s.expires asc
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let items = solo_certs::list_expired_solo_certifications(pool).await?;
 
     let mut processed = 0;
     for item in &items {
-        sqlx::query("delete from org.user_solo_certifications where id = $1")
-            .bind(&item.id)
-            .execute(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+        solo_certs::delete_solo_certification_row(pool, &item.id).await?;
         maybe_send_solo_email(state, pool, actor.clone(), "solo.expired", item, None).await;
         processed += 1;
     }
@@ -1918,44 +1073,10 @@ async fn execute_solo_expiration(
     })
 }
 
-async fn execute_event_automation(pool: &PgPool) -> Result<JobExecutionSummary, ApiError> {
+async fn execute_event_automation(pool: &sqlx::PgPool) -> Result<JobExecutionSummary, ApiError> {
     let lock_threshold = Utc::now() + Duration::hours(24);
-    let locked = sqlx::query(
-        r#"
-        update events.events
-        set positions_locked = true,
-            updated_at = now()
-        where manual_positions_open = false
-          and positions_locked = false
-          and starts_at <= $1
-          and archived_at is null
-        "#,
-    )
-    .bind(lock_threshold)
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .rows_affected() as i64;
-
-    let archived = sqlx::query(
-        r#"
-        update events.events
-        set archived_at = coalesce(archived_at, now()),
-            hidden = true,
-            positions_locked = true,
-            manual_positions_open = false,
-            banner_asset_id = null,
-            status = 'ARCHIVED',
-            updated_at = now()
-        where ends_at <= $1
-          and archived_at is null
-        "#,
-    )
-    .bind(Utc::now() - Duration::hours(24))
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .rows_affected() as i64;
+    let locked = jobs_repo::lock_events_near_start(pool, lock_threshold).await?;
+    let archived = jobs_repo::archive_ended_events(pool, Utc::now() - Duration::hours(24)).await?;
 
     Ok(JobExecutionSummary {
         processed: locked + archived,
@@ -1968,7 +1089,7 @@ async fn execute_event_automation(pool: &PgPool) -> Result<JobExecutionSummary, 
 
 async fn maybe_send_loa_email(
     state: &AppState,
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     actor: audit_repo::AuditActor,
     loa: &LoaItem,
     decision_reason: Option<&str>,
@@ -2020,7 +1141,7 @@ async fn maybe_send_loa_email(
 
 async fn maybe_send_solo_email(
     state: &AppState,
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     actor: audit_repo::AuditActor,
     template_id: &str,
     solo: &SoloCertificationItem,
@@ -2061,76 +1182,29 @@ async fn maybe_send_solo_email(
         .await;
 }
 
-async fn create_job_run(pool: &PgPool, job_name: &str) -> Result<String, ApiError> {
-    let id = Uuid::new_v4().to_string();
-    sqlx::query(
-        r#"
-        insert into platform.job_runs (id, job_name, started_at, status, created_at)
-        values ($1, $2, now(), 'running', now())
-        "#,
-    )
-    .bind(&id)
-    .bind(job_name)
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    Ok(id)
-}
-
 async fn finish_job_run(
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     run_id: &str,
     result: Result<JobExecutionSummary, ApiError>,
 ) -> Result<JobRunItem, ApiError> {
     match result {
         Ok(summary) => {
-            sqlx::query(
-                r#"
-                update platform.job_runs
-                set finished_at = now(),
-                    status = 'succeeded',
-                    result_summary = $2
-                where id = $1
-                "#,
+            jobs_repo::finish_job_run_success(
+                pool,
+                run_id,
+                json!({
+                    "processed": summary.processed,
+                    "details": summary.details
+                }),
             )
-            .bind(run_id)
-            .bind(json!({
-                "processed": summary.processed,
-                "details": summary.details
-            }))
-            .execute(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+            .await?;
         }
         Err(err) => {
-            sqlx::query(
-                r#"
-                update platform.job_runs
-                set finished_at = now(),
-                    status = 'failed',
-                    error_text = $2
-                where id = $1
-                "#,
-            )
-            .bind(run_id)
-            .bind(err.to_string())
-            .execute(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+            jobs_repo::finish_job_run_failure(pool, run_id, &err.to_string()).await?;
         }
     }
 
-    sqlx::query_as::<_, JobRunItem>(
-        r#"
-        select id, job_name, started_at, finished_at, status, result_summary, error_text, created_at
-        from platform.job_runs
-        where id = $1
-        "#,
-    )
-    .bind(run_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
+    jobs_repo::fetch_job_run(pool, run_id).await
 }
 
 fn validate_loa_range(
@@ -2160,201 +1234,6 @@ fn normalize_controller_status(value: &str) -> Result<&'static str, ApiError> {
         "NONE" => Ok("NONE"),
         _ => Err(ApiError::BadRequest),
     }
-}
-
-async fn fetch_loa_owned_by(
-    pool: &PgPool,
-    loa_id: &str,
-    user_id: &str,
-) -> Result<LoaItem, ApiError> {
-    sqlx::query_as::<_, LoaItem>(
-        r#"
-        select
-            id,
-            user_id,
-            start,
-            "end",
-            reason,
-            status,
-            submitted_at,
-            decided_at,
-            decided_by_actor_id,
-            created_at,
-            updated_at,
-            null::bigint as cid,
-            null::text as display_name
-        from org.loas
-        where id = $1
-          and user_id = $2
-        "#,
-    )
-    .bind(loa_id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
-}
-
-async fn fetch_loa_by_id(pool: &PgPool, loa_id: &str) -> Result<LoaItem, ApiError> {
-    sqlx::query_as::<_, LoaItem>(
-        r#"
-        select
-            l.id,
-            l.user_id,
-            l.start,
-            l."end",
-            l.reason,
-            l.status,
-            l.submitted_at,
-            l.decided_at,
-            l.decided_by_actor_id,
-            l.created_at,
-            l.updated_at,
-            u.cid,
-            u.display_name
-        from org.loas l
-        join identity.users u on u.id = l.user_id
-        where l.id = $1
-        "#,
-    )
-    .bind(loa_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
-}
-
-async fn ensure_solo_certification_type(
-    pool: &PgPool,
-    certification_type_id: &str,
-) -> Result<(), ApiError> {
-    let exists = sqlx::query_scalar::<_, bool>(
-        r#"
-        select exists(
-            select 1
-            from org.certification_types
-            where id = $1
-              and can_solo_cert = true
-        )
-        "#,
-    )
-    .bind(certification_type_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    if !exists {
-        return Err(ApiError::BadRequest);
-    }
-    Ok(())
-}
-
-async fn fetch_solo_certification(
-    pool: &PgPool,
-    solo_id: &str,
-) -> Result<SoloCertificationItem, ApiError> {
-    sqlx::query_as::<_, SoloCertificationItem>(
-        r#"
-        select
-            s.id,
-            s.user_id,
-            s.certification_type_id,
-            s.position,
-            s.expires,
-            s.granted_at,
-            s.granted_by_actor_id,
-            u.cid,
-            u.display_name,
-            ct.name as certification_type_name
-        from org.user_solo_certifications s
-        join identity.users u on u.id = s.user_id
-        left join org.certification_types ct on ct.id = s.certification_type_id
-        where s.id = $1
-        "#,
-    )
-    .bind(solo_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
-}
-
-async fn list_solo_certifications(
-    pool: &PgPool,
-    filter_cid_for_total: Option<i64>,
-    filter_cid_for_items: Option<i64>,
-    limit: i64,
-    offset: i64,
-) -> Result<(Vec<SoloCertificationItem>, i64), ApiError> {
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from org.user_solo_certifications s
-        join identity.users u on u.id = s.user_id
-        where ($1::bigint is null or u.cid = $1)
-        "#,
-    )
-    .bind(filter_cid_for_total)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let items = sqlx::query_as::<_, SoloCertificationItem>(
-        r#"
-        select
-            s.id,
-            s.user_id,
-            s.certification_type_id,
-            s.position,
-            s.expires,
-            s.granted_at,
-            s.granted_by_actor_id,
-            u.cid,
-            u.display_name,
-            ct.name as certification_type_name
-        from org.user_solo_certifications s
-        join identity.users u on u.id = s.user_id
-        left join org.certification_types ct on ct.id = s.certification_type_id
-        where ($1::bigint is null or u.cid = $1)
-        order by s.expires asc, s.granted_at desc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(filter_cid_for_items)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    Ok((items, total))
-}
-
-async fn fetch_staffing_request(
-    pool: &PgPool,
-    request_id: &str,
-) -> Result<StaffingRequestItem, ApiError> {
-    sqlx::query_as::<_, StaffingRequestItem>(
-        r#"
-        select
-            sr.id,
-            sr.user_id,
-            sr.name,
-            sr.description,
-            sr.created_at,
-            sr.updated_at,
-            u.cid,
-            u.display_name
-        from org.staffing_requests sr
-        join identity.users u on u.id = sr.user_id
-        where sr.id = $1
-        "#,
-    )
-    .bind(request_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
 }
 
 fn validate_sua_request(payload: &CreateSuaRequest) -> Result<(), ApiError> {
@@ -2404,199 +1283,8 @@ fn generate_mission_number(start_at: DateTime<Utc>) -> String {
     }
 }
 
-async fn list_sua_blocks(
-    pool: &PgPool,
-    cid: Option<i64>,
-    limit: i64,
-    offset: i64,
-) -> Result<(Vec<SuaBlockItem>, i64), ApiError> {
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from org.sua_blocks b
-        join identity.users u on u.id = b.user_id
-        where ($1::bigint is null or u.cid = $1)
-        "#,
-    )
-    .bind(cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let rows = sqlx::query_as::<_, SuaBlockRow>(
-        r#"
-        select
-            b.id,
-            b.user_id,
-            b.start_at,
-            b.end_at,
-            b.afiliation,
-            b.details,
-            b.mission_number,
-            b.created_at,
-            b.updated_at,
-            u.cid,
-            u.display_name
-        from org.sua_blocks b
-        join identity.users u on u.id = b.user_id
-        where ($1::bigint is null or u.cid = $1)
-        order by b.start_at desc, b.created_at desc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(cid)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let block_ids = rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>();
-    let airspace_rows = if block_ids.is_empty() {
-        Vec::new()
-    } else {
-        sqlx::query_as::<_, SuaAirspaceItem>(
-            r#"
-            select id, sua_block_id, identifier, bottom_altitude, top_altitude
-            from org.sua_block_airspace
-            where sua_block_id = any($1)
-            order by identifier asc
-            "#,
-        )
-        .bind(&block_ids)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
-    };
-
-    let mut airspace_by_block = std::collections::HashMap::<String, Vec<SuaAirspaceItem>>::new();
-    for row in airspace_rows {
-        airspace_by_block
-            .entry(row.sua_block_id.clone())
-            .or_default()
-            .push(row);
-    }
-
-    let items = rows
-        .into_iter()
-        .map(|row| SuaBlockItem {
-            id: row.id.clone(),
-            user_id: row.user_id,
-            start_at: row.start_at,
-            end_at: row.end_at,
-            afiliation: row.afiliation,
-            details: row.details,
-            mission_number: row.mission_number,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            cid: row.cid,
-            display_name: row.display_name,
-            airspace: airspace_by_block.remove(&row.id).unwrap_or_default(),
-        })
-        .collect();
-
-    Ok((items, total))
-}
-
-async fn fetch_sua_block(pool: &PgPool, mission_id: &str) -> Result<SuaBlockItem, ApiError> {
-    let row = sqlx::query_as::<_, SuaBlockRow>(
-        r#"
-        select
-            b.id,
-            b.user_id,
-            b.start_at,
-            b.end_at,
-            b.afiliation,
-            b.details,
-            b.mission_number,
-            b.created_at,
-            b.updated_at,
-            u.cid,
-            u.display_name
-        from org.sua_blocks b
-        join identity.users u on u.id = b.user_id
-        where b.id = $1
-        "#,
-    )
-    .bind(mission_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
-
-    let airspace = sqlx::query_as::<_, SuaAirspaceItem>(
-        r#"
-        select id, sua_block_id, identifier, bottom_altitude, top_altitude
-        from org.sua_block_airspace
-        where sua_block_id = $1
-        order by identifier asc
-        "#,
-    )
-    .bind(&row.id)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    Ok(SuaBlockItem {
-        id: row.id,
-        user_id: row.user_id,
-        start_at: row.start_at,
-        end_at: row.end_at,
-        afiliation: row.afiliation,
-        details: row.details,
-        mission_number: row.mission_number,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        cid: row.cid,
-        display_name: row.display_name,
-        airspace,
-    })
-}
-
-async fn fetch_membership_lifecycle_row(
-    pool: &PgPool,
-    cid: i64,
-) -> Result<MembershipLifecycleRow, ApiError> {
-    sqlx::query_as::<_, MembershipLifecycleRow>(
-        r#"
-        select
-            m.user_id,
-            u.cid,
-            m.controller_status,
-            m.artcc,
-            m.operating_initials,
-            u.first_name,
-            u.last_name,
-            u.display_name,
-            p.show_welcome_message
-        from org.memberships m
-        join identity.users u on u.id = m.user_id
-        join identity.user_profiles p on p.user_id = u.id
-        where u.cid = $1
-        "#,
-    )
-    .bind(cid)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
-}
-
-async fn delete_count(
-    tx: &mut Transaction<'_, Postgres>,
-    sql: &str,
-    user_id: &str,
-) -> Result<i64, ApiError> {
-    let result = sqlx::query(sql)
-        .bind(user_id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-    Ok(result.rows_affected() as i64)
-}
-
 async fn record_simple_audit(
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     user: &CurrentUser,
     headers: &HeaderMap,
     action: &str,
@@ -2618,7 +1306,7 @@ async fn record_simple_audit(
 }
 
 async fn record_full_audit(
-    pool: &PgPool,
+    pool: &sqlx::PgPool,
     user: &CurrentUser,
     headers: &HeaderMap,
     action: &str,
@@ -2643,9 +1331,4 @@ async fn record_full_audit(
         },
     )
     .await
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ApiMessageBody {
-    pub message: String,
 }

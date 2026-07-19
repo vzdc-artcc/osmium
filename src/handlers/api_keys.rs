@@ -83,12 +83,7 @@ pub async fn list_api_keys(
     Ok(ApiJson::new(
         ApiKeyListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -103,8 +98,8 @@ pub async fn list_api_keys(
     ),
     responses(
         (status = 200, description = "API key detail", body = ApiKeyDetail),
-        (status = 400, description = "Invalid key ID"),
-        (status = 401, description = "Not authenticated or not authorized")
+        (status = 401, description = "Not authenticated or not authorized"),
+        (status = 404, description = "API key not found")
     )
 )]
 pub async fn get_api_key(
@@ -118,7 +113,7 @@ pub async fn get_api_key(
 
     let row = api_keys_repo::fetch_api_key(pool, &key_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     ensure_can_manage_api_key(&state, user, &row, PermissionAction::Read).await?;
 
@@ -236,7 +231,8 @@ pub async fn create_api_key(
     responses(
         (status = 200, description = "API key updated", body = ApiKeyDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated or not authorized")
+        (status = 401, description = "Not authenticated or not authorized"),
+        (status = 404, description = "API key not found")
     )
 )]
 pub async fn update_api_key(
@@ -254,7 +250,7 @@ pub async fn update_api_key(
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     let before_row = api_keys_repo::fetch_api_key_in_tx(&mut tx, &key_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     ensure_can_manage_api_key(&state, user, &before_row, PermissionAction::Update).await?;
 
@@ -320,8 +316,8 @@ pub async fn update_api_key(
     ),
     responses(
         (status = 204, description = "API key revoked"),
-        (status = 400, description = "Invalid key ID"),
-        (status = 401, description = "Not authenticated or not authorized")
+        (status = 401, description = "Not authenticated or not authorized"),
+        (status = 404, description = "API key not found")
     )
 )]
 pub async fn revoke_api_key(
@@ -337,7 +333,7 @@ pub async fn revoke_api_key(
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     let before_row = api_keys_repo::fetch_api_key_in_tx(&mut tx, &key_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     ensure_can_manage_api_key(&state, user, &before_row, PermissionAction::Delete).await?;
 

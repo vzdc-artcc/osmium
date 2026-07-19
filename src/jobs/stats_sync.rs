@@ -1,11 +1,16 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::{errors::ApiError, state::AppState};
+use crate::{
+    errors::ApiError,
+    jobs::{Job, TickOutcome},
+    state::AppState,
+};
 
 const DEFAULT_SYNC_INTERVAL_SECS: u64 = 5;
 const TARGET_ARTCC_ID: &str = "ZDC";
@@ -166,6 +171,62 @@ impl ControllerLifecycleEvent {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct StatsSyncMetrics {
+    pub processed: Option<usize>,
+    pub online: Option<usize>,
+    pub source_updated_at: Option<DateTime<Utc>>,
+}
+
+struct StatsSyncJob {
+    environment: StatsEnvironment,
+    interval_secs: u64,
+}
+
+impl Job for StatsSyncJob {
+    type Metrics = StatsSyncMetrics;
+
+    fn name(&self) -> &'static str {
+        "stats_sync"
+    }
+
+    fn interval(&self) -> Duration {
+        Duration::from_secs(self.interval_secs)
+    }
+
+    async fn tick(&self, state: &AppState) -> Result<TickOutcome<Self::Metrics>, String> {
+        match sync_environment(state.clone(), self.environment).await {
+            Ok(result) => {
+                tracing::info!(
+                    environment = result.environment.as_str(),
+                    processed = result.processed,
+                    online = result.online,
+                    "stats sync completed"
+                );
+
+                let metrics = StatsSyncMetrics {
+                    processed: Some(result.processed),
+                    online: Some(result.online),
+                    source_updated_at: result.source_updated_at,
+                };
+
+                if result.ok {
+                    Ok(TickOutcome::success(metrics))
+                } else {
+                    Ok(TickOutcome::degraded(
+                        metrics,
+                        "stats sync reported failure",
+                    ))
+                }
+            }
+            Err(ApiError::ServiceUnavailable) => {
+                Err("database unavailable for stats sync".to_string())
+            }
+            Err(err) => Err(format!("{err:?}")),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct EnvironmentSyncResult {
     environment: StatsEnvironment,
@@ -319,73 +380,16 @@ pub fn start_stats_sync_worker(state: AppState) {
 
     tracing::info!(interval_secs, "starting stats sync worker");
 
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            ticker.tick().await;
-            let started_at = Utc::now();
-
-            if let Ok(mut health) = state.job_health.write() {
-                for environment in StatsEnvironment::ALL {
-                    let env_health = health.stats_sync.environment_mut(environment.as_str());
-                    env_health.last_started_at = Some(started_at);
-                    env_health.last_error = None;
-                }
-            }
-
-            let (live, sweatbox1, sweatbox2) = tokio::join!(
-                sync_environment(state.clone(), StatsEnvironment::Live),
-                sync_environment(state.clone(), StatsEnvironment::Sweatbox1),
-                sync_environment(state.clone(), StatsEnvironment::Sweatbox2),
-            );
-
-            for result in [live, sweatbox1, sweatbox2] {
-                match result {
-                    Ok(result) => {
-                        if let Ok(mut health) = state.job_health.write() {
-                            let env_health = health
-                                .stats_sync
-                                .environment_mut(result.environment.as_str());
-                            env_health.last_finished_at = Some(Utc::now());
-                            env_health.last_result_ok = Some(result.ok);
-                            env_health.processed = Some(result.processed);
-                            env_health.online = Some(result.online);
-                            env_health.source_updated_at = result.source_updated_at;
-                            if result.ok {
-                                env_health.last_success_at = Some(Utc::now());
-                            }
-                        }
-
-                        tracing::info!(
-                            environment = result.environment.as_str(),
-                            processed = result.processed,
-                            online = result.online,
-                            "stats sync completed"
-                        );
-                    }
-                    Err(ApiError::ServiceUnavailable) => {
-                        if let Ok(mut health) = state.job_health.write() {
-                            for environment in StatsEnvironment::ALL {
-                                let env_health =
-                                    health.stats_sync.environment_mut(environment.as_str());
-                                if env_health.last_started_at == Some(started_at) {
-                                    env_health.last_finished_at = Some(Utc::now());
-                                    env_health.last_result_ok = Some(false);
-                                    env_health.last_error =
-                                        Some("database unavailable for stats sync".to_string());
-                                }
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        tracing::warn!(?err, "stats sync failed");
-                    }
-                }
-            }
-        }
-    });
+    for environment in StatsEnvironment::ALL {
+        let job = StatsSyncJob {
+            environment,
+            interval_secs,
+        };
+        let job_health = state.job_health.clone();
+        crate::jobs::spawn(job, state.clone(), job_health, move |health| {
+            health.stats_sync.environment_mut(environment.as_str())
+        });
+    }
 }
 
 async fn sync_environment(

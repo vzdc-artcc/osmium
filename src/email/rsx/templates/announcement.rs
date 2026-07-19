@@ -1,31 +1,14 @@
 use maud::{PreEscaped, html};
 use serde_json::Value;
 
+use crate::email::branding::EmailTheme;
 use crate::email::rsx::components::EmailLayout;
 use crate::email::rsx::text::TextBuilder;
+use crate::email::rsx::validate::{optional_string, required_string};
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
 use super::RsxTemplate;
-
-fn required_string(payload: &Value, key: &str) -> Result<String, ApiError> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .ok_or(ApiError::BadRequest)
-}
-
-fn optional_string(payload: &Value, key: &str) -> Option<String> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-}
 
 fn markdown_to_html(markdown: &str) -> String {
     markdown
@@ -54,6 +37,7 @@ impl RsxTemplate for AnnouncementTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let headline = required_string(payload, "headline")?;
@@ -71,7 +55,7 @@ impl RsxTemplate for AnnouncementTemplate {
 
         let cta = cta_label.as_deref().zip(cta_url.as_deref());
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&preheader)
             .heading(&headline)
             .unsubscribe_link(unsubscribe_link)

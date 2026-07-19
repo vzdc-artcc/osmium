@@ -9,14 +9,15 @@ use crate::{
     auth::{
         acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
-        middleware::ensure_permission,
+        permissions::{FeedbackItemsCreate, FeedbackItemsDecide},
+        require_permission::RequirePermission,
     },
     errors::ApiError,
     models::{
         CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem, FeedbackListQuery,
         FeedbackListResponse, PaginationMeta, PaginationQuery,
     },
-    repos::audit as audit_repo,
+    repos::{audit as audit_repo, feedback as feedback_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
@@ -29,24 +30,19 @@ use crate::{
     responses(
         (status = 201, description = "Feedback created", body = FeedbackItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "Target user not found")
     )
 )]
 pub async fn create_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FeedbackItemsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateFeedbackRequest>,
 ) -> Result<(StatusCode, ApiJson<FeedbackItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Create),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     if payload.rating < 1 || payload.rating > 5 {
@@ -59,57 +55,25 @@ pub async fn create_feedback(
         return Err(ApiError::BadRequest);
     }
 
-    let target_user_id =
-        sqlx::query_scalar::<_, String>("select id from identity.users where cid = $1")
-            .bind(payload.target_cid)
-            .fetch_optional(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?
-            .ok_or(ApiError::BadRequest)?;
+    let target_user_id = feedback_repo::find_user_id_by_cid(pool, payload.target_cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     let feedback_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
-    let item = sqlx::query_as::<_, FeedbackItem>(
-        r#"
-        insert into feedback.feedback_items (
-            id,
-            submitter_user_id,
-            target_user_id,
-            pilot_callsign,
-            controller_position,
-            rating,
-            comments,
-            status,
-            submitted_at
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, 'PENDING', $8)
-        returning
-            id,
-            submitter_user_id,
-            target_user_id,
-            pilot_callsign,
-            controller_position,
-            rating,
-            comments,
-            staff_comments,
-            status,
-            submitted_at,
-            decided_at,
-            decided_by
-        "#,
+    let item = feedback_repo::insert_feedback_item(
+        pool,
+        &feedback_id,
+        &user.id,
+        &target_user_id,
+        pilot_callsign,
+        controller_position,
+        payload.rating,
+        payload.comments.as_deref(),
+        now,
     )
-    .bind(&feedback_id)
-    .bind(&user.id)
-    .bind(&target_user_id)
-    .bind(pilot_callsign)
-    .bind(controller_position)
-    .bind(payload.rating)
-    .bind(payload.comments.as_deref())
-    .bind(now)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
     audit_repo::record_audit(
@@ -153,6 +117,9 @@ pub async fn list_feedback(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    // Not a RequirePermission<P> case: which of the two permissions the caller holds
+    // changes the query scope below (all items vs. only their own), not just whether
+    // the request is allowed at all, so this stays a manual, data-dependent check.
     let (_, permissions) = crate::auth::acl::fetch_user_access(state.db.as_ref(), &user.id).await?;
     let can_read_all = permissions.contains(&PermissionPath::from_segments(
         ["feedback", "items"],
@@ -185,91 +152,28 @@ pub async fn list_feedback(
         })?;
 
     let total = if can_read_all {
-        sqlx::query_scalar::<_, i64>(
-            r#"
-            select count(*)::bigint
-            from feedback.feedback_items
-            where ($1::text is null or status = $1)
-            "#,
-        )
-        .bind(normalized_status.as_deref())
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
+        feedback_repo::count_all(pool, normalized_status.as_deref()).await?
     } else {
-        sqlx::query_scalar::<_, i64>(
-            r#"
-            select count(*)::bigint
-            from feedback.feedback_items
-            where submitter_user_id = $1
-              and ($2::text is null or status = $2)
-            "#,
-        )
-        .bind(&user.id)
-        .bind(normalized_status.as_deref())
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
+        feedback_repo::count_by_submitter(pool, &user.id, normalized_status.as_deref()).await?
     };
 
     let items = if can_read_all {
-        sqlx::query_as::<_, FeedbackItem>(
-            r#"
-            select
-                id,
-                submitter_user_id,
-                target_user_id,
-                pilot_callsign,
-                controller_position,
-                rating,
-                comments,
-                staff_comments,
-                status,
-                submitted_at,
-                decided_at,
-                decided_by
-            from feedback.feedback_items
-            where ($1::text is null or status = $1)
-            order by submitted_at desc, id asc
-            limit $2 offset $3
-            "#,
+        feedback_repo::list_all(
+            pool,
+            normalized_status.as_deref(),
+            pagination.page_size,
+            pagination.offset,
         )
-        .bind(normalized_status.as_deref())
-        .bind(pagination.page_size)
-        .bind(pagination.offset)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
+        .await?
     } else {
-        sqlx::query_as::<_, FeedbackItem>(
-            r#"
-            select
-                id,
-                submitter_user_id,
-                target_user_id,
-                pilot_callsign,
-                controller_position,
-                rating,
-                comments,
-                staff_comments,
-                status,
-                submitted_at,
-                decided_at,
-                decided_by
-            from feedback.feedback_items
-            where submitter_user_id = $1
-              and ($2::text is null or status = $2)
-            order by submitted_at desc, id asc
-            limit $3 offset $4
-            "#,
+        feedback_repo::list_by_submitter(
+            pool,
+            &user.id,
+            normalized_status.as_deref(),
+            pagination.page_size,
+            pagination.offset,
         )
-        .bind(&user.id)
-        .bind(normalized_status.as_deref())
-        .bind(pagination.page_size)
-        .bind(pagination.offset)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
+        .await?
     };
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
@@ -277,12 +181,7 @@ pub async fn list_feedback(
     Ok(ApiJson::new(
         FeedbackListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -299,25 +198,20 @@ pub async fn list_feedback(
     responses(
         (status = 200, description = "Feedback decision applied", body = FeedbackItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Feedback record not found")
     )
 )]
 pub async fn decide_feedback(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FeedbackItemsDecide>,
     Path(feedback_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<DecideFeedbackRequest>,
 ) -> Result<ApiJson<FeedbackItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Decide),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let normalized_status = payload.status.trim().to_ascii_uppercase();
@@ -329,63 +223,20 @@ pub async fn decide_feedback(
     }
 
     let now = chrono::Utc::now();
-    let before = sqlx::query_as::<_, FeedbackItem>(
-        r#"
-        select
-            id,
-            submitter_user_id,
-            target_user_id,
-            pilot_callsign,
-            controller_position,
-            rating,
-            comments,
-            staff_comments,
-            status,
-            submitted_at,
-            decided_at,
-            decided_by
-        from feedback.feedback_items
-        where id = $1
-        "#,
-    )
-    .bind(&feedback_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = feedback_repo::find_by_id(pool, &feedback_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let item = sqlx::query_as::<_, FeedbackItem>(
-        r#"
-        update feedback.feedback_items
-        set status = $1,
-            staff_comments = $2,
-            decided_at = $3,
-            decided_by = $4
-        where id = $5
-        returning
-            id,
-            submitter_user_id,
-            target_user_id,
-            pilot_callsign,
-            controller_position,
-            rating,
-            comments,
-            staff_comments,
-            status,
-            submitted_at,
-            decided_at,
-            decided_by
-        "#,
+    let item = feedback_repo::update_decision(
+        pool,
+        &feedback_id,
+        &normalized_status,
+        payload.staff_comments.as_deref(),
+        now,
+        &user.id,
     )
-    .bind(&normalized_status)
-    .bind(payload.staff_comments.as_deref())
-    .bind(now)
-    .bind(&user.id)
-    .bind(&feedback_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
     audit_repo::record_audit(

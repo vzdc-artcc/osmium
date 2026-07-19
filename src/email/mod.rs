@@ -1,4 +1,5 @@
 pub mod audience;
+pub mod branding;
 pub mod config;
 pub mod outbox;
 pub mod render;
@@ -8,16 +9,9 @@ pub mod ses;
 pub mod suppression;
 pub mod templates;
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+pub type EmailWorkerHealth = crate::jobs::JobHealthRecord<EmailWorkerMetrics>;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct EmailWorkerHealth {
-    pub enabled: bool,
-    pub last_started_at: Option<DateTime<Utc>>,
-    pub last_finished_at: Option<DateTime<Utc>>,
-    pub last_success_at: Option<DateTime<Utc>>,
-    pub last_error: Option<String>,
-    pub last_result_ok: Option<bool>,
+#[derive(Debug, Clone, Default)]
+pub struct EmailWorkerMetrics {
     pub pending_count: Option<i64>,
 }

@@ -24,7 +24,7 @@ pub struct TrainingAssignmentRequest {
     pub decided_by: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainerReleaseRequest {
     pub id: String,
     pub student_id: String,
@@ -39,56 +39,36 @@ pub struct TrainerReleaseRequest {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TrainingAssignmentListResponse {
     pub items: Vec<TrainingAssignment>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct OtsRecommendationListResponse {
     pub items: Vec<OtsRecommendationSummary>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TrainingLessonListResponse {
     pub items: Vec<TrainingLesson>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TrainingAssignmentRequestListResponse {
     pub items: Vec<TrainingAssignmentRequest>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TrainerReleaseRequestListResponse {
     pub items: Vec<TrainerReleaseRequest>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -186,6 +166,60 @@ pub struct UpdateTrainingLessonRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateLessonRubricCriteriaRequest {
+    pub criteria: String,
+    pub description: String,
+    pub max_points: i32,
+    pub passing: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateLessonRubricCriteriaRequest {
+    pub criteria: String,
+    pub description: String,
+    pub max_points: i32,
+    pub passing: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateLessonRubricCellRequest {
+    pub points: i32,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateLessonRubricCellRequest {
+    pub points: i32,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct LessonRubricCellDetail {
+    pub id: String,
+    pub criteria_id: String,
+    pub points: i32,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LessonRubricCriteriaDetail {
+    pub id: String,
+    pub rubric_id: String,
+    pub criteria: String,
+    pub description: String,
+    pub passing: i32,
+    pub max_points: i32,
+    pub cells: Vec<LessonRubricCellDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LessonRubricDetail {
+    pub id: String,
+    pub lesson_id: String,
+    pub criteria: Vec<LessonRubricCriteriaDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTrainingSessionRequest {
     pub student_id: String,
     pub start: chrono::DateTime<chrono::Utc>,
@@ -195,6 +229,8 @@ pub struct CreateTrainingSessionRequest {
     pub enable_markdown: Option<bool>,
     pub tickets: Vec<CreateTrainingTicketRequest>,
     pub performance_indicator: Option<CreateTrainingSessionPerformanceIndicatorRequest>,
+    #[serde(default)]
+    pub additional_trainers: Vec<AdditionalTrainerRequest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -207,6 +243,8 @@ pub struct UpdateTrainingSessionRequest {
     pub enable_markdown: Option<bool>,
     pub tickets: Vec<CreateTrainingTicketRequest>,
     pub performance_indicator: Option<CreateTrainingSessionPerformanceIndicatorRequest>,
+    #[serde(default)]
+    pub additional_trainers: Vec<AdditionalTrainerRequest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -215,6 +253,9 @@ pub struct CreateTrainingAppointmentRequest {
     pub start: chrono::DateTime<chrono::Utc>,
     pub lesson_ids: Vec<String>,
     pub environment: Option<String>,
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub additional_trainers: Vec<AdditionalTrainerRequest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -227,6 +268,23 @@ pub struct UpdateTrainingAppointmentRequest {
     pub preparation_completed: Option<bool>,
     pub warning_email_sent: Option<bool>,
     pub atc_booking_id: Option<Option<String>>,
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub additional_trainers: Vec<AdditionalTrainerRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AdditionalTrainerRequest {
+    pub trainer_id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct AdditionalTrainerDetail {
+    pub trainer_id: String,
+    pub trainer_cid: i64,
+    pub trainer_name: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -312,6 +370,7 @@ pub struct TrainingSessionListItem {
     pub instructor_cid: i64,
     pub instructor_name: String,
     pub ticket_count: i64,
+    pub additional_trainer_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -337,6 +396,7 @@ pub struct TrainingSessionDetail {
     pub instructor_name: String,
     pub tickets: Vec<TrainingTicketDetail>,
     pub performance_indicator: Option<TrainingSessionPerformanceIndicatorDetail>,
+    pub additional_trainers: Vec<AdditionalTrainerDetail>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -351,23 +411,15 @@ pub struct TrainingAppointmentLessonSummary {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TrainingAppointmentListResponse {
     pub items: Vec<TrainingAppointmentListItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct TrainingSessionListResponse {
     pub items: Vec<TrainingSessionListItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -382,6 +434,7 @@ pub struct TrainingAppointmentListItem {
     pub preparation_completed: bool,
     pub warning_email_sent: bool,
     pub atc_booking_id: Option<String>,
+    pub notes: String,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
@@ -391,6 +444,7 @@ pub struct TrainingAppointmentListItem {
     pub trainer_cid: i64,
     pub trainer_name: String,
     pub lesson_count: i64,
+    pub additional_trainer_count: i64,
     pub estimated_duration_minutes: Option<i64>,
     #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub estimated_end: Option<chrono::DateTime<chrono::Utc>>,
@@ -408,6 +462,7 @@ pub struct TrainingAppointmentDetail {
     pub preparation_completed: bool,
     pub warning_email_sent: bool,
     pub atc_booking_id: Option<String>,
+    pub notes: String,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
@@ -420,6 +475,7 @@ pub struct TrainingAppointmentDetail {
     #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub estimated_end: Option<chrono::DateTime<chrono::Utc>>,
     pub lessons: Vec<TrainingAppointmentLessonSummary>,
+    pub additional_trainers: Vec<AdditionalTrainerDetail>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -473,7 +529,7 @@ pub struct LessonRosterChangeSummary {
     pub dossier_text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct OtsRecommendationSummary {
     pub id: String,
     pub student_id: String,

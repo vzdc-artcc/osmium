@@ -3,227 +3,51 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     auth::{
         acl::{PermissionAction, PermissionPath},
-        context::{CurrentServiceAccount, CurrentUser},
+        context::CurrentUser,
         middleware::ensure_permission,
+        permissions::{AuthProfileRead, IntegrationsStatsUpdate},
+        require_permission::RequirePermission,
     },
     email::service::actor_from_context,
     errors::ApiError,
-    models::{PaginationMeta, PaginationQuery},
-    repos::audit as audit_repo,
+    models::{
+        AnnouncementRequest, CreateDiscordCategoryRequest, CreateDiscordChannelRequest,
+        CreateDiscordConfigRequest, CreateDiscordRoleRequest, DiscordCategoryItem,
+        DiscordChannelItem, DiscordConfigBundle, DiscordConfigItem, DiscordLinkCompleteRequest,
+        DiscordLinkStartRequest, DiscordLinkStateBody, DiscordRoleItem, DiscordUnlinkRequest,
+        EventPublishDiscordRequest, OutboundJobItem, OutboundJobListResponse, OutboundJobsQuery,
+        PaginationMeta, PaginationQuery, UpdateDiscordCategoryRequest, UpdateDiscordChannelRequest,
+        UpdateDiscordConfigRequest, UpdateDiscordRoleRequest,
+    },
+    repos::{audit as audit_repo, integrations as integrations_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct DiscordConfigItem {
-    pub id: String,
-    pub name: String,
-    pub guild_id: Option<String>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct DiscordChannelItem {
-    pub id: String,
-    pub discord_config_id: String,
-    pub name: String,
-    pub channel_id: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct DiscordRoleItem {
-    pub id: String,
-    pub discord_config_id: String,
-    pub name: String,
-    pub role_id: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct DiscordCategoryItem {
-    pub id: String,
-    pub discord_config_id: String,
-    pub name: String,
-    pub category_id: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct OutboundJobItem {
-    pub id: String,
-    pub job_type: String,
-    pub subject_type: Option<String>,
-    pub subject_id: Option<String>,
-    pub status: String,
-    pub attempt_count: i32,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub last_attempt_at: Option<DateTime<Utc>>,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub next_attempt_at: Option<DateTime<Utc>>,
-    pub payload: Value,
-    pub error: Option<String>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct DiscordLinkStateBody {
-    pub linked: bool,
-    pub external_id: Option<String>,
-    pub auth_url: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateDiscordConfigRequest {
-    pub name: String,
-    pub guild_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateDiscordConfigRequest {
-    pub name: Option<String>,
-    pub guild_id: Option<Option<String>>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateDiscordChannelRequest {
-    pub discord_config_id: String,
-    pub name: String,
-    pub channel_id: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateDiscordChannelRequest {
-    pub name: Option<String>,
-    pub channel_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateDiscordRoleRequest {
-    pub discord_config_id: String,
-    pub name: String,
-    pub role_id: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateDiscordRoleRequest {
-    pub name: Option<String>,
-    pub role_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateDiscordCategoryRequest {
-    pub discord_config_id: String,
-    pub name: String,
-    pub category_id: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateDiscordCategoryRequest {
-    pub name: Option<String>,
-    pub category_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct AnnouncementRequest {
-    pub title: String,
-    pub body_markdown: String,
-    pub details_url: Option<String>,
-    pub send_email: Option<bool>,
-    pub send_discord: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct EventPublishDiscordRequest {
-    pub ping_users: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct DiscordLinkStartRequest {
-    pub redirect_uri: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct DiscordLinkCompleteRequest {
-    pub code: String,
-    pub state: String,
-    pub redirect_uri: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct DiscordUnlinkRequest {
-    pub external_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct OutboundJobsQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-    pub status: Option<String>,
-}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiMessageBody {
     pub message: String,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct DiscordConfigBundle {
-    pub configs: Vec<DiscordConfigItem>,
-    pub channels: Vec<DiscordChannelItem>,
-    pub roles: Vec<DiscordRoleItem>,
-    pub categories: Vec<DiscordCategoryItem>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct OutboundJobListResponse {
-    pub items: Vec<OutboundJobItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
 #[utoipa::path(get, path = "/api/v1/me/discord", tag = "integrations", responses((status = 200, description = "Current Discord link state", body = DiscordLinkStateBody), (status = 401, description = "Not authenticated")))]
 pub async fn get_my_discord(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
 ) -> Result<Json<DiscordLinkStateBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let external_id = sqlx::query_scalar::<_, String>(
-        "select external_id from integration.external_sync_mappings where system_code = 'discord' and entity_type = 'user_identity' and local_id = $1",
-    ).bind(&user.id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?;
+    let external_id = integrations_repo::find_discord_link_by_user(pool, &user.id).await?;
     Ok(Json(DiscordLinkStateBody {
         linked: external_id.is_some(),
         external_id,
@@ -235,16 +59,10 @@ pub async fn get_my_discord(
 pub async fn start_discord_link(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     Json(payload): Json<DiscordLinkStartRequest>,
 ) -> Result<Json<DiscordLinkStateBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let state_token = Uuid::new_v4().to_string();
     let redirect_uri = payload
@@ -259,29 +77,20 @@ pub async fn start_discord_link(
     } else {
         None
     };
-    sqlx::query(
-        r#"
-        insert into integration.external_sync_mappings (id, system_code, entity_type, local_id, external_id, metadata, created_at, updated_at)
-        values ($1, 'discord', 'oauth_state', $2, $3, $4, now(), now())
-        on conflict (system_code, entity_type, local_id) do update
-        set external_id = excluded.external_id,
-            metadata = excluded.metadata,
-            updated_at = now()
-        "#,
+    integrations_repo::upsert_discord_oauth_state(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &state_token,
+        &user.id,
+        json!({
+            "user_id": user.id,
+            "cid": user.cid,
+            "redirect_uri": redirect_uri,
+            "created_at": Utc::now(),
+            "expires_at": Utc::now() + Duration::hours(1)
+        }),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&state_token)
-    .bind(&user.id)
-    .bind(json!({
-        "user_id": user.id,
-        "cid": user.cid,
-        "redirect_uri": redirect_uri,
-        "created_at": Utc::now(),
-        "expires_at": Utc::now() + Duration::hours(1)
-    }))
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     Ok(Json(DiscordLinkStateBody {
         linked: false,
@@ -294,22 +103,12 @@ pub async fn start_discord_link(
 pub async fn unlink_discord(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     Json(_payload): Json<DiscordUnlinkRequest>,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    sqlx::query("delete from integration.external_sync_mappings where system_code = 'discord' and entity_type = 'user_identity' and local_id = $1")
-        .bind(&user.id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    integrations_repo::delete_discord_link(pool, &user.id).await?;
     Ok(Json(ApiMessageBody {
         message: "discord link removed".to_string(),
     }))
@@ -319,21 +118,17 @@ pub async fn unlink_discord(
 pub async fn complete_discord_link(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileRead>,
     Json(payload): Json<DiscordLinkCompleteRequest>,
 ) -> Result<Json<DiscordLinkStateBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     if payload.code.trim().is_empty() || payload.state.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let state_row = fetch_discord_oauth_state(pool, payload.state.trim()).await?;
+    let state_row = integrations_repo::fetch_discord_oauth_state(pool, payload.state.trim())
+        .await?
+        .ok_or(ApiError::BadRequest)?;
     if state_row.external_id != user.id {
         return Err(ApiError::Unauthorized);
     }
@@ -372,13 +167,8 @@ pub async fn complete_discord_link(
     .await?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let existing_owner = sqlx::query_scalar::<_, String>(
-        "select local_id from integration.external_sync_mappings where system_code = 'discord' and entity_type = 'user_identity' and external_id = $1",
-    )
-    .bind(&discord_identity.id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let existing_owner =
+        integrations_repo::find_discord_identity_owner(&mut *tx, &discord_identity.id).await?;
     if existing_owner
         .as_deref()
         .is_some_and(|owner| owner != user.id)
@@ -386,35 +176,20 @@ pub async fn complete_discord_link(
         return Err(ApiError::BadRequest);
     }
 
-    sqlx::query(
-        r#"
-        insert into integration.external_sync_mappings (id, system_code, entity_type, local_id, external_id, metadata, created_at, updated_at)
-        values ($1, 'discord', 'user_identity', $2, $3, $4, now(), now())
-        on conflict (system_code, entity_type, local_id) do update
-        set external_id = excluded.external_id,
-            metadata = excluded.metadata,
-            updated_at = now()
-        "#,
+    integrations_repo::insert_discord_user_identity(
+        &mut *tx,
+        &Uuid::new_v4().to_string(),
+        &user.id,
+        &discord_identity.id,
+        json!({
+            "username": discord_identity.username,
+            "global_name": discord_identity.global_name,
+            "linked_at": Utc::now(),
+        }),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&user.id)
-    .bind(&discord_identity.id)
-    .bind(json!({
-        "username": discord_identity.username,
-        "global_name": discord_identity.global_name,
-        "linked_at": Utc::now(),
-    }))
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
-    sqlx::query(
-        "delete from integration.external_sync_mappings where system_code = 'discord' and entity_type = 'oauth_state' and local_id = $1",
-    )
-    .bind(payload.state.trim())
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    integrations_repo::delete_discord_oauth_state(&mut *tx, payload.state.trim()).await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
@@ -428,22 +203,14 @@ pub async fn complete_discord_link(
 #[utoipa::path(get, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", responses((status = 200, description = "Discord configuration bundle", body = DiscordConfigBundle), (status = 401, description = "Not authenticated")))]
 pub async fn list_discord_configs(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<IntegrationsStatsUpdate>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<DiscordConfigBundle>, ApiError> {
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["integrations", "stats"], PermissionAction::Update),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let configs = sqlx::query_as::<_, DiscordConfigItem>("select id, name, guild_id, created_at, updated_at from integration.discord_configs order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
-    let channels = sqlx::query_as::<_, DiscordChannelItem>("select id, discord_config_id, name, channel_id, created_at from integration.discord_channels order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
-    let roles = sqlx::query_as::<_, DiscordRoleItem>("select id, discord_config_id, name, role_id, created_at from integration.discord_roles order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
-    let categories = sqlx::query_as::<_, DiscordCategoryItem>("select id, discord_config_id, name, category_id, created_at from integration.discord_categories order by name asc").fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
+    let configs = integrations_repo::list_discord_configs(pool).await?;
+    let channels = integrations_repo::list_discord_channels(pool).await?;
+    let roles = integrations_repo::list_discord_roles(pool).await?;
+    let categories = integrations_repo::list_discord_categories(pool).await?;
     Ok(ApiJson::new(
         DiscordConfigBundle {
             configs,
@@ -468,13 +235,17 @@ pub async fn create_discord_config(
     if payload.name.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
-    let item = sqlx::query_as::<_, DiscordConfigItem>(
-        "insert into integration.discord_configs (id, name, guild_id, created_at, updated_at) values ($1, $2, $3, now(), now()) returning id, name, guild_id, created_at, updated_at",
-    ).bind(Uuid::new_v4().to_string()).bind(payload.name.trim()).bind(payload.guild_id.as_deref()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let item = integrations_repo::insert_discord_config(
+        pool,
+        &Uuid::new_v4().to_string(),
+        payload.name.trim(),
+        payload.guild_id.as_deref(),
+    )
+    .await?;
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), request_body = UpdateDiscordConfigRequest, responses((status = 200, description = "Updated Discord config", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), request_body = UpdateDiscordConfigRequest, responses((status = 200, description = "Updated Discord config", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord config not found")))]
 pub async fn update_discord_config(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -485,30 +256,19 @@ pub async fn update_discord_config(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let item = sqlx::query_as::<_, DiscordConfigItem>(
-        r#"
-        update integration.discord_configs
-        set name = coalesce($2, name),
-            guild_id = case when $3::bool then $4 else guild_id end,
-            updated_at = now()
-        where id = $1
-        returning id, name, guild_id, created_at, updated_at
-        "#,
-    )
-    .bind(&config_id)
-    .bind(
+    let item = integrations_repo::update_discord_config_row(
+        pool,
+        &config_id,
         payload
             .name
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty()),
+        payload.guild_id.is_some(),
+        payload.guild_id.flatten(),
     )
-    .bind(payload.guild_id.is_some())
-    .bind(payload.guild_id.flatten())
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
     Ok(ApiJson::new(item, time))
 }
 
@@ -522,13 +282,18 @@ pub async fn create_discord_channel(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let item = sqlx::query_as::<_, DiscordChannelItem>(
-        "insert into integration.discord_channels (id, discord_config_id, name, channel_id, created_at) values ($1, $2, $3, $4, now()) returning id, discord_config_id, name, channel_id, created_at",
-    ).bind(Uuid::new_v4().to_string()).bind(&payload.discord_config_id).bind(payload.name.trim()).bind(payload.channel_id.trim()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let item = integrations_repo::insert_discord_channel(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &payload.discord_config_id,
+        payload.name.trim(),
+        payload.channel_id.trim(),
+    )
+    .await?;
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), request_body = UpdateDiscordChannelRequest, responses((status = 200, description = "Updated Discord channel", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), request_body = UpdateDiscordChannelRequest, responses((status = 200, description = "Updated Discord channel", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord channel not found")))]
 pub async fn update_discord_channel(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -539,9 +304,22 @@ pub async fn update_discord_channel(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let item = sqlx::query_as::<_, DiscordChannelItem>(
-        "update integration.discord_channels set name = coalesce($2, name), channel_id = coalesce($3, channel_id) where id = $1 returning id, discord_config_id, name, channel_id, created_at",
-    ).bind(&channel_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.channel_id.as_deref().map(str::trim).filter(|v| !v.is_empty())).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
+    let item = integrations_repo::update_discord_channel_row(
+        pool,
+        &channel_id,
+        payload
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload
+            .channel_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
     Ok(ApiJson::new(item, time))
 }
 
@@ -554,11 +332,7 @@ pub async fn delete_discord_channel(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    sqlx::query("delete from integration.discord_channels where id = $1")
-        .bind(&channel_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    integrations_repo::delete_discord_channel_row(pool, &channel_id).await?;
     Ok(Json(ApiMessageBody {
         message: "discord channel deleted".to_string(),
     }))
@@ -574,13 +348,18 @@ pub async fn create_discord_role(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let item = sqlx::query_as::<_, DiscordRoleItem>(
-        "insert into integration.discord_roles (id, discord_config_id, name, role_id, created_at) values ($1, $2, $3, $4, now()) returning id, discord_config_id, name, role_id, created_at",
-    ).bind(Uuid::new_v4().to_string()).bind(&payload.discord_config_id).bind(payload.name.trim()).bind(payload.role_id.trim()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let item = integrations_repo::insert_discord_role(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &payload.discord_config_id,
+        payload.name.trim(),
+        payload.role_id.trim(),
+    )
+    .await?;
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), request_body = UpdateDiscordRoleRequest, responses((status = 200, description = "Updated Discord role", body = DiscordRoleItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), request_body = UpdateDiscordRoleRequest, responses((status = 200, description = "Updated Discord role", body = DiscordRoleItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord role not found")))]
 pub async fn update_discord_role(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -591,9 +370,22 @@ pub async fn update_discord_role(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let item = sqlx::query_as::<_, DiscordRoleItem>(
-        "update integration.discord_roles set name = coalesce($2, name), role_id = coalesce($3, role_id) where id = $1 returning id, discord_config_id, name, role_id, created_at",
-    ).bind(&role_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.role_id.as_deref().map(str::trim).filter(|v| !v.is_empty())).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
+    let item = integrations_repo::update_discord_role_row(
+        pool,
+        &role_id,
+        payload
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload
+            .role_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
     Ok(ApiJson::new(item, time))
 }
 
@@ -606,11 +398,7 @@ pub async fn delete_discord_role(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    sqlx::query("delete from integration.discord_roles where id = $1")
-        .bind(&role_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    integrations_repo::delete_discord_role_row(pool, &role_id).await?;
     Ok(Json(ApiMessageBody {
         message: "discord role deleted".to_string(),
     }))
@@ -626,13 +414,18 @@ pub async fn create_discord_category(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let item = sqlx::query_as::<_, DiscordCategoryItem>(
-        "insert into integration.discord_categories (id, discord_config_id, name, category_id, created_at) values ($1, $2, $3, $4, now()) returning id, discord_config_id, name, category_id, created_at",
-    ).bind(Uuid::new_v4().to_string()).bind(&payload.discord_config_id).bind(payload.name.trim()).bind(payload.category_id.trim()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let item = integrations_repo::insert_discord_category(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &payload.discord_config_id,
+        payload.name.trim(),
+        payload.category_id.trim(),
+    )
+    .await?;
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), request_body = UpdateDiscordCategoryRequest, responses((status = 200, description = "Updated Discord category", body = DiscordCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), request_body = UpdateDiscordCategoryRequest, responses((status = 200, description = "Updated Discord category", body = DiscordCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord category not found")))]
 pub async fn update_discord_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -643,9 +436,22 @@ pub async fn update_discord_category(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let item = sqlx::query_as::<_, DiscordCategoryItem>(
-        "update integration.discord_categories set name = coalesce($2, name), category_id = coalesce($3, category_id) where id = $1 returning id, discord_config_id, name, category_id, created_at",
-    ).bind(&category_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.category_id.as_deref().map(str::trim).filter(|v| !v.is_empty())).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
+    let item = integrations_repo::update_discord_category_row(
+        pool,
+        &category_id,
+        payload
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload
+            .category_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
     Ok(ApiJson::new(item, time))
 }
 
@@ -658,11 +464,7 @@ pub async fn delete_discord_category(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    sqlx::query("delete from integration.discord_categories where id = $1")
-        .bind(&category_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    integrations_repo::delete_discord_category_row(pool, &category_id).await?;
     Ok(Json(ApiMessageBody {
         message: "discord category deleted".to_string(),
     }))
@@ -706,7 +508,7 @@ pub async fn queue_announcement(
             .await;
     }
     if payload.send_discord.unwrap_or(true) {
-        enqueue_outbound_job(
+        integrations_repo::enqueue_outbound_job(
             pool,
             "discord.announcement",
             Some("announcement"),
@@ -747,7 +549,7 @@ pub async fn queue_event_publish_discord(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    enqueue_outbound_job(
+    integrations_repo::enqueue_outbound_job(
         pool,
         "discord.event_positions_published",
         Some("event"),
@@ -788,32 +590,19 @@ pub async fn list_outbound_jobs(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(50, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from integration.outbound_jobs where ($1::text is null or status = $1)",
+    let total = integrations_repo::count_outbound_jobs(pool, query.status.as_deref()).await?;
+    let rows = integrations_repo::list_outbound_jobs(
+        pool,
+        query.status.as_deref(),
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(query.status.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, OutboundJobItem>(
-        r#"
-        select id, job_type, subject_type, subject_id, status, attempt_count, last_attempt_at, next_attempt_at, payload, error, created_at, updated_at
-        from integration.outbound_jobs
-        where ($1::text is null or status = $1)
-        order by created_at desc, id asc
-        limit $2 offset $3
-        "#,
-    ).bind(query.status.as_deref()).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
+    .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         OutboundJobListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -828,16 +617,7 @@ pub async fn run_outbound_jobs(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_integrations_manage(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let mut rows = sqlx::query_as::<_, OutboundJobItem>(
-        r#"
-        select id, job_type, subject_type, subject_id, status, attempt_count, last_attempt_at, next_attempt_at, payload, error, created_at, updated_at
-        from integration.outbound_jobs
-        where status in ('pending', 'retry')
-          and (next_attempt_at is null or next_attempt_at <= now())
-        order by created_at asc
-        limit 20
-        "#,
-    ).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
+    let mut rows = integrations_repo::list_pending_outbound_jobs(pool).await?;
     let client = Client::new();
     for row in &mut rows {
         let result = dispatch_outbound_job(&client, row).await;
@@ -853,36 +633,18 @@ pub async fn run_outbound_jobs(
                 )
             }
         };
-        let updated = sqlx::query_as::<_, OutboundJobItem>(
-            r#"
-            update integration.outbound_jobs
-            set status = $2,
-                attempt_count = $3,
-                last_attempt_at = now(),
-                next_attempt_at = $4,
-                error = $5,
-                updated_at = now()
-            where id = $1
-            returning id, job_type, subject_type, subject_id, status, attempt_count, last_attempt_at, next_attempt_at, payload, error, created_at, updated_at
-            "#,
+        let updated = integrations_repo::update_outbound_job_result(
+            pool,
+            &row.id,
+            &status,
+            attempt_count,
+            next_attempt_at,
+            error,
         )
-        .bind(&row.id)
-        .bind(&status)
-        .bind(attempt_count)
-        .bind(next_attempt_at)
-        .bind(error)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        .await?;
         *row = updated;
     }
     Ok(ApiJson::new(rows, time))
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct DiscordOauthStateRow {
-    external_id: String,
-    metadata: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -930,20 +692,6 @@ async fn dispatch_outbound_job(client: &Client, job: &OutboundJobItem) -> Result
     Ok(())
 }
 
-async fn fetch_discord_oauth_state(
-    pool: &sqlx::PgPool,
-    state_token: &str,
-) -> Result<DiscordOauthStateRow, ApiError> {
-    sqlx::query_as::<_, DiscordOauthStateRow>(
-        "select external_id, metadata from integration.external_sync_mappings where system_code = 'discord' and entity_type = 'oauth_state' and local_id = $1",
-    )
-    .bind(state_token)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
-}
-
 async fn exchange_discord_code(
     code: &str,
     redirect_uri: &str,
@@ -984,24 +732,6 @@ async fn exchange_discord_code(
         .json::<DiscordUserIdentity>()
         .await
         .map_err(|_| ApiError::ServiceUnavailable)
-}
-
-async fn enqueue_outbound_job(
-    pool: &sqlx::PgPool,
-    job_type: &str,
-    subject_type: Option<&str>,
-    subject_id: Option<&str>,
-    payload: Value,
-) -> Result<OutboundJobItem, ApiError> {
-    sqlx::query_as::<_, OutboundJobItem>(
-        r#"
-        insert into integration.outbound_jobs (
-            id, job_type, subject_type, subject_id, status, attempt_count, payload, created_at, updated_at
-        )
-        values ($1, $2, $3, $4, 'pending', 0, $5, now(), now())
-        returning id, job_type, subject_type, subject_id, status, attempt_count, last_attempt_at, next_attempt_at, payload, error, created_at, updated_at
-        "#,
-    ).bind(Uuid::new_v4().to_string()).bind(job_type).bind(subject_type).bind(subject_id).bind(payload).fetch_one(pool).await.map_err(|_| ApiError::Internal)
 }
 
 async fn ensure_integrations_manage(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {

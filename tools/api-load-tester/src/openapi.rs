@@ -134,11 +134,11 @@ impl RouteTemplate {
                 Method::GET,
                 &format!("/api/v1/events/{}/preset-positions", ctx.seeded_event_id),
             ),
-            RouteTemplate::ListUsers => plan(Method::GET, "/api/v1/user"),
+            RouteTemplate::ListUsers => plan(Method::GET, "/api/v1/users"),
             RouteTemplate::GetStudentUser => plan(
                 Method::GET,
                 &format!(
-                    "/api/v1/user/{}",
+                    "/api/v1/users/{}",
                     ctx.persona_cids
                         .get(&Persona::Student)
                         .copied()
@@ -484,13 +484,13 @@ fn classify_route(
             RouteTemplate::GetSeedEventPresetPositions,
             None,
         ),
-        ("GET", "/api/v1/user") => include_with_session(
+        ("GET", "/api/v1/users") => include_with_session(
             RouteClass::AuthenticatedRead,
             RouteTemplate::ListUsers,
             Persona::Staff,
             sessions,
         ),
-        ("GET", "/api/v1/user/{cid}") => include_with_session(
+        ("GET", "/api/v1/users/{cid}") => include_with_session(
             RouteClass::AuthenticatedRead,
             RouteTemplate::GetStudentUser,
             Persona::Staff,
@@ -708,7 +708,7 @@ pub fn group_routes_for_load(routes: &[DiscoveredRoute]) -> Vec<(String, Vec<Dis
             } else if route.path == "/api/v1/me"
                 || route.path == "/api/v1/loa/me"
                 || route.path == "/api/v1/staffing-requests/me"
-                || route.path == "/api/v1/user"
+                || route.path == "/api/v1/users"
             {
                 "authenticated-reads"
             } else if route.path.contains("/positions") && route.path.contains("/events/") {

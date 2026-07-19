@@ -3,98 +3,24 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionPath},
-        context::CurrentUser,
-        middleware::ensure_permission,
+        context::CurrentUser, permissions::EventsItemsUpdate, require_permission::RequirePermission,
     },
     errors::ApiError,
-    models::{ListEventsQuery, PaginationMeta, PaginationQuery},
-    repos::audit as audit_repo,
+    models::{
+        CreateEventTmiRequest, EventOpsPlanItem, EventTmiItem, EventTmiListResponse,
+        ListEventsQuery, PaginationMeta, PaginationQuery, UpdateEventOpsPlanRequest,
+        UpdateEventTmiRequest, UpdatePresetPositionsRequest,
+    },
+    repos::{audit as audit_repo, events as events_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct EventOpsPlanItem {
-    pub id: String,
-    pub title: String,
-    pub positions_locked: bool,
-    pub manual_positions_open: bool,
-    pub featured_fields: Vec<String>,
-    pub preset_positions: Vec<String>,
-    pub featured_field_configs: Option<Value>,
-    pub tmis: Option<String>,
-    pub ops_free_text: Option<String>,
-    pub ops_plan_published: bool,
-    pub ops_planner_id: Option<String>,
-    pub enable_buffer_times: bool,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct EventTmiItem {
-    pub id: String,
-    pub event_id: String,
-    pub tmi_type: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub start_time: DateTime<Utc>,
-    pub notes: Option<String>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct EventTmiListResponse {
-    pub items: Vec<EventTmiItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateEventOpsPlanRequest {
-    pub featured_fields: Option<Vec<String>>,
-    pub preset_positions: Option<Vec<String>>,
-    pub featured_field_configs: Option<Value>,
-    pub tmis: Option<Option<String>>,
-    pub ops_free_text: Option<Option<String>>,
-    pub ops_plan_published: Option<bool>,
-    pub ops_planner_id: Option<Option<String>>,
-    pub enable_buffer_times: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateEventTmiRequest {
-    pub tmi_type: String,
-    pub start_time: DateTime<Utc>,
-    pub notes: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateEventTmiRequest {
-    pub tmi_type: Option<String>,
-    pub start_time: Option<DateTime<Utc>>,
-    pub notes: Option<Option<String>>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdatePresetPositionsRequest {
-    pub preset_positions: Vec<String>,
-}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiMessageBody {
@@ -110,7 +36,7 @@ pub struct ApiMessageBody {
     ),
     responses(
         (status = 200, description = "Event ops plan", body = EventOpsPlanItem),
-        (status = 400, description = "Invalid event ID")
+        (status = 404, description = "Event not found")
     )
 )]
 pub async fn get_event_ops_plan(
@@ -119,10 +45,10 @@ pub async fn get_event_ops_plan(
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EventOpsPlanItem>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    Ok(ApiJson::new(
-        fetch_event_ops_plan(pool, &event_id).await?,
-        time,
-    ))
+    let plan = events_repo::fetch_event_ops_plan(pool, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(ApiJson::new(plan, time))
 }
 
 #[utoipa::path(
@@ -136,53 +62,41 @@ pub async fn get_event_ops_plan(
     responses(
         (status = 200, description = "Updated event ops plan", body = EventOpsPlanItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "Event not found")
     )
 )]
 pub async fn update_event_ops_plan(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateEventOpsPlanRequest>,
 ) -> Result<ApiJson<EventOpsPlanItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_event_ops_plan(pool, &event_id).await?;
-    let row = sqlx::query_as::<_, EventOpsPlanItem>(
-        r#"
-        update events.events
-        set featured_fields = coalesce($2, featured_fields),
-            preset_positions = coalesce($3, preset_positions),
-            featured_field_configs = coalesce($4, featured_field_configs),
-            tmis = case when $5::bool then $6 else tmis end,
-            ops_free_text = case when $7::bool then $8 else ops_free_text end,
-            ops_plan_published = coalesce($9, ops_plan_published),
-            ops_planner_id = case when $10::bool then $11 else ops_planner_id end,
-            enable_buffer_times = coalesce($12, enable_buffer_times),
-            updated_at = now()
-        where id = $1
-        returning id, title, positions_locked, manual_positions_open, featured_fields, preset_positions, featured_field_configs, tmis, ops_free_text, ops_plan_published, ops_planner_id, enable_buffer_times, updated_at
-        "#,
+    let before = events_repo::fetch_event_ops_plan(pool, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = events_repo::update_event_ops_plan_row(
+        pool,
+        &event_id,
+        payload.featured_fields,
+        payload.preset_positions,
+        payload.featured_field_configs,
+        payload.tmis.is_some(),
+        payload.tmis.flatten(),
+        payload.ops_free_text.is_some(),
+        payload.ops_free_text.flatten(),
+        payload.ops_plan_published,
+        payload.ops_planner_id.is_some(),
+        payload.ops_planner_id.flatten(),
+        payload.enable_buffer_times,
     )
-    .bind(&event_id)
-    .bind(payload.featured_fields)
-    .bind(payload.preset_positions)
-    .bind(payload.featured_field_configs)
-    .bind(payload.tmis.is_some())
-    .bind(payload.tmis.flatten())
-    .bind(payload.ops_free_text.is_some())
-    .bind(payload.ops_free_text.flatten())
-    .bind(payload.ops_plan_published)
-    .bind(payload.ops_planner_id.is_some())
-    .bind(payload.ops_planner_id.flatten())
-    .bind(payload.enable_buffer_times)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -220,32 +134,15 @@ pub async fn list_event_tmis(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from events.event_tmis where event_id = $1",
-    )
-    .bind(&event_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, EventTmiItem>(
-        "select id, event_id, tmi_type, start_time, notes, created_at, updated_at from events.event_tmis where event_id = $1 order by start_time asc, created_at asc, id asc limit $2 offset $3",
-    )
-    .bind(&event_id)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = events_repo::count_event_tmis(pool, &event_id).await?;
+    let rows =
+        events_repo::list_event_tmis(pool, &event_id, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         EventTmiListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -268,20 +165,30 @@ pub async fn list_event_tmis(
 pub async fn create_event_tmi(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateEventTmiRequest>,
 ) -> Result<(StatusCode, ApiJson<EventTmiItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_event_update(&state, user).await?;
     if payload.tmi_type.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let row = sqlx::query_as::<_, EventTmiItem>(
-        "insert into events.event_tmis (id, event_id, tmi_type, start_time, notes, created_at, updated_at) values ($1, $2, $3, $4, $5, now(), now()) returning id, event_id, tmi_type, start_time, notes, created_at, updated_at",
-    ).bind(Uuid::new_v4().to_string()).bind(&event_id).bind(payload.tmi_type.trim()).bind(payload.start_time).bind(payload.notes.as_deref().map(str::trim).filter(|v| !v.is_empty())).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let row = events_repo::insert_event_tmi(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &event_id,
+        payload.tmi_type.trim(),
+        payload.start_time,
+        payload
+            .notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .await?;
     record_audit(
         pool,
         user,
@@ -308,48 +215,39 @@ pub async fn create_event_tmi(
     responses(
         (status = 200, description = "Updated event TMI", body = EventTmiItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "Event or TMI not found")
     )
 )]
 pub async fn update_event_tmi(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path((event_id, tmi_id)): Path<(String, String)>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateEventTmiRequest>,
 ) -> Result<ApiJson<EventTmiItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_event_tmi(pool, &event_id, &tmi_id).await?;
-    let row = sqlx::query_as::<_, EventTmiItem>(
-        r#"
-        update events.event_tmis
-        set tmi_type = coalesce($3, tmi_type),
-            start_time = coalesce($4, start_time),
-            notes = case when $5::bool then $6 else notes end,
-            updated_at = now()
-        where event_id = $1 and id = $2
-        returning id, event_id, tmi_type, start_time, notes, created_at, updated_at
-        "#,
-    )
-    .bind(&event_id)
-    .bind(&tmi_id)
-    .bind(
+    let before = events_repo::fetch_event_tmi(pool, &event_id, &tmi_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = events_repo::update_event_tmi_row(
+        pool,
+        &event_id,
+        &tmi_id,
         payload
             .tmi_type
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty()),
+        payload.start_time,
+        payload.notes.is_some(),
+        payload.notes.flatten(),
     )
-    .bind(payload.start_time)
-    .bind(payload.notes.is_some())
-    .bind(payload.notes.flatten())
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -374,26 +272,23 @@ pub async fn update_event_tmi(
     ),
     responses(
         (status = 200, description = "Deleted event TMI", body = ApiMessageBody),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "Event or TMI not found")
     )
 )]
 pub async fn delete_event_tmi(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path((event_id, tmi_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_event_tmi(pool, &event_id, &tmi_id).await?;
-    sqlx::query("delete from events.event_tmis where event_id = $1 and id = $2")
-        .bind(&event_id)
-        .bind(&tmi_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let before = events_repo::fetch_event_tmi(pool, &event_id, &tmi_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    events_repo::delete_event_tmi_row(pool, &event_id, &tmi_id).await?;
     record_audit(
         pool,
         user,
@@ -419,7 +314,7 @@ pub async fn delete_event_tmi(
     ),
     responses(
         (status = 200, description = "Preset positions", body = [String]),
-        (status = 400, description = "Invalid event ID")
+        (status = 404, description = "Event not found")
     )
 )]
 pub async fn get_event_preset_positions(
@@ -427,14 +322,9 @@ pub async fn get_event_preset_positions(
     Path(event_id): Path<String>,
 ) -> Result<Json<Vec<String>>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let positions = sqlx::query_scalar::<_, Vec<String>>(
-        "select preset_positions from events.events where id = $1",
-    )
-    .bind(&event_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let positions = events_repo::fetch_preset_positions(pool, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     Ok(Json(positions))
 }
 
@@ -455,19 +345,14 @@ pub async fn get_event_preset_positions(
 pub async fn update_event_preset_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<UpdatePresetPositionsRequest>,
 ) -> Result<Json<Vec<String>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    sqlx::query("update events.events set preset_positions = $2, updated_at = now() where id = $1")
-        .bind(&event_id)
-        .bind(&payload.preset_positions)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    events_repo::update_preset_positions_row(pool, &event_id, &payload.preset_positions).await?;
     record_audit(
         pool,
         user,
@@ -498,19 +383,13 @@ pub async fn update_event_preset_positions(
 pub async fn lock_event_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    sqlx::query(
-        "update events.events set positions_locked = true, updated_at = now() where id = $1",
-    )
-    .bind(&event_id)
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    events_repo::set_positions_locked(pool, &event_id, true).await?;
     record_audit(
         pool,
         user,
@@ -543,19 +422,13 @@ pub async fn lock_event_positions(
 pub async fn unlock_event_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_event_update(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    sqlx::query(
-        "update events.events set positions_locked = false, updated_at = now() where id = $1",
-    )
-    .bind(&event_id)
-    .execute(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    events_repo::set_positions_locked(pool, &event_id, false).await?;
     record_audit(
         pool,
         user,
@@ -572,35 +445,6 @@ pub async fn unlock_event_positions(
     }))
 }
 
-async fn ensure_event_update(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {
-    ensure_permission(
-        state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "items"], PermissionAction::Update),
-    )
-    .await
-}
-
-async fn fetch_event_ops_plan(
-    pool: &sqlx::PgPool,
-    event_id: &str,
-) -> Result<EventOpsPlanItem, ApiError> {
-    sqlx::query_as::<_, EventOpsPlanItem>(
-        "select id, title, positions_locked, manual_positions_open, featured_fields, preset_positions, featured_field_configs, tmis, ops_free_text, ops_plan_published, ops_planner_id, enable_buffer_times, updated_at from events.events where id = $1",
-    ).bind(event_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)
-}
-
-async fn fetch_event_tmi(
-    pool: &sqlx::PgPool,
-    event_id: &str,
-    tmi_id: &str,
-) -> Result<EventTmiItem, ApiError> {
-    sqlx::query_as::<_, EventTmiItem>(
-        "select id, event_id, tmi_type, start_time, notes, created_at, updated_at from events.event_tmis where event_id = $1 and id = $2",
-    ).bind(event_id).bind(tmi_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)
-}
-
 async fn record_audit(
     pool: &sqlx::PgPool,
     user: &CurrentUser,
@@ -608,8 +452,8 @@ async fn record_audit(
     action: &str,
     resource_type: &str,
     resource_id: Option<String>,
-    before_state: Option<Value>,
-    after_state: Option<Value>,
+    before_state: Option<serde_json::Value>,
+    after_state: Option<serde_json::Value>,
 ) -> Result<(), ApiError> {
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
     audit_repo::record_audit(

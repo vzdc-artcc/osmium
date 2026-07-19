@@ -3,81 +3,28 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::Utc;
+use serde::Serialize;
 use serde_json::json;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
-        middleware::ensure_permission,
+        permissions::{FeedbackItemsCreate, FeedbackItemsDecide, FeedbackItemsSelfRead},
+        require_permission::RequirePermission,
     },
     email::service::actor_from_context,
     errors::ApiError,
-    models::{PaginationMeta, PaginationQuery},
-    repos::audit as audit_repo,
+    models::{
+        CreateIncidentRequest, IncidentItem, IncidentListResponse, ListIncidentsQuery,
+        PaginationMeta, PaginationQuery, UpdateIncidentRequest,
+    },
+    repos::{audit as audit_repo, incidents as incidents_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct IncidentItem {
-    pub id: String,
-    pub reporter_id: String,
-    pub reportee_id: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub timestamp: DateTime<Utc>,
-    pub reason: String,
-    pub closed: bool,
-    pub reporter_callsign: Option<String>,
-    pub reportee_callsign: Option<String>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-    pub reporter_cid: Option<i64>,
-    pub reporter_name: Option<String>,
-    pub reportee_cid: Option<i64>,
-    pub reportee_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateIncidentRequest {
-    pub reportee_id: String,
-    pub timestamp: DateTime<Utc>,
-    pub reason: String,
-    pub reporter_callsign: Option<String>,
-    pub reportee_callsign: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateIncidentRequest {
-    pub closed: bool,
-    pub resolution: Option<String>,
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct ListIncidentsQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-    pub closed: Option<bool>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct IncidentListResponse {
-    pub items: Vec<IncidentItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiMessageBody {
@@ -98,18 +45,12 @@ pub struct ApiMessageBody {
 pub async fn create_incident(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FeedbackItemsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateIncidentRequest>,
 ) -> Result<(StatusCode, ApiJson<IncidentItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Create),
-    )
-    .await?;
     if payload.reason.trim().is_empty()
         || payload.reportee_callsign.trim().is_empty()
         || payload.timestamp > Utc::now()
@@ -118,56 +59,23 @@ pub async fn create_incident(
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let item = sqlx::query_as::<_, IncidentItem>(
-        r#"
-        insert into feedback.incident_reports (
-            id,
-            reporter_id,
-            reportee_id,
-            timestamp,
-            reason,
-            closed,
-            reporter_callsign,
-            reportee_callsign,
-            created_at,
-            updated_at
-        )
-        values ($1, $2, $3, $4, $5, false, $6, $7, now(), now())
-        returning
-            id,
-            reporter_id,
-            reportee_id,
-            timestamp,
-            reason,
-            closed,
-            reporter_callsign,
-            reportee_callsign,
-            created_at,
-            updated_at,
-            null::bigint as reporter_cid,
-            null::text as reporter_name,
-            null::bigint as reportee_cid,
-            null::text as reportee_name
-        "#,
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&user.id)
-    .bind(&payload.reportee_id)
-    .bind(payload.timestamp)
-    .bind(payload.reason.trim())
-    .bind(
+    let item = incidents_repo::insert_incident(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &user.id,
+        &payload.reportee_id,
+        payload.timestamp,
+        payload.reason.trim(),
         payload
             .reporter_callsign
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty()),
+        payload.reportee_callsign.trim(),
     )
-    .bind(payload.reportee_callsign.trim())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
 
-    let full = fetch_incident(pool, &item.id).await?;
+    let full = incidents_repo::fetch_incident(pool, &item.id).await?;
     record_audit(
         pool,
         user,
@@ -196,80 +104,31 @@ pub async fn create_incident(
 pub async fn list_my_incidents(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FeedbackItemsSelfRead>,
     Query(query): Query<ListIncidentsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<IncidentListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["feedback", "items", "self"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
 
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from feedback.incident_reports
-        where (reporter_id = $1 or reportee_id = $1)
-          and ($2::bool is null or closed = $2)
-        "#,
+    let total = incidents_repo::count_my_incidents(pool, &user.id, query.closed).await?;
+    let items = incidents_repo::list_my_incidents(
+        pool,
+        &user.id,
+        query.closed,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(&user.id)
-    .bind(query.closed)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let items = sqlx::query_as::<_, IncidentItem>(
-        r#"
-        select
-            i.id,
-            i.reporter_id,
-            i.reportee_id,
-            i.timestamp,
-            i.reason,
-            i.closed,
-            i.reporter_callsign,
-            i.reportee_callsign,
-            i.created_at,
-            i.updated_at,
-            ru.cid as reporter_cid,
-            ru.display_name as reporter_name,
-            tu.cid as reportee_cid,
-            tu.display_name as reportee_name
-        from feedback.incident_reports i
-        join identity.users ru on ru.id = i.reporter_id
-        join identity.users tu on tu.id = i.reportee_id
-        where (i.reporter_id = $1 or i.reportee_id = $1)
-          and ($2::bool is null or i.closed = $2)
-        order by i.timestamp desc, i.created_at desc, i.id asc
-        limit $3 offset $4
-        "#,
-    )
-    .bind(&user.id)
-    .bind(query.closed)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         IncidentListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -287,73 +146,29 @@ pub async fn list_my_incidents(
 )]
 pub async fn admin_list_incidents(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FeedbackItemsDecide>,
     Query(query): Query<ListIncidentsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<IncidentListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Decide),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
 
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from feedback.incident_reports where ($1::bool is null or closed = $1)",
+    let total = incidents_repo::count_all_incidents(pool, query.closed).await?;
+    let items = incidents_repo::list_all_incidents(
+        pool,
+        query.closed,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(query.closed)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let items = sqlx::query_as::<_, IncidentItem>(
-        r#"
-        select
-            i.id,
-            i.reporter_id,
-            i.reportee_id,
-            i.timestamp,
-            i.reason,
-            i.closed,
-            i.reporter_callsign,
-            i.reportee_callsign,
-            i.created_at,
-            i.updated_at,
-            ru.cid as reporter_cid,
-            ru.display_name as reporter_name,
-            tu.cid as reportee_cid,
-            tu.display_name as reportee_name
-        from feedback.incident_reports i
-        join identity.users ru on ru.id = i.reporter_id
-        join identity.users tu on tu.id = i.reportee_id
-        where ($1::bool is null or i.closed = $1)
-        order by i.timestamp desc, i.created_at desc, i.id asc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(query.closed)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         IncidentListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -368,27 +183,19 @@ pub async fn admin_list_incidents(
     ),
     responses(
         (status = 200, description = "Incident detail", body = IncidentItem),
-        (status = 400, description = "Invalid incident ID"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "Incident not found")
     )
 )]
 pub async fn admin_get_incident(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FeedbackItemsDecide>,
     Path(incident_id): Path<String>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<IncidentItem>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Decide),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     Ok(ApiJson::new(
-        fetch_incident(pool, &incident_id).await?,
+        incidents_repo::fetch_incident(pool, &incident_id).await?,
         time,
     ))
 }
@@ -404,63 +211,29 @@ pub async fn admin_get_incident(
     responses(
         (status = 200, description = "Updated incident", body = IncidentItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "Incident not found")
     )
 )]
 pub async fn admin_update_incident(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FeedbackItemsDecide>,
     Path(incident_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateIncidentRequest>,
 ) -> Result<ApiJson<IncidentItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["feedback", "items"], PermissionAction::Decide),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_incident(pool, &incident_id).await?;
+    let before = incidents_repo::fetch_incident(pool, &incident_id).await?;
     if before.closed && payload.closed {
         return Err(ApiError::BadRequest);
     }
 
-    let item = sqlx::query_as::<_, IncidentItem>(
-        r#"
-        update feedback.incident_reports i
-        set closed = $2,
-            updated_at = now()
-        from identity.users ru, identity.users tu
-        where i.id = $1
-          and ru.id = i.reporter_id
-          and tu.id = i.reportee_id
-        returning
-            i.id,
-            i.reporter_id,
-            i.reportee_id,
-            i.timestamp,
-            i.reason,
-            i.closed,
-            i.reporter_callsign,
-            i.reportee_callsign,
-            i.created_at,
-            i.updated_at,
-            ru.cid as reporter_cid,
-            ru.display_name as reporter_name,
-            tu.cid as reportee_cid,
-            tu.display_name as reportee_name
-        "#,
-    )
-    .bind(&incident_id)
-    .bind(payload.closed)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let item = incidents_repo::update_incident_closed(pool, &incident_id, payload.closed)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     if payload.closed {
         let resolved_actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
@@ -494,37 +267,6 @@ pub async fn admin_update_incident(
     .await?;
 
     Ok(ApiJson::new(item, time))
-}
-
-async fn fetch_incident(pool: &sqlx::PgPool, incident_id: &str) -> Result<IncidentItem, ApiError> {
-    sqlx::query_as::<_, IncidentItem>(
-        r#"
-        select
-            i.id,
-            i.reporter_id,
-            i.reportee_id,
-            i.timestamp,
-            i.reason,
-            i.closed,
-            i.reporter_callsign,
-            i.reportee_callsign,
-            i.created_at,
-            i.updated_at,
-            ru.cid as reporter_cid,
-            ru.display_name as reporter_name,
-            tu.cid as reportee_cid,
-            tu.display_name as reportee_name
-        from feedback.incident_reports i
-        join identity.users ru on ru.id = i.reporter_id
-        join identity.users tu on tu.id = i.reportee_id
-        where i.id = $1
-        "#,
-    )
-    .bind(incident_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
 }
 
 async fn record_audit(

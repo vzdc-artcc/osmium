@@ -3,8 +3,7 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -13,279 +12,52 @@ use crate::{
         acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
         middleware::ensure_permission,
+        permissions::{TrainingLessonsRead, TrainingLessonsUpdate},
+        require_permission::RequirePermission,
     },
     errors::ApiError,
-    models::{PaginationMeta, PaginationQuery},
-    repos::audit as audit_repo,
+    models::{
+        CreatePerformanceIndicatorCategoryRequest, CreatePerformanceIndicatorCriteriaRequest,
+        CreatePerformanceIndicatorTemplateRequest, CreateProgressionAssignmentRequest,
+        CreateTrainingProgressionRequest, CreateTrainingProgressionStepRequest,
+        DossierEntryListResponse, PaginationMeta, PaginationQuery,
+        PerformanceIndicatorCategoryItem, PerformanceIndicatorCategoryListResponse,
+        PerformanceIndicatorCriteriaItem, PerformanceIndicatorCriteriaListResponse,
+        PerformanceIndicatorTemplateItem, PerformanceIndicatorTemplateListResponse,
+        ProgressionAssignmentItem, ProgressionAssignmentListResponse, TrainingProgressionItem,
+        TrainingProgressionListResponse, TrainingProgressionStepItem,
+        TrainingProgressionStepListResponse, UpdatePerformanceIndicatorCategoryRequest,
+        UpdatePerformanceIndicatorCriteriaRequest, UpdatePerformanceIndicatorTemplateRequest,
+        UpdateTrainingProgressionRequest, UpdateTrainingProgressionStepRequest,
+    },
+    repos::{audit as audit_repo, training_admin as training_admin_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct TrainingProgressionItem {
-    pub id: String,
-    pub name: String,
-    pub next_progression_id: Option<String>,
-    pub auto_assign_new_home_obs: bool,
-    pub auto_assign_new_visitor: bool,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct TrainingProgressionStepItem {
-    pub id: String,
-    pub progression_id: String,
-    pub lesson_id: String,
-    pub sort_order: i32,
-    pub optional: bool,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct PerformanceIndicatorTemplateItem {
-    pub id: String,
-    pub name: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct PerformanceIndicatorCategoryItem {
-    pub id: String,
-    pub template_id: String,
-    pub name: String,
-    pub sort_order: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct PerformanceIndicatorCriteriaItem {
-    pub id: String,
-    pub category_id: String,
-    pub name: String,
-    pub sort_order: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct ProgressionAssignmentItem {
-    pub user_id: String,
-    pub progression_id: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub assigned_at: DateTime<Utc>,
-    pub assigned_by_actor_id: Option<String>,
-    pub cid: Option<i64>,
-    pub display_name: Option<String>,
-    pub progression_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct DossierEntryItem {
-    pub id: String,
-    pub user_id: String,
-    pub writer_id: String,
-    pub message: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub timestamp: DateTime<Utc>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub created_at: DateTime<Utc>,
-    pub writer_cid: Option<i64>,
-    pub writer_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateTrainingProgressionRequest {
-    pub name: String,
-    pub next_progression_id: Option<String>,
-    pub auto_assign_new_home_obs: Option<bool>,
-    pub auto_assign_new_visitor: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateTrainingProgressionRequest {
-    pub name: Option<String>,
-    pub next_progression_id: Option<Option<String>>,
-    pub auto_assign_new_home_obs: Option<bool>,
-    pub auto_assign_new_visitor: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateTrainingProgressionStepRequest {
-    pub progression_id: String,
-    pub lesson_id: String,
-    pub sort_order: i32,
-    pub optional: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdateTrainingProgressionStepRequest {
-    pub lesson_id: Option<String>,
-    pub sort_order: Option<i32>,
-    pub optional: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreatePerformanceIndicatorTemplateRequest {
-    pub name: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdatePerformanceIndicatorTemplateRequest {
-    pub name: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreatePerformanceIndicatorCategoryRequest {
-    pub template_id: String,
-    pub name: String,
-    pub sort_order: i32,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdatePerformanceIndicatorCategoryRequest {
-    pub name: Option<String>,
-    pub sort_order: Option<i32>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreatePerformanceIndicatorCriteriaRequest {
-    pub category_id: String,
-    pub name: String,
-    pub sort_order: i32,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdatePerformanceIndicatorCriteriaRequest {
-    pub name: Option<String>,
-    pub sort_order: Option<i32>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateProgressionAssignmentRequest {
-    pub user_id: String,
-    pub progression_id: String,
-}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiMessageBody {
     pub message: String,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct TrainingProgressionListResponse {
-    pub items: Vec<TrainingProgressionItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct TrainingProgressionStepListResponse {
-    pub items: Vec<TrainingProgressionStepItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PerformanceIndicatorTemplateListResponse {
-    pub items: Vec<PerformanceIndicatorTemplateItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PerformanceIndicatorCategoryListResponse {
-    pub items: Vec<PerformanceIndicatorCategoryItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PerformanceIndicatorCriteriaListResponse {
-    pub items: Vec<PerformanceIndicatorCriteriaItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ProgressionAssignmentListResponse {
-    pub items: Vec<ProgressionAssignmentItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct DossierEntryListResponse {
-    pub items: Vec<DossierEntryItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
-}
-
 #[utoipa::path(get, path = "/api/v1/admin/training/progressions", tag = "training", params(PaginationQuery), responses((status = 200, description = "Training progressions", body = TrainingProgressionListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_progressions(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingProgressionListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total =
-        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.training_progressions")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, TrainingProgressionItem>(
-        "select id, name, next_progression_id, auto_assign_new_home_obs, auto_assign_new_visitor, created_at, updated_at from training.training_progressions order by name asc, id asc limit $1 offset $2",
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = training_admin_repo::count_progressions(pool).await?;
+    let rows =
+        training_admin_repo::list_progressions(pool, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         TrainingProgressionListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -295,33 +67,25 @@ pub async fn list_progressions(
 pub async fn create_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingProgressionRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainingProgressionItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let row = sqlx::query_as::<_, TrainingProgressionItem>(
-        r#"
-        insert into training.training_progressions (
-            id, name, next_progression_id, auto_assign_new_home_obs, auto_assign_new_visitor, created_at, updated_at
-        )
-        values ($1, $2, $3, $4, $5, now(), now())
-        returning id, name, next_progression_id, auto_assign_new_home_obs, auto_assign_new_visitor, created_at, updated_at
-        "#,
+    let row = training_admin_repo::insert_progression(
+        pool,
+        &Uuid::new_v4().to_string(),
+        payload.name.trim(),
+        payload.next_progression_id.as_deref(),
+        payload.auto_assign_new_home_obs.unwrap_or(false),
+        payload.auto_assign_new_visitor.unwrap_or(false),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(payload.name.trim())
-    .bind(payload.next_progression_id.as_deref())
-    .bind(payload.auto_assign_new_home_obs.unwrap_or(false))
-    .bind(payload.auto_assign_new_visitor.unwrap_or(false))
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
     record_audit(
         pool,
         user,
@@ -336,41 +100,36 @@ pub async fn create_progression(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), request_body = UpdateTrainingProgressionRequest, responses((status = 200, description = "Updated training progression", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), request_body = UpdateTrainingProgressionRequest, responses((status = 200, description = "Updated training progression", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression not found")))]
 pub async fn update_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(progression_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingProgressionRequest>,
 ) -> Result<ApiJson<TrainingProgressionItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_progression(pool, &progression_id).await?;
-    let row = sqlx::query_as::<_, TrainingProgressionItem>(
-        r#"
-        update training.training_progressions
-        set name = coalesce($2, name),
-            next_progression_id = case when $3::bool then $4 else next_progression_id end,
-            auto_assign_new_home_obs = coalesce($5, auto_assign_new_home_obs),
-            auto_assign_new_visitor = coalesce($6, auto_assign_new_visitor),
-            updated_at = now()
-        where id = $1
-        returning id, name, next_progression_id, auto_assign_new_home_obs, auto_assign_new_visitor, created_at, updated_at
-        "#,
+    let before = training_admin_repo::fetch_progression(pool, &progression_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = training_admin_repo::update_progression_row(
+        pool,
+        &progression_id,
+        payload
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload.next_progression_id.is_some(),
+        payload.next_progression_id.flatten(),
+        payload.auto_assign_new_home_obs,
+        payload.auto_assign_new_visitor,
     )
-    .bind(&progression_id)
-    .bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty()))
-    .bind(payload.next_progression_id.is_some())
-    .bind(payload.next_progression_id.flatten())
-    .bind(payload.auto_assign_new_home_obs)
-    .bind(payload.auto_assign_new_visitor)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -385,22 +144,20 @@ pub async fn update_progression(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), responses((status = 200, description = "Deleted training progression", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), responses((status = 200, description = "Deleted training progression", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression not found")))]
 pub async fn delete_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(progression_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_progression(pool, &progression_id).await?;
-    sqlx::query("delete from training.training_progressions where id = $1")
-        .bind(&progression_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let before = training_admin_repo::fetch_progression(pool, &progression_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    training_admin_repo::delete_progression_row(pool, &progression_id).await?;
     record_audit(
         pool,
         user,
@@ -420,38 +177,21 @@ pub async fn delete_progression(
 #[utoipa::path(get, path = "/api/v1/admin/training/progression-steps", tag = "training", params(PaginationQuery), responses((status = 200, description = "Training progression steps", body = TrainingProgressionStepListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_progression_steps(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingProgressionStepListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from training.training_progression_steps",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, TrainingProgressionStepItem>(
-        "select id, progression_id, lesson_id, sort_order, optional, created_at from training.training_progression_steps order by progression_id asc, sort_order asc, id asc limit $1 offset $2",
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = training_admin_repo::count_progression_steps(pool).await?;
+    let rows =
+        training_admin_repo::list_progression_steps(pool, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         TrainingProgressionStepListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -461,28 +201,22 @@ pub async fn list_progression_steps(
 pub async fn create_progression_step(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateTrainingProgressionStepRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainingProgressionStepItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let row = sqlx::query_as::<_, TrainingProgressionStepItem>(
-        r#"
-        insert into training.training_progression_steps (id, progression_id, lesson_id, sort_order, optional, created_at)
-        values ($1, $2, $3, $4, $5, now())
-        returning id, progression_id, lesson_id, sort_order, optional, created_at
-        "#,
+    let row = training_admin_repo::insert_progression_step(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &payload.progression_id,
+        &payload.lesson_id,
+        payload.sort_order,
+        payload.optional.unwrap_or(false),
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&payload.progression_id)
-    .bind(&payload.lesson_id)
-    .bind(payload.sort_order)
-    .bind(payload.optional.unwrap_or(false))
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .await?;
     record_audit(
         pool,
         user,
@@ -497,37 +231,30 @@ pub async fn create_progression_step(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), request_body = UpdateTrainingProgressionStepRequest, responses((status = 200, description = "Updated training progression step", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), request_body = UpdateTrainingProgressionStepRequest, responses((status = 200, description = "Updated training progression step", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression step not found")))]
 pub async fn update_progression_step(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(step_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingProgressionStepRequest>,
 ) -> Result<ApiJson<TrainingProgressionStepItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_progression_step(pool, &step_id).await?;
-    let row = sqlx::query_as::<_, TrainingProgressionStepItem>(
-        r#"
-        update training.training_progression_steps
-        set lesson_id = coalesce($2, lesson_id),
-            sort_order = coalesce($3, sort_order),
-            optional = coalesce($4, optional)
-        where id = $1
-        returning id, progression_id, lesson_id, sort_order, optional, created_at
-        "#,
+    let before = training_admin_repo::fetch_progression_step(pool, &step_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = training_admin_repo::update_progression_step_row(
+        pool,
+        &step_id,
+        payload.lesson_id.as_deref(),
+        payload.sort_order,
+        payload.optional,
     )
-    .bind(&step_id)
-    .bind(payload.lesson_id.as_deref())
-    .bind(payload.sort_order)
-    .bind(payload.optional)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -542,22 +269,20 @@ pub async fn update_progression_step(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), responses((status = 200, description = "Deleted training progression step", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), responses((status = 200, description = "Deleted training progression step", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression step not found")))]
 pub async fn delete_progression_step(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(step_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_progression_step(pool, &step_id).await?;
-    sqlx::query("delete from training.training_progression_steps where id = $1")
-        .bind(&step_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let before = training_admin_repo::fetch_progression_step(pool, &step_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    training_admin_repo::delete_progression_step_row(pool, &step_id).await?;
     record_audit(
         pool,
         user,
@@ -577,33 +302,21 @@ pub async fn delete_progression_step(
 #[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/templates", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator templates", body = PerformanceIndicatorTemplateListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_performance_indicator_templates(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<PerformanceIndicatorTemplateListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from training.performance_indicator_templates",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, PerformanceIndicatorTemplateItem>(
-        "select id, name, created_at, updated_at from training.performance_indicator_templates order by name asc, id asc limit $1 offset $2",
-    ).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
+    let total = training_admin_repo::count_pi_templates(pool).await?;
+    let rows =
+        training_admin_repo::list_pi_templates(pool, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         PerformanceIndicatorTemplateListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -613,19 +326,22 @@ pub async fn list_performance_indicator_templates(
 pub async fn create_performance_indicator_template(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreatePerformanceIndicatorTemplateRequest>,
 ) -> Result<(StatusCode, ApiJson<PerformanceIndicatorTemplateItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let row = sqlx::query_as::<_, PerformanceIndicatorTemplateItem>(
-        "insert into training.performance_indicator_templates (id, name, created_at, updated_at) values ($1, $2, now(), now()) returning id, name, created_at, updated_at",
-    ).bind(Uuid::new_v4().to_string()).bind(payload.name.trim()).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let row = training_admin_repo::insert_pi_template(
+        pool,
+        &Uuid::new_v4().to_string(),
+        payload.name.trim(),
+    )
+    .await?;
     record_audit(
         pool,
         user,
@@ -640,25 +356,27 @@ pub async fn create_performance_indicator_template(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), request_body = UpdatePerformanceIndicatorTemplateRequest, responses((status = 200, description = "Updated performance indicator template", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), request_body = UpdatePerformanceIndicatorTemplateRequest, responses((status = 200, description = "Updated performance indicator template", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Template not found")))]
 pub async fn update_performance_indicator_template(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(template_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<UpdatePerformanceIndicatorTemplateRequest>,
 ) -> Result<ApiJson<PerformanceIndicatorTemplateItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_pi_template(pool, &template_id).await?;
-    let row = sqlx::query_as::<_, PerformanceIndicatorTemplateItem>(
-        "update training.performance_indicator_templates set name = $2, updated_at = now() where id = $1 returning id, name, created_at, updated_at",
-    ).bind(&template_id).bind(payload.name.trim()).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
+    let before = training_admin_repo::fetch_pi_template(pool, &template_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = training_admin_repo::update_pi_template_row(pool, &template_id, payload.name.trim())
+        .await?
+        .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -673,22 +391,20 @@ pub async fn update_performance_indicator_template(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), responses((status = 200, description = "Deleted performance indicator template", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), responses((status = 200, description = "Deleted performance indicator template", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Template not found")))]
 pub async fn delete_performance_indicator_template(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(template_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_pi_template(pool, &template_id).await?;
-    sqlx::query("delete from training.performance_indicator_templates where id = $1")
-        .bind(&template_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let before = training_admin_repo::fetch_pi_template(pool, &template_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    training_admin_repo::delete_pi_template_row(pool, &template_id).await?;
     record_audit(
         pool,
         user,
@@ -708,31 +424,19 @@ pub async fn delete_performance_indicator_template(
 #[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/categories", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator categories", body = PerformanceIndicatorCategoryListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_performance_indicator_categories(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsRead>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PerformanceIndicatorCategoryListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from training.performance_indicator_template_categories",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, PerformanceIndicatorCategoryItem>(
-        "select id, template_id, name, sort_order from training.performance_indicator_template_categories order by template_id asc, sort_order asc, id asc limit $1 offset $2",
-    ).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
+    let total = training_admin_repo::count_pi_categories(pool).await?;
+    let rows =
+        training_admin_repo::list_pi_categories(pool, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(Json(PerformanceIndicatorCategoryListResponse {
         items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
+        pagination: meta,
     }))
 }
 
@@ -740,18 +444,23 @@ pub async fn list_performance_indicator_categories(
 pub async fn create_performance_indicator_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     headers: HeaderMap,
     Json(payload): Json<CreatePerformanceIndicatorCategoryRequest>,
 ) -> Result<(StatusCode, Json<PerformanceIndicatorCategoryItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let row = sqlx::query_as::<_, PerformanceIndicatorCategoryItem>(
-        "insert into training.performance_indicator_template_categories (id, template_id, name, sort_order) values ($1, $2, $3, $4) returning id, template_id, name, sort_order",
-    ).bind(Uuid::new_v4().to_string()).bind(&payload.template_id).bind(payload.name.trim()).bind(payload.sort_order).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let row = training_admin_repo::insert_pi_category(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &payload.template_id,
+        payload.name.trim(),
+        payload.sort_order,
+    )
+    .await?;
     record_audit(
         pool,
         user,
@@ -766,21 +475,32 @@ pub async fn create_performance_indicator_category(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), request_body = UpdatePerformanceIndicatorCategoryRequest, responses((status = 200, description = "Updated performance indicator category", body = PerformanceIndicatorCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), request_body = UpdatePerformanceIndicatorCategoryRequest, responses((status = 200, description = "Updated performance indicator category", body = PerformanceIndicatorCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Category not found")))]
 pub async fn update_performance_indicator_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(category_id): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<UpdatePerformanceIndicatorCategoryRequest>,
 ) -> Result<Json<PerformanceIndicatorCategoryItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_pi_category(pool, &category_id).await?;
-    let row = sqlx::query_as::<_, PerformanceIndicatorCategoryItem>(
-        "update training.performance_indicator_template_categories set name = coalesce($2, name), sort_order = coalesce($3, sort_order) where id = $1 returning id, template_id, name, sort_order",
-    ).bind(&category_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.sort_order).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
+    let before = training_admin_repo::fetch_pi_category(pool, &category_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = training_admin_repo::update_pi_category_row(
+        pool,
+        &category_id,
+        payload
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload.sort_order,
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -795,22 +515,20 @@ pub async fn update_performance_indicator_category(
     Ok(Json(row))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), responses((status = 200, description = "Deleted performance indicator category", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), responses((status = 200, description = "Deleted performance indicator category", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Category not found")))]
 pub async fn delete_performance_indicator_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(category_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_pi_category(pool, &category_id).await?;
-    sqlx::query("delete from training.performance_indicator_template_categories where id = $1")
-        .bind(&category_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let before = training_admin_repo::fetch_pi_category(pool, &category_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    training_admin_repo::delete_pi_category_row(pool, &category_id).await?;
     record_audit(
         pool,
         user,
@@ -830,31 +548,18 @@ pub async fn delete_performance_indicator_category(
 #[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/criteria", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator criteria", body = PerformanceIndicatorCriteriaListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_performance_indicator_criteria(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsRead>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PerformanceIndicatorCriteriaListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from training.performance_indicator_template_criteria",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, PerformanceIndicatorCriteriaItem>(
-        "select id, category_id, name, sort_order from training.performance_indicator_template_criteria order by category_id asc, sort_order asc, id asc limit $1 offset $2",
-    ).bind(pagination.page_size).bind(pagination.offset).fetch_all(pool).await.map_err(|_| ApiError::Internal)?;
+    let total = training_admin_repo::count_pi_criteria(pool).await?;
+    let rows = training_admin_repo::list_pi_criteria(pool, pagination.page_size, pagination.offset)
+        .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(Json(PerformanceIndicatorCriteriaListResponse {
         items: rows,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
+        pagination: meta,
     }))
 }
 
@@ -862,18 +567,23 @@ pub async fn list_performance_indicator_criteria(
 pub async fn create_performance_indicator_criteria(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     headers: HeaderMap,
     Json(payload): Json<CreatePerformanceIndicatorCriteriaRequest>,
 ) -> Result<(StatusCode, Json<PerformanceIndicatorCriteriaItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     if payload.name.trim().is_empty() {
         return Err(ApiError::BadRequest);
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let row = sqlx::query_as::<_, PerformanceIndicatorCriteriaItem>(
-        "insert into training.performance_indicator_template_criteria (id, category_id, name, sort_order) values ($1, $2, $3, $4) returning id, category_id, name, sort_order",
-    ).bind(Uuid::new_v4().to_string()).bind(&payload.category_id).bind(payload.name.trim()).bind(payload.sort_order).fetch_one(pool).await.map_err(|_| ApiError::BadRequest)?;
+    let row = training_admin_repo::insert_pi_criteria(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &payload.category_id,
+        payload.name.trim(),
+        payload.sort_order,
+    )
+    .await?;
     record_audit(
         pool,
         user,
@@ -888,21 +598,32 @@ pub async fn create_performance_indicator_criteria(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), request_body = UpdatePerformanceIndicatorCriteriaRequest, responses((status = 200, description = "Updated performance indicator criteria", body = PerformanceIndicatorCriteriaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), request_body = UpdatePerformanceIndicatorCriteriaRequest, responses((status = 200, description = "Updated performance indicator criteria", body = PerformanceIndicatorCriteriaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Criteria not found")))]
 pub async fn update_performance_indicator_criteria(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(criteria_id): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<UpdatePerformanceIndicatorCriteriaRequest>,
 ) -> Result<Json<PerformanceIndicatorCriteriaItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_pi_criteria(pool, &criteria_id).await?;
-    let row = sqlx::query_as::<_, PerformanceIndicatorCriteriaItem>(
-        "update training.performance_indicator_template_criteria set name = coalesce($2, name), sort_order = coalesce($3, sort_order) where id = $1 returning id, category_id, name, sort_order",
-    ).bind(&criteria_id).bind(payload.name.as_deref().map(str::trim).filter(|v| !v.is_empty())).bind(payload.sort_order).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)?;
+    let before = training_admin_repo::fetch_pi_criteria(pool, &criteria_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = training_admin_repo::update_pi_criteria_row(
+        pool,
+        &criteria_id,
+        payload
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+        payload.sort_order,
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -917,22 +638,20 @@ pub async fn update_performance_indicator_criteria(
     Ok(Json(row))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), responses((status = 200, description = "Deleted performance indicator criteria", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), responses((status = 200, description = "Deleted performance indicator criteria", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Criteria not found")))]
 pub async fn delete_performance_indicator_criteria(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(criteria_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_pi_criteria(pool, &criteria_id).await?;
-    sqlx::query("delete from training.performance_indicator_template_criteria where id = $1")
-        .bind(&criteria_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let before = training_admin_repo::fetch_pi_criteria(pool, &criteria_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    training_admin_repo::delete_pi_criteria_row(pool, &criteria_id).await?;
     record_audit(
         pool,
         user,
@@ -952,51 +671,24 @@ pub async fn delete_performance_indicator_criteria(
 #[utoipa::path(get, path = "/api/v1/admin/training/progression-assignments", tag = "training", params(PaginationQuery), responses((status = 200, description = "Progression assignments", body = ProgressionAssignmentListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_progression_assignments(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsRead>,
     Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<ProgressionAssignmentListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Read).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total =
-        sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.user_progressions")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, ProgressionAssignmentItem>(
-        r#"
-        select
-            up.user_id,
-            up.progression_id,
-            up.assigned_at,
-            up.assigned_by_actor_id,
-            u.cid,
-            u.display_name,
-            tp.name as progression_name
-        from training.user_progressions up
-        join identity.users u on u.id = up.user_id
-        join training.training_progressions tp on tp.id = up.progression_id
-        order by up.assigned_at desc, up.user_id asc
-        limit $1 offset $2
-        "#,
+    let total = training_admin_repo::count_progression_assignments(pool).await?;
+    let rows = training_admin_repo::list_progression_assignments(
+        pool,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         ProgressionAssignmentListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -1006,25 +698,24 @@ pub async fn list_progression_assignments(
 pub async fn create_progression_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<CreateProgressionAssignmentRequest>,
 ) -> Result<(StatusCode, ApiJson<ProgressionAssignmentItem>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
-    sqlx::query(
-        r#"
-        insert into training.user_progressions (user_id, progression_id, assigned_at, assigned_by_actor_id)
-        values ($1, $2, now(), $3)
-        on conflict (user_id) do update
-        set progression_id = excluded.progression_id,
-            assigned_at = excluded.assigned_at,
-            assigned_by_actor_id = excluded.assigned_by_actor_id
-        "#,
-    ).bind(&payload.user_id).bind(&payload.progression_id).bind(actor.actor_id.as_deref()).execute(pool).await.map_err(|_| ApiError::BadRequest)?;
-    let row = fetch_progression_assignment(pool, &payload.user_id).await?;
+    training_admin_repo::upsert_progression_assignment(
+        pool,
+        &payload.user_id,
+        &payload.progression_id,
+        actor.actor_id.as_deref(),
+    )
+    .await?;
+    let row = training_admin_repo::fetch_progression_assignment(pool, &payload.user_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     record_audit(
         pool,
         user,
@@ -1039,22 +730,20 @@ pub async fn create_progression_assignment(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/progression-assignments/{user_id}", tag = "training", params(("user_id" = String, Path, description = "User ID")), responses((status = 200, description = "Deleted progression assignment", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/progression-assignments/{user_id}", tag = "training", params(("user_id" = String, Path, description = "User ID")), responses((status = 200, description = "Deleted progression assignment", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression assignment not found")))]
 pub async fn delete_progression_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingLessonsUpdate>,
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_training_admin(&state, user, PermissionAction::Update).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let before = fetch_progression_assignment(pool, &user_id).await?;
-    sqlx::query("delete from training.user_progressions where user_id = $1")
-        .bind(&user_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    let before = training_admin_repo::fetch_progression_assignment(pool, &user_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    training_admin_repo::delete_progression_assignment_row(pool, &user_id).await?;
     record_audit(
         pool,
         user,
@@ -1080,8 +769,17 @@ pub async fn get_user_dossier(
     time: ResponseTimeContext,
 ) -> Result<ApiJson<DossierEntryListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    // Data-dependent authorization: viewing one's own dossier only requires the
+    // self-service "auth.profile.read" permission, not the training-admin permission
+    // required to view someone else's dossier. Not a single RequirePermission<P> case.
     if user.cid != cid {
-        ensure_training_admin(&state, user, PermissionAction::Read).await?;
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["training", "lessons"], PermissionAction::Read),
+        )
+        .await?;
     } else {
         ensure_permission(
             &state,
@@ -1093,133 +791,24 @@ pub async fn get_user_dossier(
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination = query.resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from feedback.dossier_entries d
-        join identity.users target on target.id = d.user_id
-        where target.cid = $1
-        "#,
+    let total = training_admin_repo::count_dossier_entries(pool, cid).await?;
+    let rows = training_admin_repo::list_dossier_entries(
+        pool,
+        cid,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-    let rows = sqlx::query_as::<_, DossierEntryItem>(
-        r#"
-        select
-            d.id,
-            d.user_id,
-            d.writer_id,
-            d.message,
-            d.timestamp,
-            d.created_at,
-            u.cid as writer_cid,
-            u.display_name as writer_name
-        from feedback.dossier_entries d
-        join identity.users target on target.id = d.user_id
-        join identity.users u on u.id = d.writer_id
-        where target.cid = $1
-        order by d.timestamp desc, d.created_at desc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(cid)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         DossierEntryListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
 }
 
-async fn ensure_training_admin(
-    state: &AppState,
-    user: &CurrentUser,
-    action: PermissionAction,
-) -> Result<(), ApiError> {
-    let permission = match action {
-        PermissionAction::Read => {
-            PermissionPath::from_segments(["training", "lessons"], PermissionAction::Read)
-        }
-        _ => PermissionPath::from_segments(["training", "lessons"], PermissionAction::Update),
-    };
-    ensure_permission(state, Some(user), None, permission).await
-}
-
-async fn fetch_progression(
-    pool: &sqlx::PgPool,
-    progression_id: &str,
-) -> Result<TrainingProgressionItem, ApiError> {
-    sqlx::query_as::<_, TrainingProgressionItem>("select id, name, next_progression_id, auto_assign_new_home_obs, auto_assign_new_visitor, created_at, updated_at from training.training_progressions where id = $1")
-        .bind(progression_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)
-}
-async fn fetch_progression_step(
-    pool: &sqlx::PgPool,
-    step_id: &str,
-) -> Result<TrainingProgressionStepItem, ApiError> {
-    sqlx::query_as::<_, TrainingProgressionStepItem>("select id, progression_id, lesson_id, sort_order, optional, created_at from training.training_progression_steps where id = $1")
-        .bind(step_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)
-}
-async fn fetch_pi_template(
-    pool: &sqlx::PgPool,
-    template_id: &str,
-) -> Result<PerformanceIndicatorTemplateItem, ApiError> {
-    sqlx::query_as::<_, PerformanceIndicatorTemplateItem>("select id, name, created_at, updated_at from training.performance_indicator_templates where id = $1")
-        .bind(template_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)
-}
-async fn fetch_pi_category(
-    pool: &sqlx::PgPool,
-    category_id: &str,
-) -> Result<PerformanceIndicatorCategoryItem, ApiError> {
-    sqlx::query_as::<_, PerformanceIndicatorCategoryItem>("select id, template_id, name, sort_order from training.performance_indicator_template_categories where id = $1")
-        .bind(category_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)
-}
-async fn fetch_pi_criteria(
-    pool: &sqlx::PgPool,
-    criteria_id: &str,
-) -> Result<PerformanceIndicatorCriteriaItem, ApiError> {
-    sqlx::query_as::<_, PerformanceIndicatorCriteriaItem>("select id, category_id, name, sort_order from training.performance_indicator_template_criteria where id = $1")
-        .bind(criteria_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)?.ok_or(ApiError::BadRequest)
-}
-async fn fetch_progression_assignment(
-    pool: &sqlx::PgPool,
-    user_id: &str,
-) -> Result<ProgressionAssignmentItem, ApiError> {
-    sqlx::query_as::<_, ProgressionAssignmentItem>(
-        r#"
-        select
-            up.user_id,
-            up.progression_id,
-            up.assigned_at,
-            up.assigned_by_actor_id,
-            u.cid,
-            u.display_name,
-            tp.name as progression_name
-        from training.user_progressions up
-        join identity.users u on u.id = up.user_id
-        join training.training_progressions tp on tp.id = up.progression_id
-        where up.user_id = $1
-        "#,
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)
-}
 async fn record_audit(
     pool: &sqlx::PgPool,
     user: &CurrentUser,

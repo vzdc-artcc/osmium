@@ -8,9 +8,12 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
-        middleware::ensure_permission,
+        permissions::{
+            EventsItemsCreate, EventsItemsDelete, EventsItemsUpdate, EventsPositionsAssign,
+            EventsPositionsDelete, EventsPositionsPublish, EventsPositionsSelfRequest,
+        },
+        require_permission::RequirePermission,
     },
     errors::ApiError,
     models::{
@@ -18,7 +21,7 @@ use crate::{
         EventListResponse, EventPosition, EventPositionListResponse, ListEventsQuery,
         PaginationMeta, PaginationQuery, UpdateEventRequest,
     },
-    repos::audit as audit_repo,
+    repos::{audit as audit_repo, events as events_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
@@ -53,31 +56,14 @@ pub async fn list_events(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>("select count(*)::bigint from events.events")
-        .fetch_one(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-
-    let events = sqlx::query_as::<_, Event>(
-        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events ORDER BY starts_at DESC, id ASC LIMIT $1 OFFSET $2"
-    )
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
+    let total = events_repo::count_events(db).await?;
+    let events = events_repo::list_events(db, pagination.page_size, pagination.offset).await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         EventListResponse {
             items: events,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -93,7 +79,7 @@ pub async fn list_events(
     ),
     responses(
         (status = 200, description = "Event details", body = Event),
-        (status = 400, description = "Invalid event ID")
+        (status = 404, description = "Event not found")
     )
 )]
 pub async fn get_event(
@@ -103,14 +89,9 @@ pub async fn get_event(
 ) -> Result<ApiJson<Event>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let event = sqlx::query_as::<_, Event>(
-        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events WHERE id = $1"
-    )
-    .bind(&event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let event = events_repo::fetch_event(db, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     Ok(ApiJson::new(event, time))
 }
@@ -129,45 +110,34 @@ pub async fn get_event(
 pub async fn create_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsCreate>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(req): Json<CreateEventRequest>,
 ) -> Result<(StatusCode, ApiJson<Event>), ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "items"], PermissionAction::Create),
-    )
-    .await?;
 
     validate_event_window(req.starts_at, req.ends_at)?;
 
     let event_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
-    let event = sqlx::query_as::<_, Event>(
-        "INSERT INTO events.events (id, title, type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at)
-         VALUES ($1, $2, COALESCE($3, 'STANDARD'), $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         RETURNING id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at"
+    let event = events_repo::insert_event(
+        db,
+        &event_id,
+        &req.title,
+        req.event_type.as_deref(),
+        req.host.as_deref(),
+        req.description.as_deref(),
+        "SCHEDULED",
+        false,
+        req.starts_at,
+        req.ends_at,
+        &user.id,
+        now,
     )
-    .bind(&event_id)
-    .bind(&req.title)
-    .bind(&req.event_type)
-    .bind(&req.host)
-    .bind(&req.description)
-    .bind("SCHEDULED")
-    .bind(false)
-    .bind(&req.starts_at)
-    .bind(&req.ends_at)
-    .bind(&user.id)
-    .bind(&now)
-    .bind(&now)
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -200,13 +170,14 @@ pub async fn create_event(
     request_body = UpdateEventRequest,
     responses(
         (status = 200, description = "Event updated", body = Event),
-        (status = 400, description = "Invalid event ID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Event not found")
     )
 )]
 pub async fn update_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsUpdate>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
@@ -214,56 +185,31 @@ pub async fn update_event(
 ) -> Result<ApiJson<Event>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "items"], PermissionAction::Update),
-    )
-    .await?;
     let now = chrono::Utc::now();
-    let before = sqlx::query_as::<_, Event>(
-        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events WHERE id = $1"
-    )
-    .bind(&event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = events_repo::fetch_event(db, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     validate_event_window(
         req.starts_at.unwrap_or(before.starts_at),
         req.ends_at.unwrap_or(before.ends_at),
     )?;
 
-    let event = sqlx::query_as::<_, Event>(
-        "UPDATE events.events SET
-            title = COALESCE($1, title),
-            type = COALESCE($2, type),
-            host = COALESCE($3, host),
-            description = COALESCE($4, description),
-            status = COALESCE($5, status),
-            published = COALESCE($6, published),
-            starts_at = COALESCE($7, starts_at),
-            ends_at = COALESCE($8, ends_at),
-            updated_at = $9
-         WHERE id = $10
-         RETURNING id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at"
+    let event = events_repo::update_event_row(
+        db,
+        &event_id,
+        req.title,
+        req.event_type,
+        req.host,
+        req.description,
+        req.status,
+        req.published,
+        req.starts_at,
+        req.ends_at,
+        now,
     )
-    .bind(req.title)
-    .bind(req.event_type)
-    .bind(req.host)
-    .bind(req.description)
-    .bind(req.status)
-    .bind(req.published)
-    .bind(req.starts_at)
-    .bind(req.ends_at)
-    .bind(&now)
-    .bind(&event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -295,42 +241,26 @@ pub async fn update_event(
     ),
     responses(
         (status = 204, description = "Event deleted"),
-        (status = 400, description = "Invalid event ID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Event not found")
     )
 )]
 pub async fn delete_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsItemsDelete>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "items"], PermissionAction::Delete),
-    )
-    .await?;
 
-    let before = sqlx::query_as::<_, Event>(
-        "SELECT id, title, type AS event_type, host, description, status, published, starts_at, ends_at, created_by, created_at, updated_at FROM events.events WHERE id = $1"
-    )
-    .bind(&event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = events_repo::fetch_event(db, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let result = sqlx::query("DELETE FROM events.events WHERE id = $1")
-        .bind(&event_id)
-        .execute(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-
-    if result.rows_affected() == 0 {
+    let rows_affected = events_repo::delete_event_row(db, &event_id).await?;
+    if rows_affected == 0 {
         return Err(ApiError::BadRequest);
     }
 
@@ -406,35 +336,16 @@ pub async fn list_event_positions(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*)::bigint FROM events.event_positions WHERE event_id = $1",
-    )
-    .bind(&event_id)
-    .fetch_one(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let positions = sqlx::query_as::<_, EventPosition>(
-        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST, id ASC LIMIT $2 OFFSET $3"
-    )
-    .bind(&event_id)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
+    let total = events_repo::count_event_positions(db, &event_id).await?;
+    let positions =
+        events_repo::list_event_positions(db, &event_id, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         EventPositionListResponse {
             items: positions,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -458,44 +369,28 @@ pub async fn list_event_positions(
 pub async fn create_event_position(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsPositionsSelfRequest>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(req): Json<CreateEventPositionRequest>,
 ) -> Result<(StatusCode, ApiJson<EventPosition>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "positions", "self"], PermissionAction::Request),
-    )
-    .await?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let position_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
-    let position = sqlx::query_as::<_, EventPosition>(
-        "INSERT INTO events.event_positions (id, event_id, callsign, user_id, requested_slot, status, published, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at"
+    let position = events_repo::insert_event_position(
+        db,
+        &position_id,
+        &event_id,
+        &req.callsign,
+        &user.id,
+        req.requested_slot,
+        now,
     )
-    .bind(&position_id)
-    .bind(&event_id)
-    .bind(&req.callsign)
-    .bind(&user.id)
-    .bind(&req.requested_slot)
-    .bind("REQUESTED")
-    .bind(false)
-    .bind(&now)
-    .bind(&now)
-    .fetch_one(db)
-    .await
-    .map_err(|error| match error {
-        sqlx::Error::Database(db_error) if db_error.is_unique_violation() => ApiError::BadRequest,
-        _ => ApiError::Internal,
-    })?;
+    .await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -530,12 +425,14 @@ pub async fn create_event_position(
     responses(
         (status = 200, description = "Position assigned", body = EventPosition),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Event or position not found")
     )
 )]
 pub async fn assign_event_position(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsPositionsAssign>,
     Path((event_id, position_id)): Path<(String, String)>,
     headers: HeaderMap,
     time: ResponseTimeContext,
@@ -543,39 +440,21 @@ pub async fn assign_event_position(
 ) -> Result<ApiJson<EventPosition>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "positions"], PermissionAction::Assign),
-    )
-    .await?;
     let now = chrono::Utc::now();
-    let before = sqlx::query_as::<_, EventPosition>(
-        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE id = $1 AND event_id = $2"
-    )
-    .bind(&position_id)
-    .bind(&event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = events_repo::fetch_event_position(db, &position_id, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let position = sqlx::query_as::<_, EventPosition>(
-        "UPDATE events.event_positions
-         SET assigned_slot = $1, status = 'ASSIGNED', user_id = $2, updated_at = $3
-         WHERE id = $4 AND event_id = $5
-         RETURNING id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at"
+    let position = events_repo::assign_event_position_row(
+        db,
+        &position_id,
+        &event_id,
+        req.assigned_slot,
+        &req.user_id,
+        now,
     )
-    .bind(req.assigned_slot)
-    .bind(&req.user_id)
-    .bind(&now)
-    .bind(&position_id)
-    .bind(&event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -608,44 +487,26 @@ pub async fn assign_event_position(
     ),
     responses(
         (status = 204, description = "Position deleted"),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Event or position not found")
     )
 )]
 pub async fn delete_event_position(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsPositionsDelete>,
     Path((event_id, position_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "positions"], PermissionAction::Delete),
-    )
-    .await?;
 
-    let before = sqlx::query_as::<_, EventPosition>(
-        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE id = $1 AND event_id = $2"
-    )
-    .bind(&position_id)
-    .bind(&event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let before = events_repo::fetch_event_position(db, &position_id, &event_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let result = sqlx::query("DELETE FROM events.event_positions WHERE id = $1 AND event_id = $2")
-        .bind(&position_id)
-        .bind(&event_id)
-        .execute(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-
-    if result.rows_affected() == 0 {
+    let rows_affected = events_repo::delete_event_position_row(db, &position_id, &event_id).await?;
+    if rows_affected == 0 {
         return Err(ApiError::BadRequest);
     }
 
@@ -685,40 +546,18 @@ pub async fn delete_event_position(
 pub async fn publish_event_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsPositionsPublish>,
     Path(event_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["events", "positions"], PermissionAction::Publish),
-    )
-    .await?;
 
-    let before = sqlx::query_as::<_, EventPosition>(
-        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST"
-    )
-    .bind(&event_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let before = events_repo::list_event_positions_all(db, &event_id).await?;
 
-    sqlx::query("UPDATE events.event_positions SET published = true WHERE event_id = $1")
-        .bind(&event_id)
-        .execute(db)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    events_repo::set_positions_published(db, &event_id).await?;
 
-    let after = sqlx::query_as::<_, EventPosition>(
-        "SELECT id, event_id, callsign, user_id, requested_slot, assigned_slot, published, status, created_at, updated_at FROM events.event_positions WHERE event_id = $1 ORDER BY assigned_slot ASC NULLS LAST"
-    )
-    .bind(&event_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let after = events_repo::list_event_positions_all(db, &event_id).await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(

@@ -7,7 +7,7 @@ info:
 
 http:
   method: POST
-  url: "{{baseUrl}}/api/v1/user/visit-artcc"
+  url: "{{baseUrl}}/api/v1/users/visit-artcc"
   body:
     type: json
     data: |-
@@ -27,7 +27,7 @@ examples:
   - name: 200 Response
     description: Visitor roster membership upserted
     request:
-      url: "{{baseUrl}}/api/v1/user/visit-artcc"
+      url: "{{baseUrl}}/api/v1/users/visit-artcc"
       method: POST
       body:
         type: json
@@ -55,7 +55,7 @@ examples:
   - name: 400 Response
     description: Invalid request
     request:
-      url: "{{baseUrl}}/api/v1/user/visit-artcc"
+      url: "{{baseUrl}}/api/v1/users/visit-artcc"
       method: POST
       body:
         type: json
@@ -73,7 +73,7 @@ examples:
   - name: 401 Response
     description: Not authenticated
     request:
-      url: "{{baseUrl}}/api/v1/user/visit-artcc"
+      url: "{{baseUrl}}/api/v1/users/visit-artcc"
       method: POST
       body:
         type: json

@@ -8,9 +8,9 @@ use crate::{
     config::{build_cors_layer, dev_impersonation_enabled, dev_seed_enabled},
     docs,
     handlers::{
-        admin, api_keys, auth, dev, docs as docs_handlers, emails, event_ops, events, feedback,
-        files, health, incidents, integrations, org, publications, stats, training, training_admin,
-        users,
+        admin, api_keys, auth, broadcasts, dev, docs as docs_handlers, emails, event_ops, events,
+        feedback, files, health, incidents, integrations, org, publications, stats, training,
+        training_admin, users, welcome_messages,
     },
     state::AppState,
 };
@@ -45,6 +45,27 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::delete(org::delete_staffing_request),
         )
         .route("/sua", get(org::admin_list_sua_requests))
+        .route(
+            "/stats/prefixes",
+            get(stats::get_statistics_prefixes).patch(stats::update_statistics_prefixes),
+        )
+        .route(
+            "/broadcasts",
+            get(broadcasts::list_broadcasts).post(broadcasts::create_broadcast),
+        )
+        .route(
+            "/broadcasts/{broadcast_id}",
+            patch(broadcasts::update_broadcast).delete(broadcasts::delete_broadcast),
+        )
+        .route(
+            "/welcome-messages",
+            get(welcome_messages::get_welcome_message_content)
+                .patch(welcome_messages::update_welcome_message_content),
+        )
+        .route(
+            "/emails/branding",
+            get(emails::get_email_branding).patch(emails::update_email_branding),
+        )
         .route(
             "/notifications/announcements",
             post(integrations::queue_announcement),
@@ -286,6 +307,27 @@ pub fn build_router(state: AppState) -> Router {
             patch(training::update_lesson).delete(training::delete_lesson),
         )
         .route(
+            "/lessons/{lesson_id}/rubric",
+            get(training::get_lesson_rubric),
+        )
+        .route(
+            "/lessons/{lesson_id}/rubric-criteria",
+            post(training::create_lesson_rubric_criteria),
+        )
+        .route(
+            "/lessons/{lesson_id}/rubric-criteria/{criteria_id}",
+            patch(training::update_lesson_rubric_criteria)
+                .delete(training::delete_lesson_rubric_criteria),
+        )
+        .route(
+            "/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells",
+            post(training::create_lesson_rubric_cell),
+        )
+        .route(
+            "/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells/{cell_id}",
+            patch(training::update_lesson_rubric_cell).delete(training::delete_lesson_rubric_cell),
+        )
+        .route(
             "/appointments",
             get(training::list_training_appointments).post(training::create_training_appointment),
         )
@@ -359,6 +401,17 @@ pub fn build_router(state: AppState) -> Router {
     let loa_routes = Router::new()
         .route("/me", get(org::list_my_loas).post(org::create_loa))
         .route("/{loa_id}", patch(org::update_loa));
+
+    let broadcast_routes = Router::new()
+        .route("/me", get(broadcasts::list_my_broadcasts))
+        .route(
+            "/{broadcast_id}/seen",
+            post(broadcasts::mark_broadcast_seen),
+        )
+        .route(
+            "/{broadcast_id}/agree",
+            post(broadcasts::mark_broadcast_agreed),
+        );
 
     let staffing_request_routes = Router::new().route(
         "/me",
@@ -438,6 +491,14 @@ pub fn build_router(state: AppState) -> Router {
             get(stats::get_controller_totals),
         )
         .route(
+            "/welcome-message",
+            get(welcome_messages::get_my_welcome_message),
+        )
+        .route(
+            "/welcome-message/ack",
+            post(welcome_messages::acknowledge_welcome_message),
+        )
+        .route(
             "/users/{cid}/solo-certifications",
             get(org::get_user_solo_certifications),
         )
@@ -451,6 +512,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .nest("/admin", admin_routes)
         .nest("/api-keys", api_keys_routes)
+        .nest("/broadcasts", broadcast_routes)
         .nest("/emails", email_routes)
         .nest("/events", event_routes)
         .nest("/feedback", feedback_routes)
@@ -460,7 +522,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/staffing-requests", staffing_request_routes)
         .nest("/sua", sua_routes)
         .nest("/training", training_routes)
-        .nest("/user", user_routes);
+        .nest("/users", user_routes);
 
     if dev_impersonation_enabled() {
         api = api.route("/auth/login/as/{cid}", get(auth::login_as_cid));

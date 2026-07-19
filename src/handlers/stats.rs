@@ -1,213 +1,24 @@
-use axum::extract::{Path, Query, State};
-use chrono::{DateTime, Datelike, Utc};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use utoipa::ToSchema;
+use axum::{
+    Extension, Json,
+    extract::{Path, Query, State},
+    http::HeaderMap,
+};
+use chrono::{Datelike, Utc};
 
+use crate::auth::context::{CurrentServiceAccount, CurrentUser};
+use crate::auth::permissions::{StatsPrefixesRead, StatsPrefixesUpdate};
+use crate::auth::require_permission::RequirePermission;
+use crate::models::stats::{
+    ArtccStatsQuery, ArtccStatsResponse, ControllerEventItem, ControllerEventsQuery,
+    ControllerEventsResponse, ControllerHistoryQuery, ControllerHistoryResponse, ControllerLeader,
+    ControllerTotals, ControllerTotalsResponse, MonthlyBucket, StatisticsPrefixes,
+    UpdateStatisticsPrefixesRequest,
+};
+use crate::repos::audit as audit_repo;
+use crate::repos::stats as stats_repo;
+use crate::repos::stats::{ControllerIdentityRow, ControllerTotalsRow};
 use crate::time::{ApiJson, ResponseTimeContext};
 use crate::{errors::ApiError, jobs::stats_sync::parse_environment, state::AppState};
-
-#[derive(Deserialize, ToSchema)]
-pub struct ArtccStatsQuery {
-    pub environment: Option<String>,
-    pub all_time: Option<bool>,
-    pub month: Option<i32>,
-    pub year: Option<i32>,
-    pub top: Option<i64>,
-    pub limit: Option<i64>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ArtccStatsResponse {
-    pub environment: String,
-    pub label: String,
-    pub all_time: bool,
-    pub month: Option<i32>,
-    pub year: Option<i32>,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub updated_at: Option<DateTime<Utc>>,
-    pub controller_count: i64,
-    pub summary: ArtccSummary,
-    pub leaders: Vec<ControllerLeader>,
-    pub controllers: Vec<ControllerTotals>,
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct ControllerHistoryQuery {
-    pub environment: Option<String>,
-    pub year: Option<i32>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ControllerHistoryResponse {
-    pub environment: String,
-    pub cid: i64,
-    pub name: String,
-    pub rating: Option<String>,
-    pub year: i32,
-    pub months: Vec<MonthlyBucket>,
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct ControllerEventsQuery {
-    pub environment: Option<String>,
-    pub after_id: Option<i64>,
-    pub limit: Option<i64>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ControllerEventsResponse {
-    pub environment: String,
-    pub events: Vec<ControllerEventItem>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ControllerEventItem {
-    pub id: i64,
-    pub environment: String,
-    pub event_type: String,
-    pub cid: i64,
-    pub user_id: Option<String>,
-    pub session_id: Option<String>,
-    pub activation_id: Option<String>,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub occurred_at: DateTime<Utc>,
-    pub payload: Value,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ControllerTotalsResponse {
-    pub environment: String,
-    pub cid: i64,
-    pub name: String,
-    pub rating: Option<String>,
-    pub online_hours: f64,
-    pub delivery_hours: f64,
-    pub ground_hours: f64,
-    pub tower_hours: f64,
-    pub tracon_hours: f64,
-    pub center_hours: f64,
-    pub active_hours: f64,
-    pub total_hours: f64,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub last_activity_at: Option<DateTime<Utc>>,
-    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Serialize, Clone, ToSchema)]
-pub struct MonthlyBucket {
-    pub month: i32,
-    pub online_hours: f64,
-    pub delivery_hours: f64,
-    pub ground_hours: f64,
-    pub tower_hours: f64,
-    pub tracon_hours: f64,
-    pub center_hours: f64,
-    pub active_hours: f64,
-    pub total_hours: f64,
-}
-
-#[derive(Serialize, sqlx::FromRow, ToSchema)]
-pub struct ArtccSummary {
-    pub online_hours: f64,
-    pub delivery_hours: f64,
-    pub ground_hours: f64,
-    pub tower_hours: f64,
-    pub tracon_hours: f64,
-    pub center_hours: f64,
-    pub active_hours: f64,
-    pub total_hours: f64,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ControllerLeader {
-    pub rank: i32,
-    pub cid: i64,
-    pub name: String,
-    pub rating: Option<String>,
-    pub online_hours: f64,
-    pub active_hours: f64,
-}
-
-#[derive(Serialize, Clone, ToSchema)]
-pub struct ControllerTotals {
-    pub cid: i64,
-    pub name: String,
-    pub rating: Option<String>,
-    pub online_hours: f64,
-    pub delivery_hours: f64,
-    pub ground_hours: f64,
-    pub tower_hours: f64,
-    pub tracon_hours: f64,
-    pub center_hours: f64,
-    pub active_hours: f64,
-    pub total_hours: f64,
-}
-
-#[derive(sqlx::FromRow)]
-struct ControllerTotalsRow {
-    cid: i64,
-    display_name: Option<String>,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    rating: Option<String>,
-    online_hours: f64,
-    delivery_hours: f64,
-    ground_hours: f64,
-    tower_hours: f64,
-    tracon_hours: f64,
-    center_hours: f64,
-    active_hours: f64,
-    total_hours: f64,
-}
-
-#[derive(sqlx::FromRow)]
-struct ControllerIdentityRow {
-    cid: i64,
-    display_name: Option<String>,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    rating: Option<String>,
-}
-
-#[derive(sqlx::FromRow)]
-struct MonthlyBucketRow {
-    month: i32,
-    online_hours: f64,
-    delivery_hours: f64,
-    ground_hours: f64,
-    tower_hours: f64,
-    tracon_hours: f64,
-    center_hours: f64,
-    active_hours: f64,
-    total_hours: f64,
-}
-
-#[derive(sqlx::FromRow)]
-struct ControllerTotalsAggregateRow {
-    online_hours: f64,
-    delivery_hours: f64,
-    ground_hours: f64,
-    tower_hours: f64,
-    tracon_hours: f64,
-    center_hours: f64,
-    active_hours: f64,
-    total_hours: f64,
-}
-
-#[derive(sqlx::FromRow)]
-struct ControllerEventRow {
-    id: i64,
-    environment: String,
-    event_type: String,
-    cid: i64,
-    user_id: Option<String>,
-    session_id: Option<String>,
-    activation_id: Option<String>,
-    occurred_at: DateTime<Utc>,
-    payload: Value,
-}
 
 #[utoipa::path(
     get,
@@ -253,122 +64,35 @@ pub async fn get_artcc_stats(
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let query_limit = std::cmp::max(limit, top as i64);
 
-    let updated_at = last_feed_updated_at(pool, environment.as_str()).await?;
+    let updated_at = stats_repo::last_feed_updated_at(pool, environment.as_str()).await?;
 
-    let controller_count = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(distinct cid)::bigint
-        from stats.controller_monthly_rollups
-        where environment = $1
-          and ($2::boolean = true or year = $3)
-          and ($4::int is null or month = $4)
-        "#,
+    let controller_count = stats_repo::count_controllers(
+        pool,
+        environment.as_str(),
+        all_time,
+        selected_year,
+        month_zero_based,
     )
-    .bind(environment.as_str())
-    .bind(all_time)
-    .bind(selected_year)
-    .bind(month_zero_based)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
-    let summary = sqlx::query_as::<_, ArtccSummary>(
-        r#"
-        select
-            coalesce(sum(online_seconds), 0)::float8 / 3600.0 as online_hours,
-            coalesce(sum(delivery_seconds), 0)::float8 / 3600.0 as delivery_hours,
-            coalesce(sum(ground_seconds), 0)::float8 / 3600.0 as ground_hours,
-            coalesce(sum(tower_seconds), 0)::float8 / 3600.0 as tower_hours,
-            coalesce(sum(tracon_seconds), 0)::float8 / 3600.0 as tracon_hours,
-            coalesce(sum(center_seconds), 0)::float8 / 3600.0 as center_hours,
-            (
-                coalesce(sum(delivery_seconds), 0) +
-                coalesce(sum(ground_seconds), 0) +
-                coalesce(sum(tower_seconds), 0) +
-                coalesce(sum(tracon_seconds), 0) +
-                coalesce(sum(center_seconds), 0)
-            )::float8 / 3600.0 as active_hours,
-            (
-                coalesce(sum(delivery_seconds), 0) +
-                coalesce(sum(ground_seconds), 0) +
-                coalesce(sum(tower_seconds), 0) +
-                coalesce(sum(tracon_seconds), 0) +
-                coalesce(sum(center_seconds), 0)
-            )::float8 / 3600.0 as total_hours
-        from stats.controller_monthly_rollups
-        where environment = $1
-          and ($2::boolean = true or year = $3)
-          and ($4::int is null or month = $4)
-        "#,
+    let summary = stats_repo::fetch_artcc_summary(
+        pool,
+        environment.as_str(),
+        all_time,
+        selected_year,
+        month_zero_based,
     )
-    .bind(environment.as_str())
-    .bind(all_time)
-    .bind(selected_year)
-    .bind(month_zero_based)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
-    let controller_rows = sqlx::query_as::<_, ControllerTotalsRow>(
-        r#"
-        with rollups as (
-            select
-                cid,
-                coalesce(sum(online_seconds), 0)::float8 / 3600.0 as online_hours,
-                coalesce(sum(delivery_seconds), 0)::float8 / 3600.0 as delivery_hours,
-                coalesce(sum(ground_seconds), 0)::float8 / 3600.0 as ground_hours,
-                coalesce(sum(tower_seconds), 0)::float8 / 3600.0 as tower_hours,
-                coalesce(sum(tracon_seconds), 0)::float8 / 3600.0 as tracon_hours,
-                coalesce(sum(center_seconds), 0)::float8 / 3600.0 as center_hours,
-                (
-                    coalesce(sum(delivery_seconds), 0) +
-                    coalesce(sum(ground_seconds), 0) +
-                    coalesce(sum(tower_seconds), 0) +
-                    coalesce(sum(tracon_seconds), 0) +
-                    coalesce(sum(center_seconds), 0)
-                )::float8 / 3600.0 as active_hours
-            from stats.controller_monthly_rollups
-            where environment = $1
-              and ($2::boolean = true or year = $3)
-              and ($4::int is null or month = $4)
-            group by cid
-        )
-        select
-            r.cid,
-            p.display_name,
-            p.first_name,
-            p.last_name,
-            coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating,
-            r.online_hours,
-            r.delivery_hours,
-            r.ground_hours,
-            r.tower_hours,
-            r.tracon_hours,
-            r.center_hours,
-            r.active_hours,
-            r.active_hours as total_hours
-        from rollups r
-        left join org.v_user_roster_profile p on p.cid = r.cid
-        left join lateral (
-            select real_name, user_rating, requested_rating
-            from stats.controller_sessions
-            where environment = $1 and cid = r.cid
-            order by login_at desc
-            limit 1
-        ) latest on true
-        where r.online_hours > 0 or r.active_hours > 0
-        order by r.online_hours desc, r.cid asc
-        limit $5
-        "#,
+    let controller_rows = stats_repo::list_controller_totals_rows(
+        pool,
+        environment.as_str(),
+        all_time,
+        selected_year,
+        month_zero_based,
+        query_limit,
     )
-    .bind(environment.as_str())
-    .bind(all_time)
-    .bind(selected_year)
-    .bind(month_zero_based)
-    .bind(query_limit)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let all_controllers = controller_rows
         .iter()
@@ -423,7 +147,8 @@ pub async fn get_artcc_stats(
     ),
     responses(
         (status = 200, description = "Controller monthly history", body = ControllerHistoryResponse),
-        (status = 400, description = "Invalid query")
+        (status = 400, description = "Invalid query"),
+        (status = 404, description = "Controller not found")
     )
 )]
 pub async fn get_controller_history(
@@ -440,46 +165,11 @@ pub async fn get_controller_history(
         return Err(ApiError::BadRequest);
     }
 
-    let user = fetch_controller_identity(pool, environment.as_str(), cid)
+    let user = stats_repo::fetch_controller_identity(pool, environment.as_str(), cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
-    let rows = sqlx::query_as::<_, MonthlyBucketRow>(
-        r#"
-        select
-            month,
-            coalesce(sum(online_seconds), 0)::float8 / 3600.0 as online_hours,
-            coalesce(sum(delivery_seconds), 0)::float8 / 3600.0 as delivery_hours,
-            coalesce(sum(ground_seconds), 0)::float8 / 3600.0 as ground_hours,
-            coalesce(sum(tower_seconds), 0)::float8 / 3600.0 as tower_hours,
-            coalesce(sum(tracon_seconds), 0)::float8 / 3600.0 as tracon_hours,
-            coalesce(sum(center_seconds), 0)::float8 / 3600.0 as center_hours,
-            (
-                coalesce(sum(delivery_seconds), 0) +
-                coalesce(sum(ground_seconds), 0) +
-                coalesce(sum(tower_seconds), 0) +
-                coalesce(sum(tracon_seconds), 0) +
-                coalesce(sum(center_seconds), 0)
-            )::float8 / 3600.0 as active_hours,
-            (
-                coalesce(sum(delivery_seconds), 0) +
-                coalesce(sum(ground_seconds), 0) +
-                coalesce(sum(tower_seconds), 0) +
-                coalesce(sum(tracon_seconds), 0) +
-                coalesce(sum(center_seconds), 0)
-            )::float8 / 3600.0 as total_hours
-        from stats.controller_monthly_rollups
-        where environment = $1 and cid = $2 and year = $3
-        group by month
-        order by month asc
-        "#,
-    )
-    .bind(environment.as_str())
-    .bind(cid)
-    .bind(year)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let rows = stats_repo::list_monthly_buckets(pool, environment.as_str(), cid, year).await?;
 
     let mut months = (1..=12)
         .map(|month| MonthlyBucket {
@@ -535,7 +225,8 @@ pub async fn get_controller_history(
     ),
     responses(
         (status = 200, description = "Controller aggregate totals", body = ControllerTotalsResponse),
-        (status = 400, description = "Invalid request")
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Controller not found")
     )
 )]
 pub async fn get_controller_totals(
@@ -547,61 +238,17 @@ pub async fn get_controller_totals(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let environment = parse_environment(query.environment.as_deref())?;
 
-    let user = fetch_controller_identity(pool, environment.as_str(), cid)
+    let user = stats_repo::fetch_controller_identity(pool, environment.as_str(), cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
-    let totals = sqlx::query_as::<_, ControllerTotalsAggregateRow>(
-        r#"
-        select
-            coalesce(sum(online_seconds), 0)::float8 / 3600.0 as online_hours,
-            coalesce(sum(delivery_seconds), 0)::float8 / 3600.0 as delivery_hours,
-            coalesce(sum(ground_seconds), 0)::float8 / 3600.0 as ground_hours,
-            coalesce(sum(tower_seconds), 0)::float8 / 3600.0 as tower_hours,
-            coalesce(sum(tracon_seconds), 0)::float8 / 3600.0 as tracon_hours,
-            coalesce(sum(center_seconds), 0)::float8 / 3600.0 as center_hours,
-            (
-                coalesce(sum(delivery_seconds), 0) +
-                coalesce(sum(ground_seconds), 0) +
-                coalesce(sum(tower_seconds), 0) +
-                coalesce(sum(tracon_seconds), 0) +
-                coalesce(sum(center_seconds), 0)
-            )::float8 / 3600.0 as active_hours,
-            (
-                coalesce(sum(delivery_seconds), 0) +
-                coalesce(sum(ground_seconds), 0) +
-                coalesce(sum(tower_seconds), 0) +
-                coalesce(sum(tracon_seconds), 0) +
-                coalesce(sum(center_seconds), 0)
-            )::float8 / 3600.0 as total_hours
-        from stats.controller_monthly_rollups
-        where environment = $1 and cid = $2
-        "#,
-    )
-    .bind(environment.as_str())
-    .bind(cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let totals =
+        stats_repo::fetch_controller_totals_aggregate(pool, environment.as_str(), cid).await?;
 
-    let last_activity_at = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
-        r#"
-        select nullif(
-            greatest(
-                coalesce((select max(coalesce(ended_at, started_at)) from stats.controller_activations where environment = $1 and cid = $2), '-infinity'::timestamptz),
-                coalesce((select max(coalesce(logout_at, login_at)) from stats.controller_sessions where environment = $1 and cid = $2), '-infinity'::timestamptz)
-            ),
-            '-infinity'::timestamptz
-        )
-        "#,
-    )
-    .bind(environment.as_str())
-    .bind(cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let last_activity_at =
+        stats_repo::fetch_last_activity_at(pool, environment.as_str(), cid).await?;
 
-    let updated_at = last_feed_updated_at(pool, environment.as_str()).await?;
+    let updated_at = stats_repo::last_feed_updated_at(pool, environment.as_str()).await?;
 
     Ok(ApiJson::new(
         ControllerTotalsResponse {
@@ -649,30 +296,8 @@ pub async fn list_controller_events(
     let after_id = query.after_id.unwrap_or(0);
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let rows = sqlx::query_as::<_, ControllerEventRow>(
-        r#"
-        select
-            id,
-            environment,
-            event_type,
-            cid,
-            user_id,
-            session_id,
-            activation_id,
-            occurred_at,
-            payload
-        from stats.controller_events
-        where environment = $1 and id > $2
-        order by id asc
-        limit $3
-        "#,
-    )
-    .bind(environment.as_str())
-    .bind(after_id)
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let rows =
+        stats_repo::list_controller_events(pool, environment.as_str(), after_id, limit).await?;
 
     Ok(ApiJson::new(
         ControllerEventsResponse {
@@ -696,50 +321,105 @@ pub async fn list_controller_events(
     ))
 }
 
-async fn fetch_controller_identity(
-    pool: &sqlx::PgPool,
-    environment: &str,
-    cid: i64,
-) -> Result<Option<ControllerIdentityRow>, ApiError> {
-    sqlx::query_as::<_, ControllerIdentityRow>(
-        r#"
-        select
-            coalesce(p.cid, latest.cid, input.cid) as cid,
-            p.display_name,
-            p.first_name,
-            p.last_name,
-            coalesce(p.rating, latest.user_rating, latest.requested_rating) as rating
-        from (select $2::bigint as cid) input
-        left join lateral (
-            select cid, user_rating, requested_rating
-            from stats.controller_sessions
-            where environment = $1 and cid = $2
-            order by login_at desc
-            limit 1
-        ) latest on true
-        left join org.v_user_roster_profile p on p.cid = coalesce(latest.cid, input.cid)
-        where p.cid is not null or latest.cid is not null
-        "#,
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/stats/prefixes",
+    tag = "stats",
+    responses(
+        (status = 200, description = "Statistics prefixes", body = StatisticsPrefixes),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Statistics prefixes not configured")
     )
-    .bind(environment)
-    .bind(cid)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
+)]
+pub async fn get_statistics_prefixes(
+    State(state): State<AppState>,
+    _permission: RequirePermission<StatsPrefixesRead>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StatisticsPrefixes>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let prefixes = stats_repo::fetch_statistics_prefixes(pool)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    Ok(ApiJson::new(prefixes, time))
 }
 
-async fn last_feed_updated_at(
-    pool: &sqlx::PgPool,
-    environment: &str,
-) -> Result<Option<DateTime<Utc>>, ApiError> {
-    sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
-        "select last_source_updated_at from stats.controller_feed_state where environment = $1",
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/stats/prefixes",
+    tag = "stats",
+    request_body = UpdateStatisticsPrefixesRequest,
+    responses(
+        (status = 200, description = "Statistics prefixes updated", body = StatisticsPrefixes),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
     )
-    .bind(environment)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
-    .map(|value| value.flatten())
+)]
+pub async fn update_statistics_prefixes(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<StatsPrefixesUpdate>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<UpdateStatisticsPrefixesRequest>,
+) -> Result<ApiJson<StatisticsPrefixes>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let prefixes = normalize_prefixes(&payload.prefixes)?;
+
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+
+    let before = stats_repo::fetch_statistics_prefixes(&mut *tx).await?;
+
+    let after = stats_repo::upsert_statistics_prefixes(&mut *tx, &prefixes, Utc::now()).await?;
+
+    let actor = audit_repo::resolve_audit_actor(
+        &mut *tx,
+        current_user.as_ref(),
+        current_service_account.as_ref(),
+    )
+    .await?;
+    audit_repo::record_audit(
+        &mut *tx,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "STATISTICS_PREFIXES".to_string(),
+            resource_id: Some(after.id.clone()),
+            scope_type: "web".to_string(),
+            scope_key: Some(after.id.clone()),
+            before_state: before
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
+            after_state: Some(audit_repo::sanitized_snapshot(&after)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(ApiJson::new(after, time))
+}
+
+fn normalize_prefixes(prefixes: &[String]) -> Result<Vec<String>, ApiError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut normalized = Vec::with_capacity(prefixes.len());
+
+    for prefix in prefixes {
+        let prefix = prefix.trim().to_ascii_uppercase();
+        if prefix.is_empty() {
+            return Err(ApiError::BadRequest);
+        }
+        if seen.insert(prefix.clone()) {
+            normalized.push(prefix);
+        }
+    }
+
+    Ok(normalized)
 }
 
 fn row_to_controller_totals(row: &ControllerTotalsRow) -> ControllerTotals {
