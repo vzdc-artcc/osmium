@@ -1,31 +1,14 @@
 use maud::html;
 use serde_json::Value;
 
+use crate::email::branding::EmailTheme;
 use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
+use crate::email::rsx::validate::{optional_string, required_string};
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
 use super::RsxTemplate;
-
-fn required_string(payload: &Value, key: &str) -> Result<String, ApiError> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .ok_or(ApiError::BadRequest)
-}
-
-fn optional_string(payload: &Value, key: &str) -> Option<String> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-}
 
 pub struct AppointmentScheduledTemplate;
 
@@ -37,6 +20,7 @@ impl RsxTemplate for AppointmentScheduledTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
@@ -65,7 +49,7 @@ impl RsxTemplate for AppointmentScheduledTemplate {
 
         let cta = details_url.as_deref().map(|url| ("View appointment", url));
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("Training scheduled for {appointment_start}"))
             .heading("Appointment Scheduled")
             .unsubscribe_link(unsubscribe_link)
@@ -103,6 +87,7 @@ impl RsxTemplate for AppointmentCanceledTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
@@ -131,7 +116,7 @@ impl RsxTemplate for AppointmentCanceledTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader("Training appointment canceled")
             .heading("Appointment Canceled")
             .unsubscribe_link(unsubscribe_link)
@@ -171,6 +156,7 @@ impl RsxTemplate for AppointmentUpdatedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
@@ -198,7 +184,7 @@ impl RsxTemplate for AppointmentUpdatedTemplate {
 
         let cta = details_url.as_deref().map(|url| ("View appointment", url));
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("Training rescheduled to {appointment_start}"))
             .heading("Appointment Updated")
             .unsubscribe_link(unsubscribe_link)
@@ -234,6 +220,7 @@ impl RsxTemplate for AppointmentWarningTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let _student_name = required_string(payload, "student_name")?;
@@ -260,7 +247,7 @@ impl RsxTemplate for AppointmentWarningTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("Reminder: Training with {trainer_name}"))
             .heading("Appointment Reminder")
             .unsubscribe_link(unsubscribe_link)
@@ -302,6 +289,7 @@ impl RsxTemplate for SessionCreatedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let student_name = required_string(payload, "student_name")?;
@@ -330,7 +318,7 @@ impl RsxTemplate for SessionCreatedTemplate {
 
         let cta = details_url.as_deref().map(|url| ("View session", url));
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("Training session recorded on {session_date}"))
             .heading("Session Recorded")
             .unsubscribe_link(unsubscribe_link)

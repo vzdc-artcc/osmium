@@ -13,21 +13,21 @@ use crate::{
     errors::ApiError,
     jobs::roster_sync,
     models::{
-        CreateVisitorApplicationRequest, FeedbackItem, ListUsersQuery,
+        CreateVisitorApplicationRequest, ListUsersQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
         ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
         PaginationQuery, RosterUserRow, UserBasicInfo, UserDetailsResponse,
         UserFeedbackListResponse, UserFeedbackQuery, UserFullInfo, UserListItem, UserListResponse,
         UserPrivateInfo, VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
     },
-    repos::{audit as audit_repo, users as user_repo},
+    repos::{audit as audit_repo, feedback as feedback_repo, users as user_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
 
 #[utoipa::path(
     get,
-    path = "/api/v1/user",
+    path = "/api/v1/users",
     tag = "users",
     params(PaginationQuery),
     responses(
@@ -76,17 +76,12 @@ pub async fn list_users(
         })
         .collect();
 
-    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    let pagination_meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         UserListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: pagination_meta,
         },
         time,
     ))
@@ -94,15 +89,15 @@ pub async fn list_users(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/user/{cid}",
+    path = "/api/v1/users/{cid}",
     tag = "users",
     params(
         ("cid" = i64, Path, description = "VATSIM CID")
     ),
     responses(
         (status = 200, description = "User details", body = UserDetailsResponse),
-        (status = 400, description = "Invalid CID"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "User not found")
     )
 )]
 pub async fn get_user(
@@ -116,7 +111,7 @@ pub async fn get_user(
 
     let row = user_repo::find_roster_user_by_cid(pool, cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     Ok(ApiJson::new(
         build_user_details_response(&state, viewer, row).await?,
@@ -126,7 +121,7 @@ pub async fn get_user(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/user/visit-artcc",
+    path = "/api/v1/users/visit-artcc",
     tag = "users",
     request_body = VisitArtccRequest,
     responses(
@@ -197,7 +192,7 @@ pub async fn visit_artcc(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/user/refresh-vatusa",
+    path = "/api/v1/users/refresh-vatusa",
     tag = "users",
     responses(
         (status = 200, description = "Current user refreshed from VATUSA", body = ManualVatusaRefreshResponseBody),
@@ -273,7 +268,7 @@ pub async fn refresh_my_vatusa(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/user/visitor-application",
+    path = "/api/v1/users/visitor-application",
     tag = "users",
     responses(
         (status = 200, description = "Current user's visitor application, or null when absent", body = Option<VisitorApplicationItem>),
@@ -304,7 +299,7 @@ pub async fn get_my_visitor_application(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/user/visitor-application",
+    path = "/api/v1/users/visitor-application",
     tag = "users",
     request_body = CreateVisitorApplicationRequest,
     responses(
@@ -376,7 +371,7 @@ pub async fn create_visitor_application(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/user/{cid}/feedback",
+    path = "/api/v1/users/{cid}/feedback",
     tag = "users",
     params(
         ("cid" = i64, Path, description = "VATSIM CID"),
@@ -385,8 +380,8 @@ pub async fn create_visitor_application(
     ),
     responses(
         (status = 200, description = "Feedback for a user", body = UserFeedbackListResponse),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "User not found")
     )
 )]
 pub async fn get_user_feedback(
@@ -401,7 +396,7 @@ pub async fn get_user_feedback(
 
     let target = user_repo::find_user_identity_by_cid(pool, cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     if target.1 == viewer.cid {
         ensure_permission(
@@ -438,61 +433,24 @@ pub async fn get_user_feedback(
             }
         })?;
 
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from feedback.feedback_items
-        where target_user_id = $1
-          and ($2::text is null or status = $2)
-        "#,
-    )
-    .bind(&target.0)
-    .bind(normalized_status.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total =
+        feedback_repo::count_by_target(pool, &target.0, normalized_status.as_deref()).await?;
 
-    let items = sqlx::query_as::<_, FeedbackItem>(
-        r#"
-        select
-            id,
-            submitter_user_id,
-            target_user_id,
-            pilot_callsign,
-            controller_position,
-            rating,
-            comments,
-            staff_comments,
-            status,
-            submitted_at,
-            decided_at,
-            decided_by
-        from feedback.feedback_items
-        where target_user_id = $1
-          and ($2::text is null or status = $2)
-        order by submitted_at desc, id asc
-        limit $3 offset $4
-        "#,
+    let items = feedback_repo::list_by_target(
+        pool,
+        &target.0,
+        normalized_status.as_deref(),
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(&target.0)
-    .bind(normalized_status.as_deref())
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         UserFeedbackListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))

@@ -13,23 +13,27 @@ use axum::{
 };
 use hmac::digest::KeyInit as HmacKeyInit;
 use hmac::{Hmac, Mac};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+pub use crate::repos::files::FileAssetRow;
 use crate::{
     auth::{
         acl::{PermissionAction, PermissionPath, fetch_access_catalog, fetch_user_access},
         context::CurrentUser,
-        middleware::ensure_permission,
+        permissions::{
+            FilesAssetsCreate, FilesAssetsDelete, FilesAssetsRead, FilesAuditRead,
+            FilesContentCreate, FilesContentUpdate,
+        },
+        require_permission::RequirePermission,
     },
     errors::ApiError,
     models::{
-        FileAsset, FileAssetListResponse, ListFilesQuery, PaginationMeta, PaginationQuery,
+        CdnTokenQuery, FileAsset, FileAssetListResponse, FileAuditLogListResponse, FileAuditQuery,
+        ListFilesQuery, PaginationMeta, PaginationQuery, SignedUrlQuery, SignedUrlResponse,
         UpdateFileMetadataRequest, UploadFileQuery,
     },
-    repos::audit as audit_repo,
+    repos::{audit as audit_repo, files as files_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
@@ -37,92 +41,6 @@ use crate::{
 type HmacSha256 = Hmac<Sha256>;
 const ENCRYPTION_MAGIC: &[u8] = b"OSMENC1";
 const NONCE_LEN: usize = 12;
-
-#[derive(Clone, sqlx::FromRow)]
-struct FileAssetRow {
-    id: String,
-    filename: String,
-    content_type: String,
-    size_bytes: i64,
-    etag: String,
-    storage_key: String,
-    is_public: bool,
-    uploaded_by: String,
-    owner_user_id: Option<String>,
-    viewer_roles: Vec<String>,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
-pub struct FileAuditQuery {
-    file_id: Option<String>,
-    page: Option<i64>,
-    page_size: Option<i64>,
-    limit: Option<i64>,
-    offset: Option<i64>,
-}
-
-#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
-pub struct FileAuditLogItem {
-    id: String,
-    action: String,
-    file_id: Option<String>,
-    actor_user_id: Option<String>,
-    ip_address: String,
-    outcome: String,
-    details: serde_json::Value,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    created_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct FileAuditLogListResponse {
-    items: Vec<FileAuditLogItem>,
-    total: i64,
-    page: i64,
-    page_size: i64,
-    total_pages: i64,
-    has_next: bool,
-    has_prev: bool,
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct SignedUrlQuery {
-    expires_in: Option<i64>,
-    never_expire: Option<bool>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct SignedUrlResponse {
-    url: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    expires_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct CdnTokenQuery {
-    expires: Option<i64>,
-    sig: Option<String>,
-}
-
-impl From<FileAssetRow> for FileAsset {
-    fn from(row: FileAssetRow) -> Self {
-        Self {
-            id: row.id,
-            filename: row.filename,
-            content_type: row.content_type,
-            size_bytes: row.size_bytes,
-            etag: row.etag,
-            is_public: row.is_public,
-            uploaded_by: row.uploaded_by,
-            owner_user_id: row.owner_user_id,
-            viewer_roles: row.viewer_roles,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }
-    }
-}
 
 #[utoipa::path(
     get,
@@ -139,66 +57,30 @@ impl From<FileAssetRow> for FileAsset {
 )]
 pub async fn list_file_audit_logs(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FilesAuditRead>,
     Query(query): Query<FileAuditQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<FileAuditLogListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["files", "audit"], PermissionAction::Read),
-    )
-    .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(50, 250);
-    let total = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from media.file_audit_logs where ($1::text is null or file_id = $1)",
+    let total = files_repo::count_audit_logs(pool, query.file_id.as_deref()).await?;
+    let rows = files_repo::list_audit_logs(
+        pool,
+        query.file_id.as_deref(),
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(query.file_id.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let rows = sqlx::query_as::<_, FileAuditLogItem>(
-        r#"
-        select
-            id,
-            action,
-            file_id,
-            actor_user_id,
-            ip_address,
-            outcome,
-            coalesce(details, '{}'::jsonb) as details,
-            created_at
-        from media.file_audit_logs
-        where ($1::text is null or file_id = $1)
-        order by created_at desc, id asc
-        limit $2 offset $3
-        "#,
-    )
-    .bind(query.file_id.as_deref())
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         FileAuditLogListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -217,94 +99,35 @@ pub async fn list_file_audit_logs(
 pub async fn list_files(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FilesAssetsRead>,
     Query(query): Query<ListFilesQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<FileAssetListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    let can_read_metadata = permissions.contains(&PermissionPath::from_segments(
-        ["files", "assets"],
-        PermissionAction::Read,
-    ));
-    if !can_read_metadata {
-        return Err(ApiError::Unauthorized);
-    }
+    // RequirePermission<FilesAssetsRead> already enforced the read permission; this
+    // second fetch is only to get the caller's roles for visibility filtering below.
+    let (roles, _) = fetch_user_access(state.db.as_ref(), &user.id).await?;
 
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(50, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from media.file_assets fa
-        where fa.is_public
-           or fa.uploaded_by = $1
-           or fa.owner_user_id = $1
-           or fa.viewer_roles && $2::text[]
-           or exists (
-                select 1
-                from media.file_asset_allowed_users au
-                where au.file_id = fa.id
-                  and au.user_id = $1
-           )
-        "#,
+    let total = files_repo::count_visible_files(pool, &user.id, &roles).await?;
+    let rows = files_repo::list_visible_files(
+        pool,
+        &user.id,
+        &roles,
+        pagination.page_size,
+        pagination.offset,
     )
-    .bind(&user.id)
-    .bind(&roles)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
-
-    let rows = sqlx::query_as::<_, FileAssetRow>(
-        r#"
-        select
-            fa.id,
-            fa.filename,
-            fa.content_type,
-            fa.size_bytes,
-            fa.etag,
-            fa.storage_key,
-            fa.is_public,
-            fa.uploaded_by,
-            fa.owner_user_id,
-            fa.viewer_roles,
-            fa.created_at,
-            fa.updated_at
-        from media.file_assets fa
-        where fa.is_public
-           or fa.uploaded_by = $1
-           or fa.owner_user_id = $1
-           or fa.viewer_roles && $2::text[]
-           or exists (
-                select 1
-                from media.file_asset_allowed_users au
-                where au.file_id = fa.id
-                  and au.user_id = $1
-           )
-        order by fa.created_at desc, fa.id asc
-        limit $3 offset $4
-        "#,
-    )
-    .bind(&user.id)
-    .bind(&roles)
-    .bind(pagination.page_size)
-    .bind(pagination.offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
     Ok(ApiJson::new(
         FileAssetListResponse {
             items: rows.into_iter().map(FileAsset::from).collect(),
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -325,19 +148,21 @@ pub async fn list_files(
     responses(
         (status = 201, description = "File uploaded", body = FileAsset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "owner_cid does not reference an existing user")
     )
 )]
 pub async fn upload_file(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _asset_permission: RequirePermission<FilesAssetsCreate>,
+    _content_permission: RequirePermission<FilesContentCreate>,
     Query(query): Query<UploadFileQuery>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     body: Bytes,
 ) -> Result<(StatusCode, ApiJson<FileAsset>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_can_upload(&state, user).await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let ip_address = client_ip(&headers);
 
@@ -371,7 +196,11 @@ pub async fn upload_file(
     }
 
     let owner_user_id = if let Some(owner_cid) = query.owner_cid {
-        Some(resolve_user_id_by_cid(pool, owner_cid).await?)
+        Some(
+            files_repo::resolve_user_id_by_cid(pool, owner_cid)
+                .await?
+                .ok_or(ApiError::NotFound)?,
+        )
     } else {
         None
     };
@@ -393,66 +222,24 @@ pub async fn upload_file(
     write_blob(&storage_key, &body).await?;
 
     let now = chrono::Utc::now();
-    let row = sqlx::query_as::<_, FileAssetRow>(
-        r#"
-        insert into media.file_assets (
-            id,
-            filename,
-            content_type,
-            size_bytes,
-            etag,
-            storage_key,
-            is_public,
-            uploaded_by,
-            owner_user_id,
-            viewer_roles,
-            created_at,
-            updated_at
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-        returning
-            id,
-            filename,
-            content_type,
-            size_bytes,
-            etag,
-            storage_key,
-            is_public,
-            uploaded_by,
-            owner_user_id,
-            viewer_roles,
-            created_at,
-            updated_at
-        "#,
+    let row = files_repo::insert_file_asset(
+        pool,
+        &file_id,
+        &filename,
+        &content_type,
+        body.len() as i64,
+        &etag,
+        &storage_key,
+        query.public.unwrap_or(true),
+        &user.id,
+        owner_user_id.as_deref(),
+        &viewer_roles,
+        now,
     )
-    .bind(&file_id)
-    .bind(&filename)
-    .bind(&content_type)
-    .bind(body.len() as i64)
-    .bind(&etag)
-    .bind(&storage_key)
-    .bind(query.public.unwrap_or(true))
-    .bind(&user.id)
-    .bind(owner_user_id)
-    .bind(&viewer_roles)
-    .bind(now)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     for allowed_user_id in &allowed_user_ids {
-        sqlx::query(
-            r#"
-            insert into media.file_asset_allowed_users (file_id, user_id)
-            values ($1, $2)
-            on conflict (file_id, user_id) do nothing
-            "#,
-        )
-        .bind(&file_id)
-        .bind(allowed_user_id)
-        .execute(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+        files_repo::insert_allowed_user(pool, &file_id, allowed_user_id).await?;
     }
 
     record_file_audit(
@@ -496,8 +283,8 @@ pub async fn upload_file(
     ),
     responses(
         (status = 200, description = "File metadata", body = FileAsset),
-        (status = 400, description = "Invalid file ID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "File not found")
     )
 )]
 pub async fn get_file_metadata(
@@ -508,9 +295,9 @@ pub async fn get_file_metadata(
 ) -> Result<ApiJson<FileAsset>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let row = fetch_file_row(pool, &file_id)
+    let row = files_repo::fetch_file_row(pool, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     ensure_can_read_file_metadata(&state, current_user.as_ref(), &row).await?;
 
@@ -527,7 +314,8 @@ pub async fn get_file_metadata(
     responses(
         (status = 200, description = "File content stream"),
         (status = 206, description = "Partial file content"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "File not found")
     )
 )]
 pub async fn download_file_content(
@@ -539,9 +327,9 @@ pub async fn download_file_content(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let ip_address = client_ip(&headers);
 
-    let row = fetch_file_row(pool, &file_id)
+    let row = files_repo::fetch_file_row(pool, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     ensure_can_read_file_content(&state, current_user.as_ref(), &row).await?;
     let response = stream_file_response(&row, headers.get(header::RANGE)).await?;
@@ -571,8 +359,8 @@ pub async fn download_file_content(
     ),
     responses(
         (status = 200, description = "Signed download URL", body = SignedUrlResponse),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "File not found")
     )
 )]
 pub async fn get_signed_download_url(
@@ -587,9 +375,9 @@ pub async fn get_signed_download_url(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let ip_address = client_ip(&headers);
 
-    let row = fetch_file_row(pool, &file_id)
+    let row = files_repo::fetch_file_row(pool, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     ensure_can_read_file_content(&state, Some(user), &row).await?;
 
@@ -642,7 +430,8 @@ pub async fn get_signed_download_url(
     responses(
         (status = 200, description = "CDN file download"),
         (status = 206, description = "Partial CDN file download"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "File not found")
     )
 )]
 pub async fn cdn_download_file(
@@ -655,9 +444,9 @@ pub async fn cdn_download_file(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let ip_address = client_ip(&headers);
 
-    let row = fetch_file_row(pool, &file_id)
+    let row = files_repo::fetch_file_row(pool, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     let token_valid = token_is_valid(&row.id, query.expires, query.sig.as_deref())?;
     if !row.is_public && !token_valid {
@@ -691,7 +480,8 @@ pub async fn cdn_download_file(
     responses(
         (status = 200, description = "Updated file metadata", body = FileAsset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "File not found")
     )
 )]
 pub async fn update_file_metadata(
@@ -705,15 +495,18 @@ pub async fn update_file_metadata(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let existing = fetch_file_row(pool, &file_id)
+    let existing = files_repo::fetch_file_row(pool, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let existing_asset: FileAsset = existing.clone().into();
     let changing_access_policy = payload.is_public.is_some()
         || payload.owner_cid.is_some()
         || payload.viewer_cids.is_some()
         || payload.viewer_roles.is_some();
 
+    // Not a RequirePermission<P> case: the permission actually required depends on
+    // which fields the request body touches (plain metadata vs. access-control
+    // fields), so the check can't be pinned to a single fixed PermissionPath.
     if changing_access_policy {
         ensure_can_update_file_policy(&state, user).await?;
     } else {
@@ -731,7 +524,11 @@ pub async fn update_file_metadata(
         .map(normalize_content_type_str)
         .transpose()?;
     let owner_user_id = match payload.owner_cid {
-        Some(cid) => Some(resolve_user_id_by_cid(pool, cid).await?),
+        Some(cid) => Some(
+            files_repo::resolve_user_id_by_cid(pool, cid)
+                .await?
+                .ok_or(ApiError::NotFound)?,
+        ),
         None => None,
     };
     let viewer_roles = match payload.viewer_roles.as_ref() {
@@ -745,62 +542,23 @@ pub async fn update_file_metadata(
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
 
-    let row = sqlx::query_as::<_, FileAssetRow>(
-        r#"
-        update media.file_assets
-        set filename = coalesce($1, filename),
-            content_type = coalesce($2, content_type),
-            is_public = coalesce($3, is_public),
-            owner_user_id = coalesce($4, owner_user_id),
-            viewer_roles = coalesce($5, viewer_roles),
-            updated_at = now()
-        where id = $6
-        returning
-            id,
-            filename,
-            content_type,
-            size_bytes,
-            etag,
-            storage_key,
-            is_public,
-            uploaded_by,
-            owner_user_id,
-            viewer_roles,
-            created_at,
-            updated_at
-        "#,
+    let row = files_repo::update_file_metadata(
+        &mut *tx,
+        &file_id,
+        filename.as_deref(),
+        content_type.as_deref(),
+        payload.is_public,
+        owner_user_id.as_deref(),
+        viewer_roles.as_deref(),
     )
-    .bind(filename)
-    .bind(content_type)
-    .bind(payload.is_public)
-    .bind(owner_user_id)
-    .bind(viewer_roles)
-    .bind(&file_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    .await?
+    .ok_or(ApiError::NotFound)?;
 
     if let Some(viewer_user_ids) = viewer_user_ids {
-        sqlx::query("delete from media.file_asset_allowed_users where file_id = $1")
-            .bind(&file_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+        files_repo::clear_allowed_users(&mut *tx, &file_id).await?;
 
         for viewer_user_id in viewer_user_ids {
-            sqlx::query(
-                r#"
-                insert into media.file_asset_allowed_users (file_id, user_id)
-                values ($1, $2)
-                on conflict (file_id, user_id) do nothing
-                "#,
-            )
-            .bind(&file_id)
-            .bind(viewer_user_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+            files_repo::insert_allowed_user(&mut *tx, &file_id, &viewer_user_id).await?;
         }
     }
 
@@ -843,12 +601,14 @@ pub async fn update_file_metadata(
     responses(
         (status = 200, description = "Replaced file content", body = FileAsset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "File not found")
     )
 )]
 pub async fn replace_file_content(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FilesContentUpdate>,
     Path(file_id): Path<String>,
     Query(query): Query<UploadFileQuery>,
     headers: HeaderMap,
@@ -867,11 +627,10 @@ pub async fn replace_file_content(
         return Err(ApiError::BadRequest);
     }
 
-    let existing = fetch_file_row(pool, &file_id)
+    let existing = files_repo::fetch_file_row(pool, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let existing_asset: FileAsset = existing.clone().into();
-    ensure_can_replace_file_content(&state, user).await?;
 
     let filename = query
         .filename
@@ -884,38 +643,15 @@ pub async fn replace_file_content(
 
     write_blob(&existing.storage_key, &body).await?;
 
-    let row = sqlx::query_as::<_, FileAssetRow>(
-        r#"
-        update media.file_assets
-        set filename = $1,
-            content_type = $2,
-            size_bytes = $3,
-            etag = $4,
-            updated_at = now()
-        where id = $5
-        returning
-            id,
-            filename,
-            content_type,
-            size_bytes,
-            etag,
-            storage_key,
-            is_public,
-            uploaded_by,
-            owner_user_id,
-            viewer_roles,
-            created_at,
-            updated_at
-        "#,
+    let row = files_repo::replace_file_content_row(
+        pool,
+        &file_id,
+        &filename,
+        &content_type,
+        body.len() as i64,
+        &etag,
     )
-    .bind(filename)
-    .bind(content_type)
-    .bind(body.len() as i64)
-    .bind(etag)
-    .bind(&file_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
 
     let updated_asset: FileAsset = row.into();
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
@@ -947,13 +683,14 @@ pub async fn replace_file_content(
     ),
     responses(
         (status = 204, description = "File deleted"),
-        (status = 400, description = "Invalid file ID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "File not found")
     )
 )]
 pub async fn delete_file(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<FilesAssetsDelete>,
     Path(file_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
@@ -961,20 +698,14 @@ pub async fn delete_file(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let ip_address = client_ip(&headers);
 
-    let existing = fetch_file_row(pool, &file_id)
+    let existing = files_repo::fetch_file_row(pool, &file_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let existing_asset: FileAsset = existing.clone().into();
-    ensure_can_delete_file(&state, user).await?;
 
-    let storage_key = sqlx::query_scalar::<_, String>(
-        "delete from media.file_assets where id = $1 returning storage_key",
-    )
-    .bind(&file_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?
-    .ok_or(ApiError::BadRequest)?;
+    let storage_key = files_repo::delete_file_asset(pool, &file_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     let full_path = storage_root().join(storage_key);
     match tokio::fs::remove_file(full_path).await {
@@ -1124,53 +855,6 @@ fn parse_range_header(
     Ok(Some((range_start, range_end.min(total_len - 1))))
 }
 
-async fn fetch_file_row(
-    pool: &sqlx::PgPool,
-    file_id: &str,
-) -> Result<Option<FileAssetRow>, ApiError> {
-    sqlx::query_as::<_, FileAssetRow>(
-        r#"
-        select
-            id,
-            filename,
-            content_type,
-            size_bytes,
-            etag,
-            storage_key,
-            is_public,
-            uploaded_by,
-            owner_user_id,
-            viewer_roles,
-            created_at,
-            updated_at
-        from media.file_assets
-        where id = $1
-        "#,
-    )
-    .bind(file_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
-}
-
-async fn ensure_can_upload(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {
-    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    let can_create_asset = permissions.contains(&PermissionPath::from_segments(
-        ["files", "assets"],
-        PermissionAction::Create,
-    ));
-    let can_create_content = permissions.contains(&PermissionPath::from_segments(
-        ["files", "content"],
-        PermissionAction::Create,
-    ));
-
-    if can_create_asset && can_create_content {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized)
-    }
-}
-
 async fn ensure_can_update_file_metadata(
     state: &AppState,
     user: &CurrentUser,
@@ -1178,21 +862,6 @@ async fn ensure_can_update_file_metadata(
     let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
     if permissions.contains(&PermissionPath::from_segments(
         ["files", "assets"],
-        PermissionAction::Update,
-    )) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized)
-    }
-}
-
-async fn ensure_can_replace_file_content(
-    state: &AppState,
-    user: &CurrentUser,
-) -> Result<(), ApiError> {
-    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    if permissions.contains(&PermissionPath::from_segments(
-        ["files", "content"],
         PermissionAction::Update,
     )) {
         Ok(())
@@ -1216,17 +885,10 @@ async fn ensure_can_update_file_policy(
     Err(ApiError::Unauthorized)
 }
 
-async fn ensure_can_delete_file(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {
-    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
-    if permissions.contains(&PermissionPath::from_segments(
-        ["files", "assets"],
-        PermissionAction::Delete,
-    )) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized)
-    }
-}
+// The following two checks are data-dependent (ownership/role/direct-grant on the
+// specific file row), so they stay as explicit in-handler checks rather than
+// RequirePermission<P> — the extractor only covers coarse-grained role/permission
+// gates, not per-row authorization.
 
 async fn ensure_can_read_file_metadata(
     state: &AppState,
@@ -1295,46 +957,17 @@ async fn user_can_access_file(
         return Ok(false);
     };
 
-    let has_direct_user_access = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from media.file_asset_allowed_users
-        where file_id = $1 and user_id = $2
-        "#,
-    )
-    .bind(&row.id)
-    .bind(&user.id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let has_direct_user_access =
+        files_repo::count_direct_user_access(pool, &row.id, &user.id).await?;
 
     Ok(has_direct_user_access > 0)
-}
-
-async fn resolve_user_id_by_cid(pool: &sqlx::PgPool, cid: i64) -> Result<String, ApiError> {
-    sqlx::query_scalar::<_, String>("select id from identity.users where cid = $1")
-        .bind(cid)
-        .fetch_optional(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?
-        .ok_or(ApiError::BadRequest)
 }
 
 async fn resolve_user_ids_by_cids(
     pool: &sqlx::PgPool,
     cids: &[i64],
 ) -> Result<Vec<String>, ApiError> {
-    if cids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let rows = sqlx::query_as::<_, (i64, String)>(
-        "select cid, id from identity.users where cid = any($1)",
-    )
-    .bind(cids)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let rows = files_repo::resolve_user_ids_by_cids(pool, cids).await?;
 
     if rows.len() != cids.len() {
         return Err(ApiError::BadRequest);
@@ -1449,29 +1082,16 @@ async fn record_file_audit(
     outcome: &str,
     details: serde_json::Value,
 ) {
-    let _ = sqlx::query(
-        r#"
-        insert into media.file_audit_logs (
-            id,
-            action,
-            file_id,
-            actor_user_id,
-            ip_address,
-            outcome,
-            details,
-            created_at
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, now())
-        "#,
+    let _ = files_repo::insert_audit_log(
+        pool,
+        &Uuid::new_v4().to_string(),
+        action,
+        file_id,
+        actor_user_id,
+        ip_address,
+        outcome,
+        details,
     )
-    .bind(Uuid::new_v4().to_string())
-    .bind(action)
-    .bind(file_id)
-    .bind(actor_user_id)
-    .bind(ip_address)
-    .bind(outcome)
-    .bind(details)
-    .execute(pool)
     .await;
 }
 

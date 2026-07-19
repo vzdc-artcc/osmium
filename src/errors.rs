@@ -17,6 +17,12 @@ pub enum ApiError {
     OAuthStateMismatch,
     #[error("unauthorized")]
     Unauthorized,
+    #[error("forbidden")]
+    Forbidden,
+    #[error("not found")]
+    NotFound,
+    #[error("conflict")]
+    Conflict,
     #[error("service unavailable")]
     ServiceUnavailable,
     #[error("internal server error")]
@@ -40,6 +46,9 @@ impl IntoResponse for ApiError {
             }
             Self::OAuthStateMismatch => (StatusCode::BAD_REQUEST, "oauth_state_mismatch"),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
+            Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
+            Self::Conflict => (StatusCode::CONFLICT, "conflict"),
             Self::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable"),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
         };
@@ -87,6 +96,42 @@ mod tests {
         assert_eq!(
             std::str::from_utf8(&body).unwrap(),
             r#"{"error":"oauth_login_origin_mismatch"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn forbidden_maps_to_403() {
+        let response = ApiError::Forbidden.into_response();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            std::str::from_utf8(&body).unwrap(),
+            r#"{"error":"forbidden"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn not_found_maps_to_404() {
+        let response = ApiError::NotFound.into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            std::str::from_utf8(&body).unwrap(),
+            r#"{"error":"not_found"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn conflict_maps_to_409() {
+        let response = ApiError::Conflict.into_response();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            std::str::from_utf8(&body).unwrap(),
+            r#"{"error":"conflict"}"#
         );
     }
 }

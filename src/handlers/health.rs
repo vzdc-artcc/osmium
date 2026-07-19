@@ -178,9 +178,9 @@ fn environment_health_body(
         last_success_at: stats.last_success_at,
         last_result_ok: stats.last_result_ok,
         last_error: stats.last_error.clone(),
-        processed: stats.processed,
-        online: stats.online,
-        source_updated_at: stats.source_updated_at,
+        processed: stats.metrics.processed,
+        online: stats.metrics.online,
+        source_updated_at: stats.metrics.source_updated_at,
     }
 }
 
@@ -206,11 +206,11 @@ fn roster_health_body(stats: &crate::state::RosterSyncHealth) -> RosterSyncHealt
         last_success_at: stats.last_success_at,
         last_result_ok: stats.last_result_ok,
         last_error: stats.last_error.clone(),
-        processed: stats.processed,
-        matched: stats.matched,
-        updated: stats.updated,
-        demoted: stats.demoted,
-        skipped: stats.skipped,
+        processed: stats.metrics.processed,
+        matched: stats.metrics.matched,
+        updated: stats.metrics.updated,
+        demoted: stats.metrics.demoted,
+        skipped: stats.metrics.skipped,
     }
 }
 
@@ -238,7 +238,7 @@ fn email_health_body(stats: &crate::email::EmailWorkerHealth) -> EmailWorkerHeal
         last_success_at: stats.last_success_at,
         last_result_ok: stats.last_result_ok,
         last_error: stats.last_error.clone(),
-        pending_count: stats.pending_count,
+        pending_count: stats.metrics.pending_count,
     }
 }
 

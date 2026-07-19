@@ -1,31 +1,14 @@
 use maud::html;
 use serde_json::Value;
 
+use crate::email::branding::EmailTheme;
 use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
+use crate::email::rsx::validate::{optional_string, required_string};
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
 use super::RsxTemplate;
-
-fn required_string(payload: &Value, key: &str) -> Result<String, ApiError> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .ok_or(ApiError::BadRequest)
-}
-
-fn optional_string(payload: &Value, key: &str) -> Option<String> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-}
 
 pub struct LoaApprovedTemplate;
 
@@ -37,6 +20,7 @@ impl RsxTemplate for LoaApprovedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let controller_name = required_string(payload, "controller_name")?;
@@ -58,7 +42,7 @@ impl RsxTemplate for LoaApprovedTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("LOA approved for {controller_name}"))
             .heading("LOA Approved")
             .unsubscribe_link(unsubscribe_link)
@@ -93,6 +77,7 @@ impl RsxTemplate for LoaDeniedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
@@ -112,7 +97,7 @@ impl RsxTemplate for LoaDeniedTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader("LOA request denied")
             .heading("LOA Denied")
             .unsubscribe_link(unsubscribe_link)
@@ -149,6 +134,7 @@ impl RsxTemplate for LoaDeletedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
@@ -169,7 +155,7 @@ impl RsxTemplate for LoaDeletedTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader("LOA deleted")
             .heading("LOA Deleted")
             .unsubscribe_link(unsubscribe_link)
@@ -206,6 +192,7 @@ impl RsxTemplate for LoaExpiredTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
@@ -220,7 +207,7 @@ impl RsxTemplate for LoaExpiredTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader("LOA expired")
             .heading("LOA Expired")
             .unsubscribe_link(unsubscribe_link)

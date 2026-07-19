@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FileAsset {
     pub id: String,
     pub filename: String,
@@ -48,10 +48,54 @@ pub struct UpdateFileMetadataRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct FileAssetListResponse {
     pub items: Vec<FileAsset>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
+}
+
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct FileAuditQuery {
+    pub file_id: Option<String>,
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
+pub struct FileAuditLogItem {
+    pub id: String,
+    pub action: String,
+    pub file_id: Option<String>,
+    pub actor_user_id: Option<String>,
+    pub ip_address: String,
+    pub outcome: String,
+    pub details: serde_json::Value,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FileAuditLogListResponse {
+    pub items: Vec<FileAuditLogItem>,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct SignedUrlQuery {
+    pub expires_in: Option<i64>,
+    pub never_expire: Option<bool>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct SignedUrlResponse {
+    pub url: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct CdnTokenQuery {
+    pub expires: Option<i64>,
+    pub sig: Option<String>,
 }

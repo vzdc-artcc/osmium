@@ -7,7 +7,7 @@ info:
 
 http:
   method: GET
-  url: "{{baseUrl}}/api/v1/user"
+  url: "{{baseUrl}}/api/v1/users"
   params:
     - name: limit
       value: ""
@@ -31,7 +31,7 @@ examples:
   - name: 200 Response
     description: List users
     request:
-      url: "{{baseUrl}}/api/v1/user"
+      url: "{{baseUrl}}/api/v1/users"
       method: GET
       params:
         - name: limit
@@ -66,7 +66,7 @@ examples:
   - name: 401 Response
     description: Not authenticated
     request:
-      url: "{{baseUrl}}/api/v1/user"
+      url: "{{baseUrl}}/api/v1/users"
       method: GET
       params:
         - name: limit

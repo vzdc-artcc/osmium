@@ -74,8 +74,8 @@ pub async fn acl_debug(
     ),
     responses(
         (status = 200, description = "Access details for a user", body = UserAccessBody),
-        (status = 400, description = "Invalid CID"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
     )
 )]
 pub async fn get_user_access(
@@ -99,7 +99,7 @@ pub async fn get_user_access(
 
     let target = access_repo::find_current_user_by_cid(pool, cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &target.id).await?;
     Ok(Json(build_user_access_body(&target, &roles, permissions)))
@@ -226,12 +226,7 @@ pub async fn list_audit_logs(
     Ok(ApiJson::new(
         AuditLogListResponse {
             items: rows,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -248,7 +243,8 @@ pub async fn list_audit_logs(
     responses(
         (status = 200, description = "Updated controller status", body = SetControllerStatusBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
     )
 )]
 pub async fn set_user_controller_status(
@@ -299,7 +295,7 @@ pub async fn set_user_controller_status(
         normalized_artcc.as_deref(),
     )
     .await?
-    .ok_or(ApiError::BadRequest)?;
+    .ok_or(ApiError::NotFound)?;
 
     let response = SetControllerStatusBody {
         cid: updated.0,
@@ -474,12 +470,7 @@ pub async fn list_visitor_applications(
     Ok(ApiJson::new(
         VisitorApplicationListResponse {
             items,
-            total: meta.total,
-            page: meta.page,
-            page_size: meta.page_size,
-            total_pages: meta.total_pages,
-            has_next: meta.has_next,
-            has_prev: meta.has_prev,
+            pagination: meta,
         },
         time,
     ))
@@ -496,7 +487,8 @@ pub async fn list_visitor_applications(
     responses(
         (status = 200, description = "Visitor application updated", body = VisitorApplicationItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Visitor application or user not found")
     )
 )]
 pub async fn decide_visitor_application(
@@ -532,7 +524,7 @@ pub async fn decide_visitor_application(
 
     let before = user_repo::find_visitor_application_by_id(pool, &application_id)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
 
     if normalized_status == "APPROVED" {
         sync_approved_visitor_to_vatusa(before.cid.ok_or(ApiError::BadRequest)?).await?;
@@ -555,7 +547,7 @@ pub async fn decide_visitor_application(
         &configured_artcc(),
     )
     .await?
-    .ok_or(ApiError::BadRequest)?;
+    .ok_or(ApiError::NotFound)?;
 
     audit_repo::record_audit(
         &mut *tx,
@@ -610,12 +602,7 @@ pub async fn list_users(
 
     Ok(Json(AdminUserListResponse {
         items: users,
-        total: meta.total,
-        page: meta.page,
-        page_size: meta.page_size,
-        total_pages: meta.total_pages,
-        has_next: meta.has_next,
-        has_prev: meta.has_prev,
+        pagination: meta,
     }))
 }
 
@@ -640,7 +627,7 @@ pub async fn get_user_overview(
 
     let target = user_repo::find_admin_user_by_cid(pool, cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &target.id).await?;
     let stats = user_repo::fetch_user_stats(pool, &target.id).await?;
 
@@ -735,7 +722,8 @@ async fn sync_approved_visitor_to_vatusa(cid: i64) -> Result<(), ApiError> {
     responses(
         (status = 200, description = "Updated user access", body = UserAccessBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
     )
 )]
 pub async fn update_user_access(
@@ -763,10 +751,10 @@ pub async fn update_user_access(
 
     let target_user_id = access_repo::find_user_id_by_cid(pool, cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let target_before = access_repo::find_current_user_by_cid(pool, cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let (before_roles, before_permissions) =
         fetch_user_access(state.db.as_ref(), &target_before.id).await?;
 
@@ -776,7 +764,7 @@ pub async fn update_user_access(
 
     let updated = access_repo::find_current_user_by_cid(pool, cid)
         .await?
-        .ok_or(ApiError::BadRequest)?;
+        .ok_or(ApiError::NotFound)?;
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &updated.id).await?;
     let response = build_user_access_body(&updated, &roles, permissions);
     let actor =

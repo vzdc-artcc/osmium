@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FeedbackItem {
     pub id: String,
     pub submitter_user_id: String,
@@ -46,10 +46,6 @@ pub struct FeedbackListQuery {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct FeedbackListResponse {
     pub items: Vec<FeedbackItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }

@@ -1,31 +1,14 @@
 use maud::html;
 use serde_json::Value;
 
+use crate::email::branding::EmailTheme;
 use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
+use crate::email::rsx::validate::{optional_string, required_string};
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
 use super::RsxTemplate;
-
-fn required_string(payload: &Value, key: &str) -> Result<String, ApiError> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .ok_or(ApiError::BadRequest)
-}
-
-fn optional_string(payload: &Value, key: &str) -> Option<String> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-}
 
 pub struct EventPositionPublishedTemplate;
 
@@ -37,6 +20,7 @@ impl RsxTemplate for EventPositionPublishedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let title = required_string(payload, "event_title")?;
@@ -58,7 +42,7 @@ impl RsxTemplate for EventPositionPublishedTemplate {
             p { "Open the event page for staffing details." }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(preheader.as_deref().unwrap_or(&subject))
             .heading(&title)
             .unsubscribe_link(unsubscribe_link)
@@ -91,6 +75,7 @@ impl RsxTemplate for EventReminderTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let title = required_string(payload, "event_title")?;
@@ -115,7 +100,7 @@ impl RsxTemplate for EventReminderTemplate {
             }))
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(preheader.as_deref().unwrap_or(&subject))
             .heading(&title)
             .unsubscribe_link(unsubscribe_link)

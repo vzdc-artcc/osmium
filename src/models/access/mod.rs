@@ -75,23 +75,15 @@ pub struct AuditLogItem {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AuditLogListResponse {
     pub items: Vec<AuditLogItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiKeyListResponse {
     pub items: Vec<ApiKeyListItem>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-    pub has_next: bool,
-    pub has_prev: bool,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

@@ -1,31 +1,14 @@
 use maud::html;
 use serde_json::Value;
 
+use crate::email::branding::EmailTheme;
 use crate::email::rsx::components::{EmailLayout, callout};
 use crate::email::rsx::text::TextBuilder;
+use crate::email::rsx::validate::{optional_string, required_string};
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
 use super::RsxTemplate;
-
-fn required_string(payload: &Value, key: &str) -> Result<String, ApiError> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .ok_or(ApiError::BadRequest)
-}
-
-fn optional_string(payload: &Value, key: &str) -> Option<String> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-}
 
 pub struct ProgressionAssignedTemplate;
 
@@ -37,6 +20,7 @@ impl RsxTemplate for ProgressionAssignedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let controller_name = required_string(payload, "controller_name")?;
@@ -59,7 +43,7 @@ impl RsxTemplate for ProgressionAssignedTemplate {
 
         let cta = details_url.as_deref().map(|url| ("View progression", url));
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("{controller_name} assigned to {progression_name}"))
             .heading("Progression Assigned")
             .unsubscribe_link(unsubscribe_link)
@@ -99,6 +83,7 @@ impl RsxTemplate for ProgressionRemovedTemplate {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError> {
         let _controller_name = required_string(payload, "controller_name")?;
@@ -122,7 +107,7 @@ impl RsxTemplate for ProgressionRemovedTemplate {
             }
         };
 
-        let html = EmailLayout::new(&subject)
+        let html = EmailLayout::new(&subject, theme)
             .preheader(&format!("Removed from {progression_name}"))
             .heading("Progression Removed")
             .unsubscribe_link(unsubscribe_link)

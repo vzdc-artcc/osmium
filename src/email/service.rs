@@ -11,13 +11,13 @@ use crate::{
     auth::context::{CurrentServiceAccount, CurrentUser},
     errors::ApiError,
     models::{
-        EmailAudienceRequest, EmailOutboxDetailResponse, EmailOutboxListItem,
+        EmailAudienceRequest, EmailBranding, EmailOutboxDetailResponse, EmailOutboxListItem,
         EmailOutboxRecipientResponse, EmailPreferenceState, EmailPreferenceUpdateItem,
         EmailPreferencesResponse, EmailPreferencesUpdateRequest, EmailPreviewResponse,
         EmailRecipientsRequest, EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
         EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
     },
-    repos::audit,
+    repos::{audit, email_branding},
 };
 
 use super::{
@@ -88,12 +88,14 @@ impl EmailService {
         &self,
         template_id: &str,
         payload: &Value,
+        branding: &EmailBranding,
     ) -> Result<EmailPreviewResponse, ApiError> {
         self.ensure_available()?;
         let template = find_template(template_id).ok_or(ApiError::BadRequest)?;
         let rendered = render_template(
             template,
             payload,
+            branding,
             self.config.unsubscribe_base_url.as_deref(),
             self.config.unsubscribe_secret.as_deref(),
             None,
@@ -115,6 +117,9 @@ impl EmailService {
     ) -> Result<EmailSendResponse, ApiError> {
         self.ensure_available()?;
         let template = find_template(&request.template_id).ok_or(ApiError::BadRequest)?;
+        let branding = email_branding::fetch_branding(pool)
+            .await?
+            .ok_or(ApiError::Internal)?;
         let recipient_mode = match (request.recipients.is_some(), request.audience.is_some()) {
             (true, true) => "mixed",
             (true, false) => "explicit",
@@ -135,6 +140,7 @@ impl EmailService {
         let preview = render_template(
             template,
             &request.payload,
+            &branding,
             self.config.unsubscribe_base_url.as_deref(),
             self.config.unsubscribe_secret.as_deref(),
             resolved
@@ -644,6 +650,9 @@ impl EmailService {
         self.ensure_available()?;
         let jobs = outbox::claim_pending_jobs(pool, self.config.worker_batch_size).await?;
         let mut processed = 0usize;
+        let branding = email_branding::fetch_branding(pool)
+            .await?
+            .ok_or(ApiError::Internal)?;
 
         for job in jobs {
             let template = find_template(&job.template_id).ok_or(ApiError::BadRequest)?;
@@ -659,6 +668,7 @@ impl EmailService {
                 let rendered = render_template(
                     template,
                     &job.payload,
+                    &branding,
                     self.config.unsubscribe_base_url.as_deref(),
                     self.config.unsubscribe_secret.as_deref(),
                     Some(&recipient.email),

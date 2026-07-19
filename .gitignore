@@ -9,3 +9,8 @@
 /tools/db-migrator/target/
 /dev-data/mock-prod/*
 !/dev-data/mock-prod/.gitkeep
+
+# Nix
+.direnv/
+result
+result-*

@@ -12,6 +12,7 @@ mod visitor;
 
 use serde_json::Value;
 
+use crate::email::branding::EmailTheme;
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
@@ -20,6 +21,7 @@ pub trait RsxTemplate: Send + Sync {
     fn render(
         &self,
         payload: &Value,
+        theme: &EmailTheme,
         unsubscribe_link: Option<&str>,
     ) -> Result<RenderedEmail, ApiError>;
 }
@@ -70,6 +72,35 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::models::EmailBranding;
+
+    fn test_branding() -> EmailBranding {
+        EmailBranding {
+            brand_name: "vZDC".to_string(),
+            tagline: "Washington ARTCC".to_string(),
+            footer_text: "Sent by vZDC.".to_string(),
+            logo_file_id: None,
+            header_background_color: "#500e0e".to_string(),
+            header_text_color: "#ededf5".to_string(),
+            page_background_color: "#f1f0f6".to_string(),
+            panel_background_color: "#ffffff".to_string(),
+            text_color: "#1f2430".to_string(),
+            heading_color: "#500e0e".to_string(),
+            link_color: "#500e0e".to_string(),
+            accent_color: "#500e0e".to_string(),
+            button_background_color: "#500e0e".to_string(),
+            button_text_color: "#ededf5".to_string(),
+            heading_font_family: "roboto_sans".to_string(),
+            body_font_family: "roboto_sans".to_string(),
+            font_size_scale: "medium".to_string(),
+            corner_style: "soft".to_string(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    fn test_theme(branding: &EmailBranding) -> EmailTheme<'_> {
+        EmailTheme::new(branding, None)
+    }
 
     #[test]
     fn rsx_registry_contains_all_templates() {
@@ -115,9 +146,11 @@ mod tests {
 
     #[test]
     fn system_test_renders_with_message() {
+        let branding = test_branding();
+        let theme = test_theme(&branding);
         let template = find_rsx_template("system.test_email").unwrap();
         let result = template
-            .render(&json!({"message": "Hello from RSX"}), None)
+            .render(&json!({"message": "Hello from RSX"}), &theme, None)
             .unwrap();
 
         assert_eq!(result.subject, "Osmium email transport test");
@@ -131,10 +164,13 @@ mod tests {
 
     #[test]
     fn system_test_renders_with_requested_by() {
+        let branding = test_branding();
+        let theme = test_theme(&branding);
         let template = find_rsx_template("system.test_email").unwrap();
         let result = template
             .render(
                 &json!({"message": "Test", "requested_by": "admin@example.com"}),
+                &theme,
                 None,
             )
             .unwrap();
@@ -145,6 +181,8 @@ mod tests {
 
     #[test]
     fn announcement_renders_with_markdown() {
+        let branding = test_branding();
+        let theme = test_theme(&branding);
         let template = find_rsx_template("announcements.generic").unwrap();
         let result = template
             .render(
@@ -152,6 +190,7 @@ mod tests {
                     "headline": "Status Update",
                     "body_markdown": "Hello team\n\nThis is important."
                 }),
+                &theme,
                 None,
             )
             .unwrap();
@@ -163,6 +202,8 @@ mod tests {
 
     #[test]
     fn event_reminder_renders_with_location() {
+        let branding = test_branding();
+        let theme = test_theme(&branding);
         let template = find_rsx_template("events.reminder").unwrap();
         let result = template
             .render(
@@ -172,6 +213,7 @@ mod tests {
                     "details_url": "https://example.com/events/123",
                     "location": "KDCA Ground"
                 }),
+                &theme,
                 Some("https://unsub.example.com/token"),
             )
             .unwrap();
@@ -189,7 +231,11 @@ mod tests {
                 .html
                 .contains("href=\"https://unsub.example.com/token\"")
         );
-        assert!(result.html.contains("#500e0e"));
+        assert!(
+            result
+                .html
+                .contains(branding.header_background_color.as_str())
+        );
         assert!(result.html.contains("vZDC"));
         assert!(result.text.contains("Location: KDCA Ground"));
     }
