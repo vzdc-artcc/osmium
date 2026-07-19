@@ -1,0 +1,48 @@
+info:
+  name: get_welcome_message_content
+  type: http
+  seq: 1
+  tags:
+    - welcome-messages
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/welcome-messages"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Configured welcome message content
+    request:
+      url: "{{baseUrl}}/api/v1/admin/welcome-messages"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "home_text": "Welcome back! Here's what's changed since your last session...",
+            "visitor_text": "Welcome to vZDC as a visiting controller..."
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/welcome-messages"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

@@ -1,0 +1,17 @@
+info:
+  name: get_user_certifications
+  type: http
+  seq: 24
+  tags:
+    - workflows
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/users/{{cid}}/certifications"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,68 @@
+info:
+  name: delete_lesson_rubric_criteria
+  type: http
+  seq: 57
+  tags:
+    - training
+
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id"
+  params:
+    - name: lesson_id
+      value: ""
+      type: path
+      description: Training lesson ID
+    - name: criteria_id
+      value: ""
+      type: path
+      description: Rubric criteria ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Rubric criteria deleted
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id"
+      method: DELETE
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+        - name: criteria_id
+          value: ""
+          type: path
+          description: Rubric criteria ID
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 404 Response
+    description: Criteria not found
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric-criteria/:criteria_id"
+      method: DELETE
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+        - name: criteria_id
+          value: ""
+          type: path
+          description: Rubric criteria ID
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

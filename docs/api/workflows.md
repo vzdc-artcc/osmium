@@ -22,6 +22,7 @@ Self-service routes:
 - `POST /api/v1/loa/me`
 - `PATCH /api/v1/loa/{loa_id}`
 - `GET /api/v1/users/{cid}/solo-certifications`
+- `GET /api/v1/users/{cid}/certifications`
 - `GET /api/v1/staffing-requests/me`
 - `POST /api/v1/staffing-requests/me`
 - `GET /api/v1/sua/me`
@@ -82,6 +83,13 @@ Example create body:
   "expires": "2026-06-01T00:00:00Z"
 }
 ```
+
+## Certification Notes
+
+- `GET /api/v1/users/{cid}/certifications` returns one row per certification type (`org.certification_types`), ordered by the type's configured sort order
+- ungranted types are returned explicitly with `certification_option: "NONE"` rather than being omitted, so a client can render every type's chip without a separate catalog fetch
+- read-only; certifications are still granted indirectly via the training-session roster-change flow, not through this endpoint
+- same self/`users.directory.read` access split as solo certifications, unpaginated (bounded by the certification-type catalog)
 
 ## Staffing Request Notes
 

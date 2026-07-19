@@ -1,0 +1,66 @@
+info:
+  name: verify_captcha
+  type: http
+  seq: 1
+  tags:
+    - captcha
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/captcha/verify"
+  body:
+    type: json
+    data: |-
+      {
+        "token": "<token from the reCAPTCHA client widget>"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: reCAPTCHA verification result
+    request:
+      url: "{{baseUrl}}/api/v1/captcha/verify"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "token": "<token from the reCAPTCHA client widget>"
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "success": true,
+            "score": 0.9
+          }
+  - name: 400 Response
+    description: Invalid request
+    request:
+      url: "{{baseUrl}}/api/v1/captcha/verify"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "token": "<token from the reCAPTCHA client widget>"
+          }
+    response:
+      status: 400
+      statusText: Bad Request
+      body:
+        type: text
+        data: ""

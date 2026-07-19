@@ -14,6 +14,7 @@ Timestamped event responses such as `starts_at`, `ends_at`, `created_at`, `updat
 - `/api/v1/events/{event_id}`
 - `/api/v1/events/{event_id}/positions`
 - `/api/v1/events/{event_id}/positions/{position_id}`
+- `/api/v1/users/{cid}/event-positions`
 - `/api/v1/events/{event_id}/positions/publish`
 - `/api/v1/events/{event_id}/ops-plan`
 - `/api/v1/events/{event_id}/tmis`
@@ -31,6 +32,7 @@ Timestamped event responses such as `starts_at`, `ends_at`, `created_at`, `updat
 - event position signup is self-service and stores the requesting user on the position record
 - ops-plan and TMI routes are backend-owned event-management surfaces built on the existing `events.events` and `events.event_tmis` tables
 - event Discord publish now queues an outbound integration job instead of requiring the website to call the bot directly
+- `GET /api/v1/users/{cid}/event-positions` is a user-scoped view (not per-event): every **published** position the user has ever held across all events, most recent event first, with `final_position`/`final_start_time`/`final_end_time` included — self-readable for the matching user, otherwise requires `users.directory.read`; unpaginated (typically bounded to one user's history)
 
 List routes for events, event positions, and event TMIs now use the shared pagination envelope with canonical `page` and `page_size` inputs plus compatibility aliases for `limit` and `offset`.
 

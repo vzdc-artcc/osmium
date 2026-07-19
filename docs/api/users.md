@@ -13,6 +13,8 @@ Timestamped user-domain responses such as visitor applications, solo certificati
 - `GET /api/v1/users`
 - `GET /api/v1/users/{cid}`
 - `GET /api/v1/users/{cid}/solo-certifications`
+- `GET /api/v1/users/{cid}/certifications`
+- `GET /api/v1/users/{cid}/event-positions`
 - `GET /api/v1/users/{cid}/dossier`
 - `POST /api/v1/users/refresh-vatusa`
 - `GET /api/v1/users/visitor-application`
@@ -35,4 +37,6 @@ Timestamped user-domain responses such as visitor applications, solo certificati
 - `POST /api/v1/users/refresh-vatusa` refreshes the caller from VATUSA using the same single-user membership rules as roster sync, including off-roster demotion
 - roster detail responses now include stored membership parity fields such as `membership_status`, `join_date`, `home_facility`, `visitor_home_facility`, and `is_active` when full profile access is allowed
 - `GET /api/v1/users/{cid}/solo-certifications` is self-readable for the matching user and staff-readable through `users.directory.read`
+- `GET /api/v1/users/{cid}/certifications` returns every certification type with the user's granted option (`'NONE'` when ungranted, never omitted) — same self/`users.directory.read` split as solo certifications, unpaginated (bounded by the certification-type catalog)
+- `GET /api/v1/users/{cid}/event-positions` returns the user's **published** event-position history only, most recent event first, including the `final_position`/`final_start_time`/`final_end_time` fields set after an event concludes — same self/`users.directory.read` split, unpaginated
 - `GET /api/v1/users/{cid}/dossier` is self-readable for the matching user and otherwise requires the training read path

@@ -1,0 +1,72 @@
+info:
+  name: mark_broadcast_seen
+  type: http
+  seq: 6
+  tags:
+    - broadcasts
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/broadcasts/:broadcast_id/seen"
+  params:
+    - name: broadcast_id
+      value: ""
+      type: path
+      description: Change broadcast ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 204 Response
+    description: Broadcast marked as seen
+    request:
+      url: "{{baseUrl}}/api/v1/broadcasts/:broadcast_id/seen"
+      method: POST
+      params:
+        - name: broadcast_id
+          value: ""
+          type: path
+          description: Change broadcast ID
+    response:
+      status: 204
+      statusText: No Content
+      body:
+        type: text
+        data: ""
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/broadcasts/:broadcast_id/seen"
+      method: POST
+      params:
+        - name: broadcast_id
+          value: ""
+          type: path
+          description: Change broadcast ID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""
+  - name: 404 Response
+    description: Broadcast not found
+    request:
+      url: "{{baseUrl}}/api/v1/broadcasts/:broadcast_id/seen"
+      method: POST
+      params:
+        - name: broadcast_id
+          value: ""
+          type: path
+          description: Change broadcast ID
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

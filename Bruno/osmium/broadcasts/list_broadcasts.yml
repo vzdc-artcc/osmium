@@ -1,0 +1,87 @@
+info:
+  name: list_broadcasts
+  type: http
+  seq: 1
+  tags:
+    - broadcasts
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/broadcasts"
+  params:
+    - name: page
+      value: ""
+      type: query
+      description: Page number
+      disabled: true
+    - name: page_size
+      value: ""
+      type: query
+      description: Items per page
+      disabled: true
+    - name: title
+      value: ""
+      type: query
+      description: Filter by title substring
+      disabled: true
+    - name: exempt_staff
+      value: ""
+      type: query
+      description: Filter by exempt_staff flag
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Paginated list of change broadcasts
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "items": [
+              {
+                "id": "",
+                "title": "",
+                "description": "",
+                "file_id": null,
+                "file_filename": null,
+                "exempt_staff": false,
+                "timestamp": "",
+                "updated_at": "",
+                "seen_count": 0,
+                "agreed_count": 0
+              }
+            ],
+            "total": 0,
+            "page": 1,
+            "page_size": 20,
+            "total_pages": 0,
+            "has_next": false,
+            "has_prev": false
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/broadcasts"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

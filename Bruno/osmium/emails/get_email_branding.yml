@@ -1,0 +1,17 @@
+info:
+  name: get_email_branding
+  type: http
+  seq: 10
+  tags:
+    - emails
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/emails/branding"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -21,11 +21,13 @@ Training session routes now cover:
 - rubric score submission per ticket
 - performance-indicator snapshots per session
 - pass-triggered release-request, roster, dossier, and OTS side effects
+- additional trainers (secondary trainer + free-text description, replace-on-update)
 
 Lesson routes now cover:
 
 - lesson lookup for session submission
 - lesson create, update, and delete
+- lesson rubric authoring (criteria and cells)
 - progression CRUD
 - progression-step CRUD
 - performance-indicator template/category/criteria CRUD
@@ -40,6 +42,8 @@ Training appointment routes now cover:
 - student, trainer, and combined user filtering
 - trainer ownership derived from the authenticated user on create
 - estimated duration and estimated end time computed from linked lesson durations
+- a free-text `notes` field (uppercased, 50-char cap)
+- additional trainers (secondary trainer + free-text description, uppercased, replace-on-update)
 
 ## Main Routes
 
@@ -48,6 +52,11 @@ Training appointment routes now cover:
 - `/api/v1/training/ots-recommendations/{recommendation_id}`
 - `/api/v1/training/lessons`
 - `/api/v1/training/lessons/{lesson_id}`
+- `/api/v1/training/lessons/{lesson_id}/rubric`
+- `/api/v1/training/lessons/{lesson_id}/rubric-criteria`
+- `/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}`
+- `/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells`
+- `/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells/{cell_id}`
 - `/api/v1/training/appointments`
 - `/api/v1/training/appointments/{appointment_id}`
 - `/api/v1/training/sessions`
@@ -74,6 +83,7 @@ Training appointment routes now cover:
 - moderation and destructive routes require `training.manage`
 - `training.manage` is the umbrella training permission and also satisfies the read/create/update checks above
 - a normal authenticated user can create their own assignment or release requests and mark interest where allowed
+- lesson rubric routes reuse the lesson permissions (`training.lessons.read` for the `GET .../rubric` read, `training.lessons.update` for criteria/cell create and update, `training.lessons.delete` for criteria/cell delete) rather than a separate rubric-specific permission — a rubric is part of a lesson's curriculum, not an independent resource
 
 ## Training Admin Notes
 
@@ -145,16 +155,19 @@ Example progression-assignment create body:
 ## Appointment Notes
 
 - Use `GET /api/v1/training/lessons` to discover lesson IDs before creating or updating an appointment.
-- Appointment create accepts `student_id`, `start`, `lesson_ids`, and optional `environment`.
+- Appointment create accepts `student_id`, `start`, `lesson_ids`, optional `environment`, optional `notes`, and optional `additional_trainers`.
 - Appointment create ignores trainer selection from the client; `trainer_id` is always the authenticated user submitting the request.
 - Appointment update preserves the original `trainer_id`.
 - Appointment list supports pagination plus optional `trainer_id`, `student_id`, and `user_id` filters.
 - `user_id` matches appointments where the user is either the trainer or the student.
-- Appointment detail returns linked lesson summaries.
+- Appointment detail returns linked lesson summaries and `additional_trainers`.
 - `estimated_duration_minutes` is the sum of linked lesson durations.
 - `estimated_end` is computed as `start + estimated_duration_minutes`.
 - Empty or duplicate lesson ID payloads are rejected.
 - Appointment deletes remove lesson links through database cascades.
+- `notes` is trimmed, uppercased, and capped at 50 characters.
+- `additional_trainers` is a list of `{trainer_id, description}`; each `description` is trimmed and uppercased. The full list is replaced on every create/update (delete-then-reinsert), not merged.
+- An additional trainer cannot be the request's acting user (the appointment's own trainer), cannot be duplicated within the same payload, and must reference an existing user — violating any of these returns `bad_request`.
 
 ## Session Notes
 
@@ -174,3 +187,35 @@ Example progression-assignment create body:
 - Assigning or unassigning an OTS recommendation updates `assigned_instructor_id`.
 - Automatic OTS creation from a passed lesson does nothing when the student already has an active recommendation; it preserves the existing notes and assignment.
 - Session deletes remove nested ticket and score data through database cascades.
+- Session create and update accept an optional `additional_trainers` list of `{trainer_id, description}` (description is trimmed but **not** uppercased, unlike appointments). The full list is replaced on every create/update.
+- An additional trainer cannot be the session's student or its instructor (the acting user), cannot be duplicated within the same payload, and must reference an existing user.
+
+## Lesson Rubric Notes
+
+- A lesson's rubric is created implicitly by its **first** rubric criteria — there is no separate "create rubric" call. `POST /api/v1/training/lessons/{lesson_id}/rubric-criteria` creates the lesson's rubric on first use and attaches subsequent criteria to the same rubric.
+- `GET /api/v1/training/lessons/{lesson_id}/rubric` returns the full structure (rubric id plus every criteria with its nested cells). Returns `not_found` if the lesson has no rubric yet.
+- Criteria fields: `criteria` (name), `description`, `max_points`, `passing`. All required, `criteria` capped at 255 characters.
+- Cell fields: `points`, `description`. `points` must be between `0` and the parent criteria's `max_points` — validated against the criteria's actual stored value server-side, not a client-supplied bound.
+- Cell `points` must be unique within a criteria; a duplicate is rejected with `bad_request` (matching the intent behind the legacy site's "add an OR to the description" guidance rather than allowing ambiguous duplicate point values).
+- Criteria and cell mutation routes are nested under their owning `lesson_id`/`criteria_id` for path consistency, but IDs alone are sufficient to resolve the resource; a mismatched parent in the path returns `not_found`.
+- Deleting a criteria cascades to its cells (and any historical rubric scores referencing them) at the database level.
+
+Example criteria create body (`POST /api/v1/training/lessons/{lesson_id}/rubric-criteria`):
+
+```json
+{
+  "criteria": "Handoff timing",
+  "description": "Hands off traffic within acceptable range of the sector boundary.",
+  "max_points": 10,
+  "passing": 7
+}
+```
+
+Example cell create body (`POST /api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells`):
+
+```json
+{
+  "points": 10,
+  "description": "Handed off within 2 minutes of boundary, no coordination issues."
+}
+```

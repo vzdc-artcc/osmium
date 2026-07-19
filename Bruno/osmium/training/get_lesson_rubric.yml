@@ -1,0 +1,81 @@
+info:
+  name: get_lesson_rubric
+  type: http
+  seq: 54
+  tags:
+    - training
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric"
+  params:
+    - name: lesson_id
+      value: ""
+      type: path
+      description: Training lesson ID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Lesson rubric with criteria and cells
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric"
+      method: GET
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "id": "",
+            "lesson_id": "",
+            "criteria": [
+              {
+                "id": "",
+                "rubric_id": "",
+                "criteria": "",
+                "description": "",
+                "passing": 0,
+                "max_points": 0,
+                "cells": [
+                  {
+                    "id": "",
+                    "criteria_id": "",
+                    "points": 0,
+                    "description": ""
+                  }
+                ]
+              }
+            ]
+          }
+  - name: 404 Response
+    description: Lesson has no rubric
+    request:
+      url: "{{baseUrl}}/api/v1/training/lessons/:lesson_id/rubric"
+      method: GET
+      params:
+        - name: lesson_id
+          value: ""
+          type: path
+          description: Training lesson ID
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

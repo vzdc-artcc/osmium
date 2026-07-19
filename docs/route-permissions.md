@@ -18,6 +18,7 @@ Public-by-policy routes:
 - `GET /api/v1/stats/controller-events`
 - `GET /api/v1/stats/controller/{cid}/history`
 - `GET /api/v1/stats/controller/{cid}/totals`
+- `POST /api/v1/captcha/verify`
 
 Permission-gated routes:
 
@@ -38,6 +39,8 @@ Permission-gated routes:
 - `GET /api/v1/emails/outbox` -> `emails.outbox.read`
 - `GET /api/v1/emails/outbox/{id}` -> `emails.outbox.read`
 - `POST /api/v1/emails/resubscribe` -> `emails.suppressions.update`
+- `GET /api/v1/admin/emails/branding` -> `emails.branding.read`
+- `PATCH /api/v1/admin/emails/branding` -> `emails.branding.update`
 - `GET /api/v1/admin/acl` -> `access.self.read`
 - `GET /api/v1/admin/access/catalog` -> `access.catalog.read`
 - `GET /api/v1/admin/users/{cid}/access` -> `access.users.read`
@@ -56,6 +59,19 @@ Permission-gated routes:
 - `GET /api/v1/admin/staffing-requests` -> `users.directory.read`
 - `DELETE /api/v1/admin/staffing-requests/{request_id}` -> `users.controller_status.update`
 - `GET /api/v1/admin/sua` -> `users.directory.read`
+- `GET /api/v1/admin/stats/prefixes` -> `stats.prefixes.read`
+- `PATCH /api/v1/admin/stats/prefixes` -> `stats.prefixes.update`
+- `GET /api/v1/admin/broadcasts` -> `web.broadcasts.read`
+- `POST /api/v1/admin/broadcasts` -> `web.broadcasts.create`
+- `PATCH /api/v1/admin/broadcasts/{broadcast_id}` -> `web.broadcasts.update`
+- `DELETE /api/v1/admin/broadcasts/{broadcast_id}` -> `web.broadcasts.delete`
+- `GET /api/v1/broadcasts/me` -> `auth.profile.read`
+- `POST /api/v1/broadcasts/{broadcast_id}/seen` -> `auth.profile.update`
+- `POST /api/v1/broadcasts/{broadcast_id}/agree` -> `auth.profile.update`
+- `GET /api/v1/admin/welcome-messages` -> `web.welcome_messages.read`
+- `PATCH /api/v1/admin/welcome-messages` -> `web.welcome_messages.update`
+- `GET /api/v1/welcome-message` -> `auth.profile.read`
+- `POST /api/v1/welcome-message/ack` -> `auth.profile.update`
 - `GET /api/v1/admin/incidents` -> `feedback.items.decide`
 - `GET /api/v1/admin/incidents/{incident_id}` -> `feedback.items.decide`
 - `PATCH /api/v1/admin/incidents/{incident_id}` -> `feedback.items.decide`
@@ -91,6 +107,9 @@ Permission-gated routes:
 - `GET /api/v1/users` -> `users.directory.read`
 - `GET /api/v1/users/{cid}` -> `auth.profile.read` for self, `users.directory.read` for other users, `users.directory_private.read` for private fields
 - `GET /api/v1/users/{cid}/feedback` -> `feedback.items.self.read` for self, `users.directory_private.read` for other users
+- `GET /api/v1/users/{cid}/solo-certifications` -> self `auth.profile.read`, otherwise `users.directory.read`
+- `GET /api/v1/users/{cid}/certifications` -> self `auth.profile.read`, otherwise `users.directory.read`
+- `GET /api/v1/users/{cid}/event-positions` -> self `auth.profile.read`, otherwise `users.directory.read`
 - `POST /api/v1/users/refresh-vatusa` -> `users.vatusa_refresh.self.request`
 - `POST /api/v1/users/visit-artcc` -> `users.visit_artcc.request`
 - `GET /api/v1/users/visitor-application` -> `users.visitor_applications.self.read`
@@ -137,6 +156,13 @@ Permission-gated routes:
 - `POST /api/v1/training/lessons` -> `training.lessons.create`
 - `PATCH /api/v1/training/lessons/{lesson_id}` -> `training.lessons.update`
 - `DELETE /api/v1/training/lessons/{lesson_id}` -> `training.lessons.delete`
+- `GET /api/v1/training/lessons/{lesson_id}/rubric` -> `training.lessons.read`
+- `POST /api/v1/training/lessons/{lesson_id}/rubric-criteria` -> `training.lessons.update`
+- `PATCH /api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}` -> `training.lessons.update`
+- `DELETE /api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}` -> `training.lessons.delete`
+- `POST /api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells` -> `training.lessons.update`
+- `PATCH /api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells/{cell_id}` -> `training.lessons.update`
+- `DELETE /api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells/{cell_id}` -> `training.lessons.delete`
 - `GET /api/v1/training/appointments` -> `training.appointments.read`
 - `GET /api/v1/training/appointments/{appointment_id}` -> `training.appointments.read`
 - `POST /api/v1/training/appointments` -> `training.appointments.create`

@@ -1,0 +1,58 @@
+info:
+  name: list_my_broadcasts
+  type: http
+  seq: 5
+  tags:
+    - broadcasts
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/broadcasts/me"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Broadcasts applicable to the current user
+    request:
+      url: "{{baseUrl}}/api/v1/broadcasts/me"
+      method: GET
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "items": [
+              {
+                "id": "",
+                "title": "",
+                "description": "",
+                "file_id": null,
+                "file_filename": null,
+                "timestamp": "",
+                "seen_at": null,
+                "agreed_at": null
+              }
+            ]
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/broadcasts/me"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""

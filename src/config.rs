@@ -27,6 +27,26 @@ pub fn dev_seed_enabled() -> bool {
     env_flag_enabled("DEV_SEED_ENABLED")
 }
 
+/// Origins trusted for credentialed cross-origin requests. Reused as the
+/// allowlist for OAuth `return_to` redirect targets (`src/handlers/auth.rs`)
+/// since it's the same trust boundary: frontends we already trust to make
+/// authenticated calls are the frontends we trust to redirect a login back to.
+pub fn configured_allowed_origins() -> Vec<String> {
+    let Some(raw) = std::env::var("CORS_ALLOWED_ORIGINS")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return Vec::new();
+    };
+
+    raw.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(normalize_origin)
+        .collect()
+}
+
 pub fn build_cors_layer() -> CorsLayer {
     let layer = CorsLayer::new()
         .allow_credentials(true)
@@ -54,18 +74,8 @@ pub fn build_cors_layer() -> CorsLayer {
 }
 
 fn configured_cors_origins() -> Vec<HeaderValue> {
-    let Some(raw) = std::env::var("CORS_ALLOWED_ORIGINS")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    else {
-        return Vec::new();
-    };
-
-    raw.split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(normalize_origin)
+    configured_allowed_origins()
+        .into_iter()
         .map(|origin| {
             HeaderValue::from_str(&origin)
                 .unwrap_or_else(|_| panic!("invalid CORS origin header value: {origin}"))
