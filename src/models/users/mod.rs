@@ -8,14 +8,6 @@ use utoipa::{
     },
 };
 
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
-pub struct ListUsersQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PatchMeRequest {

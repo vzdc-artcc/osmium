@@ -14,7 +14,7 @@ use crate::{
     errors::ApiError,
     models::{
         CreateEventTmiRequest, EventOpsPlanItem, EventTmiItem, EventTmiListResponse,
-        ListEventsQuery, PaginationMeta, PaginationQuery, UpdateEventOpsPlanRequest,
+        PaginationMeta, PaginationQuery, UpdateEventOpsPlanRequest,
         UpdateEventTmiRequest, UpdatePresetPositionsRequest,
     },
     repos::{audit as audit_repo, events as events_repo},
@@ -127,7 +127,7 @@ pub async fn update_event_ops_plan(
 pub async fn list_event_tmis(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
-    Query(query): Query<ListEventsQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EventTmiListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;

@@ -27,14 +27,6 @@ pub struct UploadFileQuery {
     pub viewer_roles: Option<String>,
 }
 
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
-pub struct ListFilesQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-}
-
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateFileMetadataRequest {
     pub filename: Option<String>,

@@ -18,7 +18,7 @@ use crate::{
     jobs::roster_sync,
     models::{
         AccessCatalogBody, AclDebugBody, AdminUserListResponse, AuditLogListResponse,
-        DecideVisitorApplicationRequest, ListAuditLogsQuery, ListUsersQuery,
+        DecideVisitorApplicationRequest, ListAuditLogsQuery,
         ListVisitorApplicationsQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
         ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
@@ -573,7 +573,7 @@ pub async fn list_users(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
-    Query(query): Query<ListUsersQuery>,
+    Query(query): Query<PaginationQuery>,
 ) -> Result<Json<AdminUserListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     ensure_permission(

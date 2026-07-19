@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Event {
@@ -161,14 +161,6 @@ pub struct CreateEventPositionRequest {
 pub struct AssignEventPositionRequest {
     pub user_id: String,
     pub assigned_slot: i32,
-}
-
-#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
-pub struct ListEventsQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

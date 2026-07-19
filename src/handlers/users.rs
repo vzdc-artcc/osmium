@@ -13,7 +13,7 @@ use crate::{
     errors::ApiError,
     jobs::roster_sync,
     models::{
-        CreateVisitorApplicationRequest, ListUsersQuery,
+        CreateVisitorApplicationRequest,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
         ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
         PaginationQuery, RosterUserRow, UserBasicInfo, UserDetailsResponse,
@@ -38,7 +38,7 @@ use crate::{
 pub async fn list_users(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-    Query(query): Query<ListUsersQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<UserListResponse>, ApiError> {
     let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;

@@ -30,7 +30,7 @@ use crate::{
     errors::ApiError,
     models::{
         CdnTokenQuery, FileAsset, FileAssetListResponse, FileAuditLogListResponse, FileAuditQuery,
-        ListFilesQuery, PaginationMeta, PaginationQuery, SignedUrlQuery, SignedUrlResponse,
+        PaginationMeta, PaginationQuery, SignedUrlQuery, SignedUrlResponse,
         UpdateFileMetadataRequest, UploadFileQuery,
     },
     repos::{audit as audit_repo, files as files_repo},
@@ -100,7 +100,7 @@ pub async fn list_files(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     _permission: RequirePermission<FilesAssetsRead>,
-    Query(query): Query<ListFilesQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<FileAssetListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;

@@ -19,8 +19,8 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        CreatePublicationCategoryRequest, CreatePublicationRequest, ListPublicationsQuery,
-        PaginationMeta, PaginationQuery, Publication, PublicationCategory, PublicationListResponse,
+        CreatePublicationCategoryRequest, CreatePublicationRequest, PaginationMeta,
+        PaginationQuery, Publication, PublicationCategory, PublicationListResponse,
         UpdatePublicationCategoryRequest, UpdatePublicationRequest,
     },
     repos::{audit as audit_repo, publications as publications_repo},
@@ -56,7 +56,7 @@ pub async fn list_publication_categories(
 )]
 pub async fn list_publications(
     State(state): State<AppState>,
-    Query(query): Query<ListPublicationsQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<PublicationListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -308,7 +308,7 @@ pub async fn delete_publication_category(
 pub async fn admin_list_publications(
     State(state): State<AppState>,
     _permission: RequirePermission<PublicationsItemsRead>,
-    Query(query): Query<ListPublicationsQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<PublicationListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;

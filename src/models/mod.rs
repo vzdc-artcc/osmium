@@ -33,7 +33,7 @@ pub use email::{
 pub use events::{
     AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest,
     CreateEventTmiRequest, Event, EventListResponse, EventOpsPlanItem, EventPosition,
-    EventPositionListResponse, EventTmiItem, EventTmiListResponse, ListEventsQuery,
+    EventPositionListResponse, EventTmiItem, EventTmiListResponse,
     UpdateEventOpsPlanRequest, UpdateEventRequest, UpdateEventTmiRequest,
     UpdatePresetPositionsRequest, UserEventPositionItem, UserEventPositionListResponse,
 };
@@ -56,7 +56,7 @@ pub use integrations::{
 };
 pub use media::{
     CdnTokenQuery, FileAsset, FileAssetListResponse, FileAuditLogItem, FileAuditLogListResponse,
-    FileAuditQuery, ListFilesQuery, SignedUrlQuery, SignedUrlResponse, UpdateFileMetadataRequest,
+    FileAuditQuery, SignedUrlQuery, SignedUrlResponse, UpdateFileMetadataRequest,
     UploadFileQuery,
 };
 pub use org::{
@@ -79,7 +79,7 @@ pub use stats::{
 pub use web::{
     ChangeBroadcastListItem, ChangeBroadcastListResponse, CreateChangeBroadcastRequest,
     CreatePublicationCategoryRequest, CreatePublicationRequest, ListChangeBroadcastsQuery,
-    ListPublicationsQuery, MyChangeBroadcastItem, MyChangeBroadcastListResponse,
+    MyChangeBroadcastItem, MyChangeBroadcastListResponse,
     MyWelcomeMessageResponse, Publication, PublicationCategory, PublicationListResponse,
     UpdateChangeBroadcastRequest, UpdatePublicationCategoryRequest, UpdatePublicationRequest,
     UpdateWelcomeMessageContentRequest, WelcomeMessageContent,
@@ -126,7 +126,7 @@ pub use training_admin::{
 };
 pub use users::{
     AdminUserListItem, AdminUserListResponse, CreateTeamSpeakUidRequest,
-    CreateVisitorApplicationRequest, DecideVisitorApplicationRequest, ListUsersQuery,
+    CreateVisitorApplicationRequest, DecideVisitorApplicationRequest,
     ListVisitorApplicationsQuery, ManualVatusaRefreshOutcome, ManualVatusaRefreshResponse,
     ManualVatusaRefreshResult, MeBody, MeProfileBody, PatchMeRequest, RosterUserRow,
     SetControllerStatusBody, SetControllerStatusRequest, TeamSpeakUidBody, UserBasicInfo,

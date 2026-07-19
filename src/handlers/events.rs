@@ -20,7 +20,7 @@ use crate::{
     errors::ApiError,
     models::{
         AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
-        EventListResponse, EventPosition, EventPositionListResponse, ListEventsQuery,
+        EventListResponse, EventPosition, EventPositionListResponse,
         PaginationMeta, PaginationQuery, UpdateEventRequest, UserEventPositionListResponse,
     },
     repos::{audit as audit_repo, events as events_repo},
@@ -51,7 +51,7 @@ fn validate_event_window(
 )]
 pub async fn list_events(
     State(state): State<AppState>,
-    Query(query): Query<ListEventsQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EventListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -331,7 +331,7 @@ mod tests {
 pub async fn list_event_positions(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
-    Query(query): Query<ListEventsQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EventPositionListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
