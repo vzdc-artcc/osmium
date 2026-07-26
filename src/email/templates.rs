@@ -281,16 +281,27 @@ pub fn find_template(template_id: &str) -> Option<&'static TemplateDefinition> {
         .find(|template| template.id == template_id)
 }
 
+/// Builds a single string property definition with a display `title` and an
+/// optional widget `format` hint. Format is used by the website's schema-driven
+/// email form to pick a widget: `markdown`, `multiline`, `date`, `date-time`,
+/// `uri`, `email` — anything else falls back to a plain text field.
+fn prop(title: &str, format: Option<&str>) -> Value {
+    match format {
+        Some(f) => json!({ "type": "string", "title": title, "format": f }),
+        None => json!({ "type": "string", "title": title }),
+    }
+}
+
 fn announcement_schema() -> Value {
     json!({
         "type": "object",
         "required": ["headline", "body_markdown"],
         "properties": {
-            "headline": { "type": "string" },
-            "body_markdown": { "type": "string" },
-            "preheader": { "type": "string" },
-            "cta_label": { "type": "string" },
-            "cta_url": { "type": "string" }
+            "headline": prop("Headline", None),
+            "body_markdown": prop("Body", Some("markdown")),
+            "preheader": prop("Preheader", None),
+            "cta_label": prop("Call-to-action Label", None),
+            "cta_url": prop("Call-to-action URL", Some("uri"))
         }
     })
 }
@@ -300,10 +311,10 @@ fn event_position_published_schema() -> Value {
         "type": "object",
         "required": ["event_title", "starts_at", "details_url"],
         "properties": {
-            "event_title": { "type": "string" },
-            "starts_at": { "type": "string" },
-            "details_url": { "type": "string" },
-            "preheader": { "type": "string" }
+            "event_title": prop("Event Title", None),
+            "starts_at": prop("Starts At", Some("date-time")),
+            "details_url": prop("Details URL", Some("uri")),
+            "preheader": prop("Preheader", None)
         }
     })
 }
@@ -313,11 +324,11 @@ fn event_reminder_schema() -> Value {
         "type": "object",
         "required": ["event_title", "starts_at", "details_url"],
         "properties": {
-            "event_title": { "type": "string" },
-            "starts_at": { "type": "string" },
-            "details_url": { "type": "string" },
-            "location": { "type": "string" },
-            "preheader": { "type": "string" }
+            "event_title": prop("Event Title", None),
+            "starts_at": prop("Starts At", Some("date-time")),
+            "details_url": prop("Details URL", Some("uri")),
+            "location": prop("Location", None),
+            "preheader": prop("Preheader", None)
         }
     })
 }
@@ -327,8 +338,8 @@ fn system_test_schema() -> Value {
         "type": "object",
         "required": ["message"],
         "properties": {
-            "message": { "type": "string" },
-            "requested_by": { "type": "string" }
+            "message": prop("Message", Some("multiline")),
+            "requested_by": prop("Requested By", None)
         }
     })
 }
@@ -338,9 +349,9 @@ fn loa_approved_schema() -> Value {
         "type": "object",
         "required": ["controller_name", "loa_start", "loa_end"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "loa_start": { "type": "string" },
-            "loa_end": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "loa_start": prop("LOA Start", Some("date")),
+            "loa_end": prop("LOA End", Some("date"))
         }
     })
 }
@@ -350,8 +361,8 @@ fn loa_denied_schema() -> Value {
         "type": "object",
         "required": ["controller_name"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "reason": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "reason": prop("Reason", Some("multiline"))
         }
     })
 }
@@ -361,8 +372,8 @@ fn loa_deleted_schema() -> Value {
         "type": "object",
         "required": ["controller_name"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "reason": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "reason": prop("Reason", Some("multiline"))
         }
     })
 }
@@ -372,7 +383,7 @@ fn loa_expired_schema() -> Value {
         "type": "object",
         "required": ["controller_name"],
         "properties": {
-            "controller_name": { "type": "string" }
+            "controller_name": prop("Controller Name", None)
         }
     })
 }
@@ -382,10 +393,10 @@ fn appointment_scheduled_schema() -> Value {
         "type": "object",
         "required": ["student_name", "trainer_name", "appointment_start"],
         "properties": {
-            "student_name": { "type": "string" },
-            "trainer_name": { "type": "string" },
-            "appointment_start": { "type": "string" },
-            "details_url": { "type": "string" }
+            "student_name": prop("Student Name", None),
+            "trainer_name": prop("Trainer Name", None),
+            "appointment_start": prop("Appointment Start", Some("date-time")),
+            "details_url": prop("Details URL", Some("uri"))
         }
     })
 }
@@ -395,10 +406,10 @@ fn appointment_canceled_schema() -> Value {
         "type": "object",
         "required": ["student_name", "trainer_name", "appointment_start"],
         "properties": {
-            "student_name": { "type": "string" },
-            "trainer_name": { "type": "string" },
-            "appointment_start": { "type": "string" },
-            "reason": { "type": "string" }
+            "student_name": prop("Student Name", None),
+            "trainer_name": prop("Trainer Name", None),
+            "appointment_start": prop("Appointment Start", Some("date-time")),
+            "reason": prop("Reason", Some("multiline"))
         }
     })
 }
@@ -408,10 +419,10 @@ fn appointment_updated_schema() -> Value {
         "type": "object",
         "required": ["student_name", "trainer_name", "appointment_start"],
         "properties": {
-            "student_name": { "type": "string" },
-            "trainer_name": { "type": "string" },
-            "appointment_start": { "type": "string" },
-            "details_url": { "type": "string" }
+            "student_name": prop("Student Name", None),
+            "trainer_name": prop("Trainer Name", None),
+            "appointment_start": prop("Appointment Start", Some("date-time")),
+            "details_url": prop("Details URL", Some("uri"))
         }
     })
 }
@@ -421,10 +432,10 @@ fn appointment_warning_schema() -> Value {
         "type": "object",
         "required": ["student_name", "trainer_name", "appointment_start"],
         "properties": {
-            "student_name": { "type": "string" },
-            "trainer_name": { "type": "string" },
-            "appointment_start": { "type": "string" },
-            "warning_message": { "type": "string" }
+            "student_name": prop("Student Name", None),
+            "trainer_name": prop("Trainer Name", None),
+            "appointment_start": prop("Appointment Start", Some("date-time")),
+            "warning_message": prop("Warning Message", Some("multiline"))
         }
     })
 }
@@ -434,11 +445,11 @@ fn session_created_schema() -> Value {
         "type": "object",
         "required": ["student_name", "trainer_name", "session_date"],
         "properties": {
-            "student_name": { "type": "string" },
-            "trainer_name": { "type": "string" },
-            "session_date": { "type": "string" },
-            "position": { "type": "string" },
-            "details_url": { "type": "string" }
+            "student_name": prop("Student Name", None),
+            "trainer_name": prop("Trainer Name", None),
+            "session_date": prop("Session Date", Some("date")),
+            "position": prop("Position", None),
+            "details_url": prop("Details URL", Some("uri"))
         }
     })
 }
@@ -448,9 +459,9 @@ fn visitor_accepted_schema() -> Value {
         "type": "object",
         "required": ["user_name"],
         "properties": {
-            "user_name": { "type": "string" },
-            "artcc_name": { "type": "string" },
-            "details_url": { "type": "string" }
+            "user_name": prop("User Name", None),
+            "artcc_name": prop("ARTCC Name", None),
+            "details_url": prop("Details URL", Some("uri"))
         }
     })
 }
@@ -460,9 +471,9 @@ fn visitor_rejected_schema() -> Value {
         "type": "object",
         "required": ["user_name"],
         "properties": {
-            "user_name": { "type": "string" },
-            "artcc_name": { "type": "string" },
-            "reason": { "type": "string" }
+            "user_name": prop("User Name", None),
+            "artcc_name": prop("ARTCC Name", None),
+            "reason": prop("Reason", Some("multiline"))
         }
     })
 }
@@ -472,9 +483,9 @@ fn solo_added_schema() -> Value {
         "type": "object",
         "required": ["controller_name", "position", "expires"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "position": { "type": "string" },
-            "expires": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "position": prop("Position", None),
+            "expires": prop("Expires", Some("date"))
         }
     })
 }
@@ -484,9 +495,9 @@ fn solo_deleted_schema() -> Value {
         "type": "object",
         "required": ["controller_name", "position"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "position": { "type": "string" },
-            "reason": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "position": prop("Position", None),
+            "reason": prop("Reason", Some("multiline"))
         }
     })
 }
@@ -496,8 +507,8 @@ fn solo_expired_schema() -> Value {
         "type": "object",
         "required": ["controller_name", "position"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "position": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "position": prop("Position", None)
         }
     })
 }
@@ -507,10 +518,10 @@ fn feedback_new_schema() -> Value {
         "type": "object",
         "required": ["controller_name"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "position": { "type": "string" },
-            "rating": { "type": "string" },
-            "details_url": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "position": prop("Position", None),
+            "rating": prop("Rating", None),
+            "details_url": prop("Details URL", Some("uri"))
         }
     })
 }
@@ -520,9 +531,9 @@ fn incident_closed_schema() -> Value {
         "type": "object",
         "required": ["controller_name"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "incident_date": { "type": "string" },
-            "resolution": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "incident_date": prop("Incident Date", Some("date")),
+            "resolution": prop("Resolution", Some("multiline"))
         }
     })
 }
@@ -532,10 +543,10 @@ fn broadcast_posted_schema() -> Value {
         "type": "object",
         "required": ["title", "body_markdown"],
         "properties": {
-            "title": { "type": "string" },
-            "body_markdown": { "type": "string" },
-            "preheader": { "type": "string" },
-            "details_url": { "type": "string" }
+            "title": prop("Title", None),
+            "body_markdown": prop("Body", Some("markdown")),
+            "preheader": prop("Preheader", None),
+            "details_url": prop("Details URL", Some("uri"))
         }
     })
 }
@@ -545,9 +556,9 @@ fn progression_assigned_schema() -> Value {
         "type": "object",
         "required": ["controller_name", "progression_name"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "progression_name": { "type": "string" },
-            "details_url": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "progression_name": prop("Progression Name", None),
+            "details_url": prop("Details URL", Some("uri"))
         }
     })
 }
@@ -557,9 +568,9 @@ fn progression_removed_schema() -> Value {
         "type": "object",
         "required": ["controller_name", "progression_name"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "progression_name": { "type": "string" },
-            "reason": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "progression_name": prop("Progression Name", None),
+            "reason": prop("Reason", Some("multiline"))
         }
     })
 }
@@ -569,8 +580,8 @@ fn roster_removed_schema() -> Value {
         "type": "object",
         "required": ["controller_name", "reason"],
         "properties": {
-            "controller_name": { "type": "string" },
-            "reason": { "type": "string" }
+            "controller_name": prop("Controller Name", None),
+            "reason": prop("Reason", Some("multiline"))
         }
     })
 }

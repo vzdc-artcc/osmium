@@ -31,6 +31,7 @@ pub struct TrainingStatsTopTrainer {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub preferred_name: Option<String>,
+    pub display_name: Option<String>,
     pub hours: f64,
 }
 

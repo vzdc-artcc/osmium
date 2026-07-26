@@ -113,8 +113,8 @@ pub struct EventTmiItem {
     pub id: String,
     pub event_id: String,
     pub tmi_type: String,
-    #[serde(serialize_with = "crate::time::serialize_datetime")]
-    pub start_time: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub start_time: Option<DateTime<Utc>>,
     pub notes: Option<String>,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
@@ -144,7 +144,8 @@ pub struct UpdateEventOpsPlanRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateEventTmiRequest {
     pub tmi_type: String,
-    pub start_time: DateTime<Utc>,
+    /// Optional legacy scheduled start; omitted for the simplified type+text TMIs.
+    pub start_time: Option<DateTime<Utc>>,
     pub notes: Option<String>,
 }
 

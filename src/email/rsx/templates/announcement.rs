@@ -3,29 +3,13 @@ use serde_json::Value;
 
 use crate::email::branding::EmailTheme;
 use crate::email::rsx::components::EmailLayout;
+use crate::email::rsx::markdown::markdown_to_html;
 use crate::email::rsx::text::TextBuilder;
 use crate::email::rsx::validate::{optional_string, required_string};
 use crate::email::templates::RenderedEmail;
 use crate::errors::ApiError;
 
 use super::RsxTemplate;
-
-fn markdown_to_html(markdown: &str) -> String {
-    markdown
-        .split("\n\n")
-        .map(|segment| format!("<p>{}</p>", html_escape(segment).replace('\n', "<br>")))
-        .collect::<Vec<_>>()
-        .join("")
-}
-
-fn html_escape(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
 
 pub struct AnnouncementTemplate;
 

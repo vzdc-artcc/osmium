@@ -31,12 +31,19 @@ pub async fn upsert_discord_oauth_state(
     user_id: &str,
     metadata: Value,
 ) -> Result<(), ApiError> {
+    // A pending OAuth state is stored one-per-user: `local_id` = the (per-attempt,
+    // random) state token, `external_id` = the user id. The table enforces UNIQUE
+    // on BOTH (system_code, entity_type, local_id) AND (system_code, entity_type,
+    // external_id), so we must conflict on the *user* (external_id) and refresh the
+    // state token — conflicting on local_id instead let a second link-start by the
+    // same user violate the external_id constraint and 500 (any user who ever
+    // started the flow once could then never link).
     sqlx::query(
         r#"
         insert into integration.external_sync_mappings (id, system_code, entity_type, local_id, external_id, metadata, created_at, updated_at)
         values ($1, 'discord', 'oauth_state', $2, $3, $4, now(), now())
-        on conflict (system_code, entity_type, local_id) do update
-        set external_id = excluded.external_id,
+        on conflict (system_code, entity_type, external_id) do update
+        set local_id = excluded.local_id,
             metadata = excluded.metadata,
             updated_at = now()
         "#,

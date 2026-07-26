@@ -210,12 +210,13 @@ pub async fn training_stats_bundle(
                 u.first_name,
                 u.last_name,
                 u.preferred_name,
+                u.display_name,
                 coalesce(sum(extract(epoch from (s."end" - s.start)) / 3600.0), 0)::double precision as hours
             from training.training_sessions s
             join identity.users u on u.id = s.instructor_id
             where s.start >= $1 and s.start < $2
-            group by s.instructor_id, u.cid, u.first_name, u.last_name, u.preferred_name
-            order by hours desc
+            group by s.instructor_id, u.cid, u.first_name, u.last_name, u.preferred_name, u.display_name
+            order by hours desc, u.cid asc
             limit 3
             "#,
         )

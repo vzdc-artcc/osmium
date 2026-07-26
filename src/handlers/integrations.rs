@@ -71,8 +71,12 @@ pub async fn start_discord_link(
     let client_id = std::env::var("DISCORD_CLIENT_ID").ok();
     let auth_url = if let (Some(client_id), Some(redirect_uri)) = (client_id, redirect_uri.clone())
     {
+        // redirect_uri must be percent-encoded as a query value (it contains `:`
+        // and `/`, and in prod may carry a query string); Discord compares it
+        // byte-for-byte at token exchange.
         Some(format!(
-            "https://discord.com/oauth2/authorize?client_id={client_id}&response_type=code&scope=identify&redirect_uri={redirect_uri}&state={state_token}"
+            "https://discord.com/oauth2/authorize?client_id={client_id}&response_type=code&scope=identify&redirect_uri={}&state={state_token}",
+            urlencoding::encode(&redirect_uri)
         ))
     } else {
         None

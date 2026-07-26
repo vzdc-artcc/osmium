@@ -131,7 +131,7 @@ struct EventTmiItemRow {
     id: String,
     event_id: String,
     tmi_type: String,
-    start_time: chrono::DateTime<chrono::Utc>,
+    start_time: Option<chrono::DateTime<chrono::Utc>>,
     notes: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
@@ -647,7 +647,7 @@ pub async fn list_event_tmis(
     offset: i64,
 ) -> Result<Vec<EventTmiItem>, ApiError> {
     sqlx::query_as::<_, EventTmiItemRow>(
-        "select id, event_id, tmi_type, start_time, notes, created_at, updated_at from events.event_tmis where event_id = $1 order by start_time asc, created_at asc, id asc limit $2 offset $3",
+        "select id, event_id, tmi_type, start_time, notes, created_at, updated_at from events.event_tmis where event_id = $1 order by created_at asc, id asc limit $2 offset $3",
     )
     .bind(event_id)
     .bind(page_size)
@@ -663,7 +663,7 @@ pub async fn insert_event_tmi(
     id: &str,
     event_id: &str,
     tmi_type: &str,
-    start_time: chrono::DateTime<chrono::Utc>,
+    start_time: Option<chrono::DateTime<chrono::Utc>>,
     notes: Option<&str>,
 ) -> Result<EventTmiItem, ApiError> {
     sqlx::query_as::<_, EventTmiItemRow>(
