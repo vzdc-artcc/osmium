@@ -184,13 +184,9 @@ pub async fn admin_list_incidents(
 
     let filters = incident_filters_from_query(&query);
     let total = incidents_repo::count_all_incidents(pool, filters).await?;
-    let items = incidents_repo::list_all_incidents(
-        pool,
-        filters,
-        pagination.page_size,
-        pagination.offset,
-    )
-    .await?;
+    let items =
+        incidents_repo::list_all_incidents(pool, filters, pagination.page_size, pagination.offset)
+            .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(

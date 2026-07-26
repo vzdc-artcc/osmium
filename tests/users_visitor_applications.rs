@@ -31,9 +31,7 @@ async fn visitor_application_lifecycle_works_end_to_end() {
             ],
         )
         .await;
-    let unauthorized = app
-        .create_user(10000102, "Visitor No Perms", &[])
-        .await;
+    let unauthorized = app.create_user(10000102, "Visitor No Perms", &[]).await;
 
     // No application yet.
     let initial = app

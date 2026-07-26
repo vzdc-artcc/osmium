@@ -87,9 +87,7 @@ async fn session_crud_lifecycle_and_pi_full_replace_contract() {
     let create_cell_response = app
         .json_request(
             "POST",
-            &format!(
-                "/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells"
-            ),
+            &format!("/api/v1/training/lessons/{lesson_id}/rubric-criteria/{criteria_id}/cells"),
             Some(&staff.session_token),
             Some(json!({"points": 3, "description": "Perfect"})),
         )
@@ -281,7 +279,12 @@ async fn session_crud_lifecycle_and_pi_full_replace_contract() {
         .find(|item| item["basic"]["cid"] == 10000094)
         .expect("staff present in roster");
     assert!(staff_row["full"]["role_names"].is_array());
-    assert!(staff_row["full"].as_object().unwrap().contains_key("operating_initials"));
+    assert!(
+        staff_row["full"]
+            .as_object()
+            .unwrap()
+            .contains_key("operating_initials")
+    );
 
     // Cleanup.
     let delete_response = app

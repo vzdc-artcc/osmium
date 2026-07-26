@@ -542,10 +542,7 @@ pub async fn find_auto_assign_home_obs_progression(
 /// Whether the controller has already received their one-time auto-assigned
 /// starter progression (roster sync sets this the first time it assigns a new
 /// home OBS a progression, so it never re-assigns after the user completes it).
-pub async fn get_auto_assign_single_pass(
-    pool: &PgPool,
-    user_id: &str,
-) -> Result<bool, ApiError> {
+pub async fn get_auto_assign_single_pass(pool: &PgPool, user_id: &str) -> Result<bool, ApiError> {
     sqlx::query_scalar::<_, Option<bool>>(
         "select flag_auto_assign_single_pass from identity.user_flags where user_id = $1",
     )

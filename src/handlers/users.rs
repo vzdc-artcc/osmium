@@ -17,10 +17,9 @@ use crate::{
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
         ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
         PaginationQuery, RosterUserRow, StaffPositionHoldersResponse, StaffPositionsResponse,
-        UserBasicInfo,
-        UserDetailsResponse, UserFeedbackListResponse, UserFeedbackQuery, UserFullInfo,
-        UserListItem, UserListResponse, UserPrivateInfo, VisitArtccRequest, VisitArtccResponse,
-        VisitorApplicationItem,
+        UserBasicInfo, UserDetailsResponse, UserFeedbackListResponse, UserFeedbackQuery,
+        UserFullInfo, UserListItem, UserListResponse, UserPrivateInfo, VisitArtccRequest,
+        VisitArtccResponse, VisitorApplicationItem,
     },
     repos::{audit as audit_repo, feedback as feedback_repo, users as user_repo},
     state::AppState,
@@ -160,7 +159,10 @@ pub async fn get_staff_positions(
     // tags, not permissions.
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let positions = user_repo::list_held_staff_positions(pool, cid).await?;
-    Ok(ApiJson::new(StaffPositionsResponse { cid, positions }, time))
+    Ok(ApiJson::new(
+        StaffPositionsResponse { cid, positions },
+        time,
+    ))
 }
 
 #[utoipa::path(
@@ -551,15 +553,13 @@ async fn can_view_extended_directory(
 ) -> Result<bool, ApiError> {
     let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
 
-    Ok(
-        permissions.contains(&PermissionPath::from_segments(
-            ["users", "directory"],
-            PermissionAction::Read,
-        )) || permissions.contains(&PermissionPath::from_segments(
-            ["users", "directory_private"],
-            PermissionAction::Read,
-        )),
-    )
+    Ok(permissions.contains(&PermissionPath::from_segments(
+        ["users", "directory"],
+        PermissionAction::Read,
+    )) || permissions.contains(&PermissionPath::from_segments(
+        ["users", "directory_private"],
+        PermissionAction::Read,
+    )))
 }
 
 pub(crate) async fn build_user_details_response(

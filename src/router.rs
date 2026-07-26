@@ -233,18 +233,12 @@ pub fn build_router(state: AppState) -> Router {
             "/users/{cid}/staff-positions/{position}",
             post(admin::assign_staff_position).delete(admin::revoke_staff_position),
         )
-        .route(
-            "/roster/purge-candidates",
-            get(org::list_purge_candidates),
-        )
+        .route("/roster/purge-candidates", get(org::list_purge_candidates))
         .route(
             "/users/{cid}/refresh-vatusa",
             post(admin::refresh_user_vatusa),
         )
-        .route(
-            "/users/{cid}/ip-history",
-            get(admin::get_user_ip_history),
-        )
+        .route("/users/{cid}/ip-history", get(admin::get_user_ip_history))
         .route(
             "/users/{cid}/sessions",
             get(admin::list_user_sessions).delete(admin::revoke_all_user_sessions),
@@ -253,10 +247,7 @@ pub fn build_router(state: AppState) -> Router {
             "/users/{cid}/sessions/{session_id}",
             delete(admin::revoke_user_session),
         )
-        .route(
-            "/data-export/roster",
-            get(data_export::export_roster_data),
-        )
+        .route("/data-export/roster", get(data_export::export_roster_data))
         .nest(
             "/publications",
             Router::new()
@@ -356,7 +347,8 @@ pub fn build_router(state: AppState) -> Router {
     let event_preset_routes = Router::new()
         .route(
             "/",
-            get(event_ops::list_event_position_presets).post(event_ops::create_event_position_preset),
+            get(event_ops::list_event_position_presets)
+                .post(event_ops::create_event_position_preset),
         )
         .route(
             "/{preset_id}",

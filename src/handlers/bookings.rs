@@ -17,7 +17,8 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        AtcBookingItem, AtcBookingListResponse, CreateOrUpdateAtcBookingRequest, ListAtcBookingsQuery,
+        AtcBookingItem, AtcBookingListResponse, CreateOrUpdateAtcBookingRequest,
+        ListAtcBookingsQuery,
     },
     repos::{audit as audit_repo, stats as stats_repo},
     state::AppState,
@@ -75,7 +76,9 @@ fn validate_non_training_booking(
     is_update: bool,
 ) -> Result<(), &'static str> {
     if !is_update && active_count >= 2 {
-        return Err("You have reached the maximum number of active bookings (2). Please delete an existing booking before creating a new one.");
+        return Err(
+            "You have reached the maximum number of active bookings (2). Please delete an existing booking before creating a new one.",
+        );
     }
     let start_dt = parse_booking_time(start).ok_or("Invalid start time.")?;
     let end_dt = parse_booking_time(end).ok_or("Invalid end time.")?;
@@ -261,9 +264,13 @@ async fn upsert_booking(
         } else {
             0
         };
-        if let Err(message) =
-            validate_non_training_booking(&body.start, &body.end, Utc::now(), active_count, id.is_some())
-        {
+        if let Err(message) = validate_non_training_booking(
+            &body.start,
+            &body.end,
+            Utc::now(),
+            active_count,
+            id.is_some(),
+        ) {
             return Ok(booking_error_response(message));
         }
     }
@@ -411,7 +418,9 @@ mod tests {
     use chrono::{Duration, Utc};
 
     fn ts(offset: Duration) -> String {
-        (Utc::now() + offset).format("%Y-%m-%d %H:%M:%S").to_string()
+        (Utc::now() + offset)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string()
     }
 
     #[test]
@@ -449,11 +458,15 @@ mod tests {
         let now = Utc::now();
         let too_soon_start = ts(Duration::minutes(30));
         let too_soon_end = ts(Duration::hours(1));
-        assert!(validate_non_training_booking(&too_soon_start, &too_soon_end, now, 0, false).is_err());
+        assert!(
+            validate_non_training_booking(&too_soon_start, &too_soon_end, now, 0, false).is_err()
+        );
 
         let too_far_start = ts(Duration::hours(80));
         let too_far_end = ts(Duration::hours(81));
-        assert!(validate_non_training_booking(&too_far_start, &too_far_end, now, 0, false).is_err());
+        assert!(
+            validate_non_training_booking(&too_far_start, &too_far_end, now, 0, false).is_err()
+        );
     }
 
     #[test]

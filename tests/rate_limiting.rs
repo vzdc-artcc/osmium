@@ -162,7 +162,8 @@ async fn disabling_the_flag_fully_disables_enforcement() {
         ("RATE_LIMIT_ENABLED", "false"),
         ("RATE_LIMIT_BURST", "3"),
     ])
-    .await else {
+    .await
+    else {
         return;
     };
 

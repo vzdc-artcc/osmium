@@ -326,7 +326,13 @@ fn appointments_sync_interval_secs() -> u64 {
 mod tests {
     use super::*;
 
-    fn row(id: &str, start: DateTime<Utc>, duration_minutes: i64, all_live: bool, all_classroom: bool) -> AppointmentSyncRow {
+    fn row(
+        id: &str,
+        start: DateTime<Utc>,
+        duration_minutes: i64,
+        all_live: bool,
+        all_classroom: bool,
+    ) -> AppointmentSyncRow {
         AppointmentSyncRow {
             id: id.to_string(),
             start,
@@ -379,7 +385,8 @@ mod tests {
             row("b", base + Duration::minutes(30), 60, false, false),
         ];
 
-        let assignments = assign_environments(&appointments, &["SBX1".to_string(), "SBX2".to_string()], 15);
+        let assignments =
+            assign_environments(&appointments, &["SBX1".to_string(), "SBX2".to_string()], 15);
 
         assert_eq!(assignments[0].environment, "SBX1");
         assert_eq!(assignments[1].environment, "SBX2");

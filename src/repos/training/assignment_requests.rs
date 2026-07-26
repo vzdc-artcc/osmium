@@ -76,8 +76,9 @@ pub async fn list_assignment_requests(
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<TrainingAssignmentRequest>, ApiError> {
-    let sql =
-        format!("{ASSIGNMENT_REQUEST_SELECT} order by r.submitted_at desc, r.id asc limit $1 offset $2");
+    let sql = format!(
+        "{ASSIGNMENT_REQUEST_SELECT} order by r.submitted_at desc, r.id asc limit $1 offset $2"
+    );
     sqlx::query_as::<_, AssignmentRequestRow>(&sql)
         .bind(page_size)
         .bind(offset)

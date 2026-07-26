@@ -52,7 +52,10 @@ pub async fn search_preferred_routes(
             .await?;
 
     let count = routes.len();
-    Ok(ApiJson::new(PreferredRoutesResponse { routes, count }, time))
+    Ok(ApiJson::new(
+        PreferredRoutesResponse { routes, count },
+        time,
+    ))
 }
 
 /// Trim, upper-case, and drop empty airport identifiers so comparison against the

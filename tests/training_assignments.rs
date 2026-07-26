@@ -221,7 +221,11 @@ async fn assignment_request_interest_is_listed_with_trainer_details() {
     };
 
     let staff = app
-        .create_user(10000081, "Interest Staff", &["training.assignment_requests.read"])
+        .create_user(
+            10000081,
+            "Interest Staff",
+            &["training.assignment_requests.read"],
+        )
         .await;
     let student = app
         .create_user(
@@ -309,7 +313,11 @@ async fn assignment_request_manual_creation_requires_create_permission() {
     };
 
     let staff = app
-        .create_user(10000084, "Manual Staff", &["training.assignment_requests.create"])
+        .create_user(
+            10000084,
+            "Manual Staff",
+            &["training.assignment_requests.create"],
+        )
         .await;
     let bystander = app.create_user(10000085, "Manual Bystander", &[]).await;
     let student = app.create_user(10000086, "Manual Student", &[]).await;
@@ -341,7 +349,10 @@ async fn assignment_request_manual_creation_requires_create_permission() {
     assert_eq!(created["student_cid"], 10000086);
     let submitted_at: chrono::DateTime<chrono::Utc> =
         created["submitted_at"].as_str().unwrap().parse().unwrap();
-    assert_eq!(submitted_at, backdated.parse::<chrono::DateTime<chrono::Utc>>().unwrap());
+    assert_eq!(
+        submitted_at,
+        backdated.parse::<chrono::DateTime<chrono::Utc>>().unwrap()
+    );
 
     app.cleanup().await;
 }
@@ -431,12 +442,22 @@ async fn release_request_manual_creation_requires_create_permission() {
     };
 
     let staff = app
-        .create_user(10000087, "Release Manual Staff", &["training.release_requests.create"])
+        .create_user(
+            10000087,
+            "Release Manual Staff",
+            &["training.release_requests.create"],
+        )
         .await;
     let trainer = app
-        .create_user(10000088, "Release Manual Trainer", &["training.release_requests.self.request"])
+        .create_user(
+            10000088,
+            "Release Manual Trainer",
+            &["training.release_requests.self.request"],
+        )
         .await;
-    let student = app.create_user(10000089, "Release Manual Student", &[]).await;
+    let student = app
+        .create_user(10000089, "Release Manual Student", &[])
+        .await;
 
     // A caller without the create permission cannot submit release on someone else's behalf,
     // even if they hold the self-request permission for their own release requests.

@@ -1,10 +1,5 @@
 use std::collections::BTreeSet;
 
-use axum::{
-    Json,
-    extract::{Extension, Path, Query, State},
-    http::HeaderMap,
-};
 use crate::{
     auth::{
         acl::{
@@ -14,8 +9,8 @@ use crate::{
         context::{CurrentServiceAccount, CurrentUser},
         permissions::{
             AccessCatalogRead, AccessSelfRead, AccessUsersRead, AccessUsersUpdate, AuditLogsRead,
-            UsersControllerStatusUpdate, UsersDirectoryPrivateRead, UsersFlagsRead, UsersFlagsUpdate,
-            UsersOperatingInitialsUpdate, UsersSessionsDelete, UsersSessionsRead,
+            UsersControllerStatusUpdate, UsersDirectoryPrivateRead, UsersFlagsRead,
+            UsersFlagsUpdate, UsersOperatingInitialsUpdate, UsersSessionsDelete, UsersSessionsRead,
             UsersStaffPositionsUpdate, UsersVatusaRefreshRequest, UsersVisitorApplicationsDecide,
             UsersVisitorApplicationsRead,
         },
@@ -25,8 +20,7 @@ use crate::{
     jobs::roster_sync,
     models::{
         AccessCatalogBody, AclDebugBody, AdminUpdateProfileRequest, AdminUserListResponse,
-        AuditLogListResponse,
-        DecideVisitorApplicationRequest, ListAuditLogsQuery,
+        AuditLogListResponse, DecideVisitorApplicationRequest, ListAuditLogsQuery,
         ListVisitorApplicationsQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
         ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, MeProfileBody, PaginationMeta,
@@ -42,6 +36,11 @@ use crate::{
     },
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
+};
+use axum::{
+    Json,
+    extract::{Extension, Path, Query, State},
+    http::HeaderMap,
 };
 
 const DEFAULT_VATUSA_API_BASE_URL: &str = "https://api.vatusa.net/v2";
@@ -538,7 +537,17 @@ pub async fn assign_staff_position(
 ) -> Result<ApiJson<StaffPositionsResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
 
-    set_staff_position_for_cid(&state, user, current_service_account.as_ref(), cid, &position, true, &headers, time).await
+    set_staff_position_for_cid(
+        &state,
+        user,
+        current_service_account.as_ref(),
+        cid,
+        &position,
+        true,
+        &headers,
+        time,
+    )
+    .await
 }
 
 #[utoipa::path(
@@ -567,7 +576,17 @@ pub async fn revoke_staff_position(
 ) -> Result<ApiJson<StaffPositionsResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
 
-    set_staff_position_for_cid(&state, user, current_service_account.as_ref(), cid, &position, false, &headers, time).await
+    set_staff_position_for_cid(
+        &state,
+        user,
+        current_service_account.as_ref(),
+        cid,
+        &position,
+        false,
+        &headers,
+        time,
+    )
+    .await
 }
 
 async fn set_staff_position_for_cid(
@@ -598,8 +617,7 @@ async fn set_staff_position_for_cid(
         positions: after,
     };
 
-    let actor =
-        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account).await?;
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), current_service_account).await?;
     audit_repo::record_audit(
         pool,
         audit_repo::AuditEntryInput {

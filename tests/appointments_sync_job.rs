@@ -62,7 +62,9 @@ async fn appointments_sync_assigns_environments_and_flags_warning_emails() {
             ],
         )
         .await;
-    let student = app.create_user(10000096, "Appointments Sync Student", &[]).await;
+    let student = app
+        .create_user(10000096, "Appointments Sync Student", &[])
+        .await;
 
     let live_lesson = create_lesson(&app, &staff.session_token, "LIVE1", 1).await;
     let classroom_lesson = create_lesson(&app, &staff.session_token, "CLS1", 0).await;
@@ -79,12 +81,46 @@ async fn appointments_sync_assigns_environments_and_flags_warning_emails() {
     // assignment — should reuse SBX1 since `a`/`b` are long finished by then.
     let far_start = now + Duration::hours(48);
 
-    let live_id = create_appointment(&app, &staff.session_token, &student.id, live_start, &live_lesson).await;
-    let classroom_id =
-        create_appointment(&app, &staff.session_token, &student.id, classroom_start, &classroom_lesson).await;
-    let a_id = create_appointment(&app, &staff.session_token, &student.id, a_start, &rotation_lesson).await;
-    let b_id = create_appointment(&app, &staff.session_token, &student.id, b_start, &rotation_lesson).await;
-    let far_id = create_appointment(&app, &staff.session_token, &student.id, far_start, &rotation_lesson).await;
+    let live_id = create_appointment(
+        &app,
+        &staff.session_token,
+        &student.id,
+        live_start,
+        &live_lesson,
+    )
+    .await;
+    let classroom_id = create_appointment(
+        &app,
+        &staff.session_token,
+        &student.id,
+        classroom_start,
+        &classroom_lesson,
+    )
+    .await;
+    let a_id = create_appointment(
+        &app,
+        &staff.session_token,
+        &student.id,
+        a_start,
+        &rotation_lesson,
+    )
+    .await;
+    let b_id = create_appointment(
+        &app,
+        &staff.session_token,
+        &student.id,
+        b_start,
+        &rotation_lesson,
+    )
+    .await;
+    let far_id = create_appointment(
+        &app,
+        &staff.session_token,
+        &student.id,
+        far_start,
+        &rotation_lesson,
+    )
+    .await;
 
     let run_response = app
         .json_request(
@@ -97,8 +133,14 @@ async fn appointments_sync_assigns_environments_and_flags_warning_emails() {
     assert_status(&run_response, StatusCode::OK);
     let run: Value = json_body(run_response).await;
     assert_eq!(run["run"]["status"], "succeeded");
-    assert_eq!(run["run"]["result_summary"]["details"]["environments_assigned"], 5);
-    assert_eq!(run["run"]["result_summary"]["details"]["warning_emails_sent"], 4);
+    assert_eq!(
+        run["run"]["result_summary"]["details"]["environments_assigned"],
+        5
+    );
+    assert_eq!(
+        run["run"]["result_summary"]["details"]["warning_emails_sent"],
+        4
+    );
 
     assert_appointment_state(&app, &live_id, "LIVE", false, true).await;
     assert_appointment_state(&app, &classroom_id, "CLASSROOM", false, true).await;
@@ -109,7 +151,12 @@ async fn appointments_sync_assigns_environments_and_flags_warning_emails() {
     app.cleanup().await;
 }
 
-async fn create_lesson(app: &TestApp, session_token: &str, identifier: &str, location: i64) -> String {
+async fn create_lesson(
+    app: &TestApp,
+    session_token: &str,
+    identifier: &str,
+    location: i64,
+) -> String {
     let response = app
         .json_request(
             "POST",
@@ -176,8 +223,15 @@ async fn assert_appointment_state(
     .await
     .expect("fetch appointment state");
 
-    assert_eq!(row.0.as_deref(), Some(expected_environment), "environment for {appointment_id}");
-    assert_eq!(row.1, expected_double_booking, "double_booking for {appointment_id}");
+    assert_eq!(
+        row.0.as_deref(),
+        Some(expected_environment),
+        "environment for {appointment_id}"
+    );
+    assert_eq!(
+        row.1, expected_double_booking,
+        "double_booking for {appointment_id}"
+    );
     assert_eq!(
         row.2, expected_warning_email_sent,
         "warning_email_sent for {appointment_id}"

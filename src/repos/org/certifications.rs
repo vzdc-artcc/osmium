@@ -67,10 +67,14 @@ pub async fn list_roster_certifications(
 
     for (cid, type_id, option) in cert_rows {
         entry(&mut by_cid, cid);
-        by_cid.get_mut(&cid).unwrap().certifications.push(RosterCertOption {
-            certification_type_id: type_id,
-            certification_option: option,
-        });
+        by_cid
+            .get_mut(&cid)
+            .unwrap()
+            .certifications
+            .push(RosterCertOption {
+                certification_type_id: type_id,
+                certification_option: option,
+            });
     }
     for (cid, type_id, position, expires) in solo_rows {
         entry(&mut by_cid, cid);
@@ -270,11 +274,13 @@ pub async fn upsert_certification_type(
         .map_err(|_| ApiError::Conflict)?
     };
 
-    sqlx::query("delete from org.certification_type_allowed_options where certification_type_id = $1")
-        .bind(&type_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
+    sqlx::query(
+        "delete from org.certification_type_allowed_options where certification_type_id = $1",
+    )
+    .bind(&type_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
 
     for option in options {
         sqlx::query(

@@ -90,7 +90,8 @@ async fn export_is_rate_limited_per_user() {
         ("DATA_EXPORT_RATE_LIMIT_PER_HOUR", "1"),
         ("DATA_EXPORT_RATE_LIMIT_BURST", "2"),
     ])
-    .await else {
+    .await
+    else {
         return;
     };
     let user = test
@@ -127,7 +128,9 @@ async fn roster_export_includes_roster_controllers_without_leaking_tokens() {
         .await;
     set_on_roster(&test, &controller.id).await;
 
-    let response = test.request(roster_export_request(&admin.session_token)).await;
+    let response = test
+        .request(roster_export_request(&admin.session_token))
+        .await;
     assert_status(&response, StatusCode::OK);
 
     let body: Value = json_body(response).await;
@@ -173,7 +176,9 @@ async fn roster_export_is_permission_gated() {
         .create_user(560_020, "Nobody", &["auth.profile.read"])
         .await;
 
-    let response = test.request(roster_export_request(&nobody.session_token)).await;
+    let response = test
+        .request(roster_export_request(&nobody.session_token))
+        .await;
     assert_status(&response, StatusCode::UNAUTHORIZED);
 
     test.cleanup().await;

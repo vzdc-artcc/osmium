@@ -92,9 +92,8 @@ impl GdprNotice {
     /// The vZDC-specific access notice. Kept here as one place to review the wording.
     pub fn vzdc() -> Self {
         GdprNotice {
-            legal_basis:
-                "GDPR Article 15 (right of access) and Article 20 (data portability)."
-                    .to_string(),
+            legal_basis: "GDPR Article 15 (right of access) and Article 20 (data portability)."
+                .to_string(),
             purposes: vec![
                 "Operating a VATSIM Air Route Traffic Control Center (vZDC): roster \
                  management, controller training and certification, event staffing, \
@@ -116,8 +115,7 @@ impl GdprNotice {
             recipients: vec![
                 "vZDC training and administrative staff (internal)".to_string(),
                 "VATUSA / VATSIM, via roster synchronization".to_string(),
-                "The configured transactional email provider, for messages sent to you"
-                    .to_string(),
+                "The configured transactional email provider, for messages sent to you".to_string(),
             ],
             retention:
                 "Records are retained for as long as you hold a vZDC roster membership and, \
@@ -142,10 +140,9 @@ impl GdprNotice {
                  dossier entries), as these constitute your personal data under Article 15. \
                  The identities of the individual staff authors are not included."
                     .to_string(),
-            contact:
-                "Contact the vZDC Air Traffic Manager / Data Protection contact to exercise \
+            contact: "Contact the vZDC Air Traffic Manager / Data Protection contact to exercise \
                  any of the above rights."
-                    .to_string(),
+                .to_string(),
         }
     }
 }

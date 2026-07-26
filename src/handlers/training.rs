@@ -18,15 +18,13 @@ use crate::{
             TrainingAppointmentsCreate, TrainingAppointmentsDelete, TrainingAppointmentsRead,
             TrainingAppointmentsUpdate, TrainingAssignmentRequestsDecide,
             TrainingAssignmentRequestsInterestDelete, TrainingAssignmentRequestsInterestRequest,
-            TrainingAssignmentRequestsRead,
-            TrainingAssignmentsCreate, TrainingAssignmentsDelete, TrainingAssignmentsRead,
-            TrainingAssignmentsUpdate, TrainingLessonsCreate, TrainingLessonsDelete,
-            TrainingLessonsRead, TrainingLessonsUpdate, TrainingOtsRecommendationsCreate,
-            TrainingOtsRecommendationsDelete, TrainingOtsRecommendationsRead,
-            TrainingOtsRecommendationsUpdate, TrainingReleaseRequestsDecide,
-            TrainingReleaseRequestsRead,
-            TrainingSessionsCreate, TrainingSessionsDelete, TrainingSessionsRead,
-            TrainingSessionsUpdate,
+            TrainingAssignmentRequestsRead, TrainingAssignmentsCreate, TrainingAssignmentsDelete,
+            TrainingAssignmentsRead, TrainingAssignmentsUpdate, TrainingLessonsCreate,
+            TrainingLessonsDelete, TrainingLessonsRead, TrainingLessonsUpdate,
+            TrainingOtsRecommendationsCreate, TrainingOtsRecommendationsDelete,
+            TrainingOtsRecommendationsRead, TrainingOtsRecommendationsUpdate,
+            TrainingReleaseRequestsDecide, TrainingReleaseRequestsRead, TrainingSessionsCreate,
+            TrainingSessionsDelete, TrainingSessionsRead, TrainingSessionsUpdate,
         },
         require_permission::RequirePermission,
     },
@@ -352,8 +350,8 @@ pub async fn delete_assignment(
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
 
-    let deleted = training_assignments_repo::delete_assignment_row(&mut *tx, &assignment_id)
-        .await?;
+    let deleted =
+        training_assignments_repo::delete_assignment_row(&mut *tx, &assignment_id).await?;
     if !deleted {
         return Err(ApiError::NotFound);
     }

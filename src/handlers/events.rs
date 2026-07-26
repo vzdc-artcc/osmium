@@ -447,7 +447,9 @@ pub async fn create_event_position(
         &event_id,
         &target_user_id,
         &req.requested_position,
-        req.requested_secondary_position.as_deref().unwrap_or("UNKNOWN"),
+        req.requested_secondary_position
+            .as_deref()
+            .unwrap_or("UNKNOWN"),
         req.notes.as_deref(),
         req.requested_start_time,
         req.requested_end_time,
@@ -461,7 +463,11 @@ pub async fn create_event_position(
         req.is_ots.unwrap_or(false),
         req.is_tmu.unwrap_or(false),
         req.is_cic.unwrap_or(false),
-        if is_manual_add { "ASSIGNED" } else { "REQUESTED" },
+        if is_manual_add {
+            "ASSIGNED"
+        } else {
+            "REQUESTED"
+        },
         now,
     )
     .await?;
@@ -523,9 +529,10 @@ pub async fn assign_event_position(
     // Assigning a real user (not clearing the assignment) defaults status to
     // ASSIGNED unless the caller explicitly overrides it — matches the
     // historical "assign a slot" behavior this endpoint started as.
-    let status = req.status.clone().or_else(|| {
-        matches!(req.user_id, Some(Some(_))).then(|| "ASSIGNED".to_string())
-    });
+    let status = req
+        .status
+        .clone()
+        .or_else(|| matches!(req.user_id, Some(Some(_))).then(|| "ASSIGNED".to_string()));
 
     let position = events_repo::update_event_position_row(
         db,

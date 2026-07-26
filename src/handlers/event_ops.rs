@@ -478,12 +478,9 @@ pub async fn list_event_position_presets(
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
     let total = events_repo::count_event_position_presets(pool).await?;
-    let items = events_repo::list_event_position_presets(
-        pool,
-        pagination.page_size,
-        pagination.offset,
-    )
-    .await?;
+    let items =
+        events_repo::list_event_position_presets(pool, pagination.page_size, pagination.offset)
+            .await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
     Ok(ApiJson::new(
         EventPositionPresetListResponse {
