@@ -6,6 +6,10 @@ pub struct FeedbackItem {
     pub id: String,
     pub submitter_user_id: String,
     pub target_user_id: String,
+    pub submitter_cid: Option<i64>,
+    pub submitter_name: Option<String>,
+    pub target_cid: Option<i64>,
+    pub target_name: Option<String>,
     pub pilot_callsign: String,
     pub controller_position: String,
     pub rating: i32,
@@ -41,6 +45,13 @@ pub struct FeedbackListQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub status: Option<String>,
+    pub submitter_cid: Option<i64>,
+    pub submitter_name: Option<String>,
+    pub target_cid: Option<i64>,
+    pub target_name: Option<String>,
+    pub controller_position: Option<String>,
+    pub min_rating: Option<i32>,
+    pub max_rating: Option<i32>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

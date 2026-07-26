@@ -14,18 +14,21 @@ use uuid::Uuid;
 use crate::{
     auth::{
         acl::{
-            PermissionAction, PermissionPath, fetch_service_account_access, fetch_user_access,
-            is_server_admin, permission_tree_from_paths,
+            fetch_service_account_access, fetch_user_access, is_server_admin,
+            permission_tree_from_paths,
         },
-        context::{CurrentServiceAccount, CurrentUser},
-        middleware::ensure_permission,
+        context::{CurrentServiceAccount, CurrentUser, SessionToken},
+        permissions::{
+            AuthImpersonateCreate, AuthProfileRead, AuthProfileUpdate, AuthSessionsDelete,
+            AuthTeamspeakUidsCreate, AuthTeamspeakUidsDelete, AuthTeamspeakUidsRead,
+        },
+        require_permission::RequirePermission,
         vatsim::{VatsimOAuthConfig, exchange_code_for_token, fetch_profile},
     },
-    config::dev_impersonation_enabled,
     errors::ApiError,
     models::{
-        CreateTeamSpeakUidRequest, MeBody, PatchMeRequest, ServiceAccountSessionBody,
-        TeamSpeakUidBody,
+        CreateTeamSpeakUidRequest, ImpersonationBanner, MeBody, PatchMeRequest,
+        ServiceAccountSessionBody, TeamSpeakLookupRequest, TeamSpeakLookupResponse, TeamSpeakUidBody,
     },
     repos::{access as access_repo, users as user_repo},
     state::AppState,
@@ -51,6 +54,13 @@ pub struct CallbackQuery {
     state: Option<String>,
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct StartImpersonationRequest {
+    /// Optional free-text reason, recorded in the server-level audit entry.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/me",
@@ -62,17 +72,11 @@ pub struct CallbackQuery {
 )]
 pub async fn me(
     State(state): State<AppState>,
+    _permission: RequirePermission<AuthProfileRead>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<MeBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
     Ok(ApiJson::new(build_me_body(&state, user).await?, time))
 }
 
@@ -92,18 +96,12 @@ pub async fn me(
 )]
 pub async fn patch_me(
     State(state): State<AppState>,
+    _permission: RequirePermission<AuthProfileUpdate>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     time: ResponseTimeContext,
     Json(payload): Json<PatchMeRequest>,
 ) -> Result<ApiJson<MeBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Update),
-    )
-    .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let current_profile = user_repo::fetch_me_profile(pool, &user.id).await?;
@@ -136,6 +134,17 @@ pub async fn patch_me(
     )
     .await?;
 
+    if let Some(initials) = payload.operating_initials {
+        let normalized = initials.trim().to_ascii_uppercase();
+        if normalized.len() != 2 || !normalized.chars().all(|c| c.is_ascii_alphabetic()) {
+            return Err(ApiError::BadRequest);
+        }
+        let assigned = user_repo::reassign_operating_initials(pool, &user.id, &normalized).await?;
+        if !assigned {
+            return Err(ApiError::Conflict);
+        }
+    }
+
     Ok(ApiJson::new(build_me_body(&state, user).await?, time))
 }
 
@@ -150,23 +159,41 @@ pub async fn patch_me(
 )]
 pub async fn list_my_teamspeak_uids(
     State(state): State<AppState>,
+    _permission: RequirePermission<AuthTeamspeakUidsRead>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<Vec<TeamSpeakUidBody>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "teamspeak_uids"], PermissionAction::Read),
-    )
-    .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     Ok(ApiJson::new(
         user_repo::list_teamspeak_uids(pool, &user.id).await?,
         time,
     ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/integrations/teamspeak/lookup",
+    tag = "auth",
+    request_body(content = TeamSpeakLookupRequest, description = "TeamSpeak client UID to resolve to a controller"),
+    responses(
+        (status = 200, description = "Controller identity + live position for the UID", body = TeamSpeakLookupResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "No controller linked to that UID")
+    )
+)]
+pub async fn lookup_teamspeak_controller(
+    State(state): State<AppState>,
+    _permission: RequirePermission<AuthTeamspeakUidsRead>,
+    time: ResponseTimeContext,
+    Json(payload): Json<TeamSpeakLookupRequest>,
+) -> Result<ApiJson<TeamSpeakLookupResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let result = user_repo::lookup_teamspeak_controller(pool, &payload.uid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(ApiJson::new(result, time))
 }
 
 #[utoipa::path(
@@ -185,18 +212,12 @@ pub async fn list_my_teamspeak_uids(
 )]
 pub async fn create_my_teamspeak_uid(
     State(state): State<AppState>,
+    _permission: RequirePermission<AuthTeamspeakUidsCreate>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     time: ResponseTimeContext,
     Json(payload): Json<CreateTeamSpeakUidRequest>,
 ) -> Result<ApiJson<TeamSpeakUidBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "teamspeak_uids"], PermissionAction::Create),
-    )
-    .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let uid = payload.uid.trim();
@@ -225,17 +246,11 @@ pub async fn create_my_teamspeak_uid(
 )]
 pub async fn delete_my_teamspeak_uid(
     State(state): State<AppState>,
+    _permission: RequirePermission<AuthTeamspeakUidsDelete>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(identity_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "teamspeak_uids"], PermissionAction::Delete),
-    )
-    .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     user_repo::delete_teamspeak_uid(pool, &user.id, &identity_id).await?;
@@ -381,7 +396,7 @@ pub async fn vatsim_callback(
         return Err(ApiError::ServiceUnavailable);
     };
 
-    let user_id = bootstrap_login_user(
+    let (user_id, was_new_user) = bootstrap_login_user(
         pool,
         profile.cid,
         &profile.email,
@@ -399,7 +414,7 @@ pub async fn vatsim_callback(
         "oauth user sync completed"
     );
 
-    ensure_user_login_access(pool, &user_id, profile.cid)
+    ensure_user_login_access(pool, &user_id, profile.cid, was_new_user)
         .await
         .map_err(|error| {
             tracing::error!(
@@ -412,24 +427,16 @@ pub async fn vatsim_callback(
         })?;
 
     let session_token = Uuid::new_v4().to_string();
-    sqlx::query(
-        r#"
-        insert into identity.sessions (session_token, user_id, expires_at)
-        values ($1, $2, now() + interval '30 days')
-        "#,
-    )
-    .bind(&session_token)
-    .bind(&user_id)
-    .execute(pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(
-            ?error,
-            user_id = user_id.as_str(),
-            "failed to create session during oauth callback"
-        );
-        ApiError::Internal
-    })?;
+    crate::repos::auth::insert_session(pool, &session_token, &user_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                ?error,
+                user_id = user_id.as_str(),
+                "failed to create session during oauth callback"
+            );
+            ApiError::Internal
+        })?;
 
     let clear_state_cookie = Cookie::build((OAUTH_STATE_COOKIE, ""))
         .path("/")
@@ -473,77 +480,168 @@ pub async fn vatsim_callback(
     ))
 }
 
-pub async fn login_as_cid(
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/impersonate/{cid}",
+    tag = "auth",
+    params(("cid" = i64, Path, description = "VATSIM CID of the user to impersonate")),
+    request_body = StartImpersonationRequest,
+    responses(
+        (status = 200, description = "Now impersonating the target; returns the target's /me view", body = MeBody),
+        (status = 400, description = "Invalid target (self, or already impersonating)"),
+        (status = 401, description = "Not authorized"),
+        (status = 403, description = "Target is a server admin (refused)"),
+        (status = 404, description = "Target user not found")
+    )
+)]
+pub async fn start_impersonation(
     State(state): State<AppState>,
+    _permission: RequirePermission<AuthImpersonateCreate>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(SessionToken(session_token)): Extension<SessionToken>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
     Path(cid): Path<i64>,
-    jar: CookieJar,
-) -> Result<(CookieJar, Redirect), ApiError> {
-    if !dev_impersonation_enabled() {
-        return Err(ApiError::Unauthorized);
-    }
+    Json(payload): Json<StartImpersonationRequest>,
+) -> Result<ApiJson<MeBody>, ApiError> {
+    // Human session only — a service account can neither reach here (no CurrentUser)
+    // nor hold the permission.
+    let admin = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let token = session_token.as_deref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    if cid <= 0 {
+    // Refuse nested impersonation (checklist #3). Also implicitly enforced by the
+    // permission check above (the impersonated subject won't hold the permission),
+    // but made explicit here.
+    if admin.is_impersonated() {
         return Err(ApiError::BadRequest);
     }
 
-    let Some(pool) = state.db.as_ref() else {
-        return Err(ApiError::ServiceUnavailable);
-    };
+    if cid <= 0 || cid == admin.cid {
+        return Err(ApiError::BadRequest);
+    }
 
-    let generated_email = format!("dev-cid-{}@example.invalid", cid);
-    let generated_name = format!("Dev CID {}", cid);
+    let target_user_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    if target_user_id == admin.id {
+        return Err(ApiError::BadRequest);
+    }
 
-    let user_id = bootstrap_login_user(
+    // Refuse impersonating a server admin (or any target that would not de-escalate)
+    // — privilege elevation guard (checklist #3).
+    let (target_roles, _) = fetch_user_access(state.db.as_ref(), &target_user_id).await?;
+    if is_server_admin(&target_roles) {
+        return Err(ApiError::Forbidden);
+    }
+
+    let reason = payload
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let started = access_repo::start_impersonation(
         pool,
-        cid,
-        &generated_email,
-        &generated_name,
-        &generated_name,
-        None,
+        token,
+        &target_user_id,
+        &admin.id,
+        reason,
+        crate::config::impersonation_ttl_secs(),
     )
     .await?;
+    if !started {
+        // The conditional update's guards rejected it (e.g. a concurrent change).
+        return Err(ApiError::Conflict);
+    }
 
-    ensure_user_login_access(pool, &user_id, cid)
-        .await
-        .map_err(|error| {
-            tracing::error!(
-                ?error,
-                user_id = user_id.as_str(),
-                cid,
-                "failed to ensure user access during dev cid login"
-            );
-            error
-        })?;
+    // Server-level audit, attributed to the real admin, target in metadata. Recorded
+    // with the AUTH_IMPERSONATION resource type so facility admins never see it.
+    record_impersonation_audit(pool, &headers, admin, "START", cid, reason).await?;
 
-    let session_token = Uuid::new_v4().to_string();
-    sqlx::query(
-        r#"
-        insert into identity.sessions (session_token, user_id, expires_at)
-        values ($1, $2, now() + interval '30 days')
-        "#,
+    // Re-resolve the (now impersonating) session and return the target's /me view.
+    let target = access_repo::find_current_user_by_session_token(pool, token)
+        .await?
+        .ok_or(ApiError::Internal)?;
+    Ok(ApiJson::new(build_me_body(&state, &target).await?, time))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/impersonate/stop",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Impersonation ended; returns the restored admin's /me view", body = MeBody),
+        (status = 400, description = "Not currently impersonating"),
+        (status = 401, description = "Not authenticated")
     )
-    .bind(&session_token)
-    .bind(&user_id)
-    .execute(pool)
+)]
+pub async fn stop_impersonation(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(SessionToken(session_token)): Extension<SessionToken>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<MeBody>, ApiError> {
+    // No permission gate: the impersonated session's effective user is the target,
+    // who may hold nothing. The only requirement is that this session is impersonating.
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let token = session_token.as_deref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    if !user.is_impersonated() {
+        return Err(ApiError::BadRequest);
+    }
+    let impersonated_cid = user.cid;
+    let admin_user_id = user
+        .impersonator_user_id
+        .clone()
+        .ok_or(ApiError::BadRequest)?;
+
+    let restored = access_repo::stop_impersonation(pool, token, SESSION_TTL_SECS).await?;
+    if restored.is_none() {
+        return Err(ApiError::BadRequest);
+    }
+
+    // Re-resolve the restored admin session for the audit actor + response.
+    let admin = access_repo::find_current_user_by_session_token(pool, token)
+        .await?
+        .ok_or(ApiError::Internal)?;
+    let _ = admin_user_id;
+    record_impersonation_audit(pool, &headers, &admin, "STOP", impersonated_cid, None).await?;
+
+    Ok(ApiJson::new(build_me_body(&state, &admin).await?, time))
+}
+
+/// Records a server-level `AUTH_IMPERSONATION` audit row attributed to the real
+/// admin, with the impersonated CID (and optional reason) in the after-state.
+async fn record_impersonation_audit(
+    pool: &sqlx::PgPool,
+    headers: &HeaderMap,
+    admin: &CurrentUser,
+    action: &str,
+    target_cid: i64,
+    reason: Option<&str>,
+) -> Result<(), ApiError> {
+    let actor = crate::repos::audit::resolve_audit_actor(pool, Some(admin), None).await?;
+    crate::repos::audit::record_audit(
+        pool,
+        crate::repos::audit::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: action.to_string(),
+            resource_type: crate::repos::audit::AUTH_IMPERSONATION_RESOURCE.to_string(),
+            resource_id: Some(target_cid.to_string()),
+            scope_type: "global".to_string(),
+            scope_key: Some(target_cid.to_string()),
+            before_state: None,
+            after_state: Some(serde_json::json!({
+                "impersonated_cid": target_cid,
+                "reason": reason,
+            })),
+            ip_address: crate::repos::audit::client_ip(headers),
+        },
+    )
     .await
-    .map_err(|error| {
-        tracing::error!(
-            ?error,
-            user_id = user_id.as_str(),
-            "failed to create session during dev cid login"
-        );
-        ApiError::Internal
-    })?;
-
-    let session_cookie = Cookie::build((SESSION_COOKIE, session_token))
-        .http_only(true)
-        .secure(cookie_secure())
-        .same_site(SameSite::Lax)
-        .path("/")
-        .max_age(time::Duration::seconds(SESSION_TTL_SECS))
-        .build();
-
-    Ok((jar.add(session_cookie), Redirect::to("/api/v1/me")))
 }
 
 #[utoipa::path(
@@ -557,24 +655,12 @@ pub async fn login_as_cid(
 )]
 pub async fn logout(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(session_token): Extension<Option<String>>,
+    _permission: RequirePermission<AuthSessionsDelete>,
+    Extension(SessionToken(session_token)): Extension<SessionToken>,
     jar: CookieJar,
 ) -> Result<(CookieJar, StatusCode), ApiError> {
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        None,
-        PermissionPath::from_segments(["auth", "sessions"], PermissionAction::Delete),
-    )
-    .await?;
-
     if let (Some(pool), Some(token)) = (state.db.as_ref(), session_token.as_deref()) {
-        sqlx::query("delete from identity.sessions where session_token = $1")
-            .bind(token)
-            .execute(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+        crate::repos::auth::delete_session(pool, token).await?;
     }
 
     let session_cookie = Cookie::build((SESSION_COOKIE, ""))
@@ -597,18 +683,28 @@ fn parse_prompt(raw_prompt: Option<&str>) -> Result<Option<&str>, ApiError> {
 }
 
 async fn build_me_body(state: &AppState, user: &CurrentUser) -> Result<MeBody, ApiError> {
-    ensure_permission(
-        state,
-        Some(user),
-        None,
-        PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-    )
-    .await?;
-
+    // Callers gate `auth.profile.read` via `RequirePermission<AuthProfileRead>`
+    // before invoking this helper (currently only `me`).
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
     let profile = user_repo::fetch_me_profile(pool, &user.id).await?;
+    let flags = user_repo::fetch_user_flags(pool, &user.id).await?;
+    let controller_status = user_repo::fetch_controller_status(pool, &user.id).await?;
     let teamspeak_uids = user_repo::list_teamspeak_uids(pool, &user.id).await?;
+
+    // Minimal real-actor identity for the impersonation banner + stop control.
+    // `user` here is the *target* (impersonation resolves `id`/`cid` to them); the
+    // impersonator fields carry the real admin.
+    let impersonation = match (
+        user.impersonator_cid,
+        user.impersonator_display_name.as_ref(),
+    ) {
+        (Some(impersonator_cid), Some(display_name)) => Some(ImpersonationBanner {
+            impersonator_cid,
+            impersonator_display_name: display_name.clone(),
+        }),
+        _ => None,
+    };
 
     Ok(MeBody {
         id: user.id.clone(),
@@ -616,21 +712,29 @@ async fn build_me_body(state: &AppState, user: &CurrentUser) -> Result<MeBody, A
         email: user.email.clone(),
         display_name: user.display_name.clone(),
         rating: user.rating.clone(),
+        controller_status,
         server_admin: is_server_admin(&roles),
+        role_names: roles,
         permissions: permission_tree_from_paths(&permissions),
         profile,
+        flags,
         teamspeak_uids,
+        impersonation,
     })
 }
 
-async fn bootstrap_login_user(
+/// Upserts the identity/profile/membership rows for a logging-in user, returning
+/// `(user_id, was_new_user)`. Public so integration tests can exercise the login
+/// bootstrap path directly now that the dev login-as route (which used to be the
+/// test trigger) is retired; the real trigger is `vatsim_callback`.
+pub async fn bootstrap_login_user(
     pool: &sqlx::PgPool,
     cid: i64,
     email: &str,
     full_name: &str,
     display_name: &str,
     rating: Option<&str>,
-) -> Result<String, ApiError> {
+) -> Result<(String, bool), ApiError> {
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     let user = user_repo::upsert_login_user(
         &mut tx,
@@ -653,9 +757,13 @@ async fn bootstrap_login_user(
     )
     .await?;
 
+    // Ensure this user has an audit actor so their actions (and IP history) attribute
+    // to them instead of resolving to a null "system" actor.
+    access_repo::ensure_user_actor(&mut tx, &user.id, display_name).await?;
+
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    Ok(user.id)
+    Ok((user.id, user.was_new_user))
 }
 
 fn normalize_optional_text(value: Option<String>) -> Option<String> {
@@ -674,10 +782,14 @@ fn validate_timezone(value: &str) -> Result<String, ApiError> {
     Ok(normalized.to_string())
 }
 
-async fn ensure_user_login_access(
+/// Seeds baseline permissions once (only for a newly-created user) and keeps the
+/// `OSMIUM_SERVER_ADMIN_CID` role sync idempotent on every login. Public for the
+/// same integration-test reason as [`bootstrap_login_user`].
+pub async fn ensure_user_login_access(
     pool: &sqlx::PgPool,
     user_id: &str,
     cid: i64,
+    was_new_user: bool,
 ) -> Result<(), ApiError> {
     let configured_server_admin_cid = configured_server_admin_cid();
 
@@ -704,7 +816,12 @@ async fn ensure_user_login_access(
 
             Ok(())
         }
-        _ => {
+        // Baseline self-service permissions are seeded once, on the login that
+        // first creates the identity.users row. Every later login leaves
+        // access.user_permissions untouched, so admin-granted permissions
+        // (via the staff permissions editor) survive across logins instead
+        // of being silently wiped back to the baseline each time.
+        _ if was_new_user => {
             let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
             access_repo::replace_user_permissions(
                 &mut tx,
@@ -720,7 +837,8 @@ async fn ensure_user_login_access(
                     "users.visit_artcc.request".to_string(),
                     "users.visitor_applications.self.read".to_string(),
                     "users.visitor_applications.self.request".to_string(),
-                    "feedback.items.self.read".to_string(),
+                    "users.directory.read".to_string(),
+                    "feedback.items_self.read".to_string(),
                     "feedback.items.create".to_string(),
                     "events.positions.self.request".to_string(),
                 ],
@@ -732,11 +850,12 @@ async fn ensure_user_login_access(
                 user_id,
                 cid,
                 configured_server_admin_cid,
-                "default user login access synced"
+                "baseline login access seeded for new user"
             );
 
             Ok(())
         }
+        _ => Ok(()),
     }
 }
 

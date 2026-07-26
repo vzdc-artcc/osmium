@@ -15,29 +15,37 @@ use crate::{
         context::CurrentUser,
         middleware::ensure_permission,
         permissions::{
-            AuthProfileRead, AuthProfileUpdate, SystemRead, UsersControllerStatusUpdate,
-            UsersDirectoryRead,
+            AuthProfileRead, AuthProfileUpdate, OrgCertificationsRead, OrgCertificationsUpdate,
+            OrgStaffingRequestsDelete, OrgStaffingRequestsRead, SystemRead,
+            UsersControllerStatusUpdate, UsersDirectoryRead,
         },
         require_permission::RequirePermission,
     },
     email::service::EmailActor,
     errors::ApiError,
     models::{
-        CertificationListResponse, ControllerLifecycleCleanupSummary, ControllerLifecycleRequest,
-        ControllerLifecycleResponse, CreateLoaRequest, CreateSoloCertificationRequest,
+        CertificationListResponse, CertificationTypeItem, CertificationTypeListResponse,
+        ControllerLifecycleCleanupSummary, ControllerLifecycleRequest,
+        ControllerLifecycleResponse, CreateLoaRequest, CreateOrUpdateCertificationTypeRequest,
+        CreateSoloCertificationRequest,
         CreateStaffingRequestRequest, CreateSuaRequest, DecideLoaRequest, JobDetailResponse,
         JobRunItem, JobRunResponse, JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery,
         ListStaffingRequestsQuery, ListSuaQuery, LoaItem, LoaListResponse, PaginationMeta,
-        PaginationQuery, SoloCertificationItem, SoloCertificationListResponse, StaffingRequestItem,
-        StaffingRequestListResponse, SuaBlockItem, SuaListResponse, UpdateLoaRequest,
+        PaginationQuery, PublicSuaMissionItem, PurgeCandidateItem, PurgeCandidatesQuery,
+        PurgeCandidatesResponse, RosterCertificationsResponse, SaveCertificationsRequest,
+        SoloCertificationItem,
+        SoloCertificationListResponse,
+        StaffingRequestItem, StaffingRequestListResponse, SuaBlockItem, SuaListResponse,
+        UpcomingSuaMissionsResponse, UpdateCertificationTypeOrderRequest, UpdateLoaRequest,
         UpdateSoloCertificationRequest,
     },
     repos::{
-        audit as audit_repo,
+        access as access_repo, audit as audit_repo,
         org::{
-            certifications, controller_lifecycle, jobs as jobs_repo, loas, solo_certs,
-            staffing_requests, sua_requests,
+            certifications, controller_lifecycle, jobs as jobs_repo, loas, roster_purge,
+            solo_certs, staffing_requests, sua_requests,
         },
+        training_admin as training_admin_repo,
         users as user_repo,
     },
     state::{AppState, JobHealth},
@@ -50,9 +58,9 @@ const SUA_MIN_DURATION_MINUTES: i64 = 30;
 const SUA_MAX_DURATION_HOURS: i64 = 12;
 
 #[derive(Debug, Serialize)]
-struct JobExecutionSummary {
-    processed: i64,
-    details: Value,
+pub(crate) struct JobExecutionSummary {
+    pub(crate) processed: i64,
+    pub(crate) details: Value,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -164,7 +172,47 @@ pub async fn update_loa(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/loa", tag = "workflows", params(PaginationQuery, ("status" = Option<String>, Query, description = "Optional LOA status filter"), ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "LOA list", body = LoaListResponse), (status = 401, description = "Not authenticated")))]
+/// Self-service cancel — the owner may deactivate their own LOA from any
+/// non-terminal status (unlike `update_loa`, which resets a PENDING/APPROVED/
+/// DENIED LOA back to PENDING; this instead closes it outright). Mirrors the
+/// self-cancel pattern already used for training assignment/release requests:
+/// a data-dependent ownership check in the handler body rather than a
+/// separate `RequirePermission<P>`.
+#[utoipa::path(post, path = "/api/v1/loa/{loa_id}/cancel", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), responses((status = 200, description = "Cancelled LOA", body = LoaItem), (status = 401, description = "Not authenticated"), (status = 404, description = "LOA not found")))]
+pub async fn cancel_loa(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<AuthProfileUpdate>,
+    Path(loa_id): Path<String>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<LoaItem>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let before = loas::fetch_loa_owned_by(pool, &loa_id, &user.id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let row = loas::cancel_loa_owned(pool, &loa_id, &user.id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    record_full_audit(
+        pool,
+        user,
+        &headers,
+        "UPDATE",
+        "LOA",
+        Some(loa_id),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&row)?),
+    )
+    .await?;
+
+    Ok(ApiJson::new(row, time))
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/loa", tag = "workflows", params(ListLoasQuery), responses((status = 200, description = "LOA list", body = LoaListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_loas(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersDirectoryRead>,
@@ -180,11 +228,14 @@ pub async fn admin_list_loas(
         .as_deref()
         .map(|value| value.trim().to_ascii_uppercase());
 
-    let total = loas::count_admin_loas(pool, status.as_deref(), query.cid).await?;
+    let display_name = query.display_name.as_deref();
+    let total =
+        loas::count_admin_loas(pool, status.as_deref(), query.cid, display_name).await?;
     let items = loas::list_admin_loas(
         pool,
         status.as_deref(),
         query.cid,
+        display_name,
         pagination.page_size,
         pagination.offset,
     )
@@ -353,7 +404,265 @@ pub async fn get_user_certifications(
     Ok(ApiJson::new(CertificationListResponse { items }, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/solo-certifications", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "Solo certification list", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]
+/// The 10 valid `CertificationOption` keys, matching the check constraints on
+/// org.certification_type_allowed_options / org.user_certifications.
+const VALID_CERTIFICATION_OPTIONS: [&str; 10] = [
+    "NONE",
+    "UNRESTRICTED",
+    "DEL",
+    "GND",
+    "TWR",
+    "APP",
+    "CTR",
+    "TIER_1",
+    "CERTIFIED",
+    "SOLO",
+];
+
+fn validate_certification_options(options: &[String]) -> Result<(), ApiError> {
+    for option in options {
+        if !VALID_CERTIFICATION_OPTIONS.contains(&option.as_str()) {
+            return Err(ApiError::BadRequest);
+        }
+    }
+    Ok(())
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/roster-certifications", tag = "workflows", responses((status = 200, description = "Per-controller roster cert/solo/LOA summary", body = RosterCertificationsResponse), (status = 401, description = "Not authenticated")))]
+pub async fn list_roster_certifications(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersDirectoryRead>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<RosterCertificationsResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let items = certifications::list_roster_certifications(pool).await?;
+    Ok(ApiJson::new(RosterCertificationsResponse { items }, time))
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/certification-types", tag = "workflows", responses((status = 200, description = "Certification types with allowed options", body = CertificationTypeListResponse), (status = 401, description = "Not authenticated")))]
+pub async fn list_certification_types(
+    State(state): State<AppState>,
+    _permission: RequirePermission<OrgCertificationsRead>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<CertificationTypeListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let items = certifications::list_certification_types(pool).await?;
+    Ok(ApiJson::new(CertificationTypeListResponse { items }, time))
+}
+
+#[utoipa::path(post, path = "/api/v1/admin/certification-types", tag = "workflows", request_body = CreateOrUpdateCertificationTypeRequest, responses((status = 200, description = "Created or updated certification type", body = CertificationTypeItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Certification type not found"), (status = 409, description = "Removing an option a lesson still grants")))]
+pub async fn create_or_update_certification_type(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<OrgCertificationsUpdate>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<CreateOrUpdateCertificationTypeRequest>,
+) -> Result<ApiJson<CertificationTypeItem>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let name = payload.name.trim();
+    if name.is_empty() || name.chars().count() > 20 {
+        return Err(ApiError::BadRequest);
+    }
+    validate_certification_options(&payload.certification_options)?;
+
+    // Mirror the website's guard: block removing an option that a lesson still
+    // grants via lesson_roster_changes (would orphan that roster change).
+    if let Some(id) = payload.id.as_deref() {
+        let conflicts =
+            certifications::conflicting_lesson_identifiers(pool, id, &payload.certification_options)
+                .await?;
+        if !conflicts.is_empty() {
+            return Err(ApiError::Conflict);
+        }
+    }
+
+    let (type_id, _name) = certifications::upsert_certification_type(
+        pool,
+        payload.id.as_deref(),
+        name,
+        payload.can_solo_cert,
+        payload.auto_assign_unrestricted,
+        &payload.certification_options,
+    )
+    .await?;
+
+    let full = certifications::fetch_certification_type(pool, &type_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    record_simple_audit(
+        pool,
+        user,
+        &headers,
+        if payload.id.is_some() {
+            "UPDATE"
+        } else {
+            "CREATE"
+        },
+        "CERTIFICATION_TYPE",
+        Some(type_id),
+        Some(audit_repo::sanitized_snapshot(&full)?),
+    )
+    .await?;
+
+    Ok(ApiJson::new(full, time))
+}
+
+#[utoipa::path(patch, path = "/api/v1/admin/certification-types/order", tag = "workflows", request_body = UpdateCertificationTypeOrderRequest, responses((status = 200, description = "Reordered", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+pub async fn update_certification_type_order(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<OrgCertificationsUpdate>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<UpdateCertificationTypeOrderRequest>,
+) -> Result<ApiJson<ApiMessageBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let items: Vec<(String, i32)> = payload
+        .items
+        .into_iter()
+        .map(|item| (item.id, item.order))
+        .collect();
+    certifications::update_certification_type_order(pool, &items).await?;
+
+    record_simple_audit(
+        pool,
+        user,
+        &headers,
+        "UPDATE",
+        "CERTIFICATION_TYPE",
+        None,
+        Some(json!({ "reordered": items.len() })),
+    )
+    .await?;
+
+    Ok(ApiJson::new(
+        ApiMessageBody {
+            message: "certification type order updated".to_string(),
+        },
+        time,
+    ))
+}
+
+#[utoipa::path(delete, path = "/api/v1/admin/certification-types/{id}", tag = "workflows", params(("id" = String, Path, description = "Certification type ID")), responses((status = 200, description = "Deleted", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Certification type not found")))]
+pub async fn delete_certification_type(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<OrgCertificationsUpdate>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ApiMessageBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let name = certifications::delete_certification_type(pool, &id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    record_simple_audit(
+        pool,
+        user,
+        &headers,
+        "DELETE",
+        "CERTIFICATION_TYPE",
+        Some(id),
+        Some(json!({ "name": name })),
+    )
+    .await?;
+
+    Ok(ApiJson::new(
+        ApiMessageBody {
+            message: "certification type deleted".to_string(),
+        },
+        time,
+    ))
+}
+
+#[utoipa::path(post, path = "/api/v1/users/{cid}/certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = SaveCertificationsRequest, responses((status = 200, description = "Saved", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "User not found")))]
+pub async fn save_user_certifications(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<OrgCertificationsUpdate>,
+    Path(cid): Path<i64>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<SaveCertificationsRequest>,
+) -> Result<ApiJson<ApiMessageBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let dossier_message = payload.dossier_message.trim();
+    if dossier_message.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+    let options: Vec<String> = payload
+        .certifications
+        .iter()
+        .map(|entry| entry.certification_option.clone())
+        .collect();
+    validate_certification_options(&options)?;
+
+    let target_user_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+
+    let entries: Vec<(String, String)> = payload
+        .certifications
+        .iter()
+        .map(|entry| {
+            (
+                entry.certification_type_id.clone(),
+                entry.certification_option.clone(),
+            )
+        })
+        .collect();
+    certifications::save_user_certifications(
+        pool,
+        &target_user_id,
+        &entries,
+        actor.actor_id.as_deref(),
+    )
+    .await?;
+
+    // Required dossier note against the controller (parity with the website).
+    training_admin_repo::insert_dossier_entry(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &target_user_id,
+        &user.id,
+        dossier_message,
+        false,
+    )
+    .await?;
+
+    record_simple_audit(
+        pool,
+        user,
+        &headers,
+        "UPDATE",
+        "CERTIFICATION",
+        Some(target_user_id),
+        Some(json!({ "cid": cid, "count": entries.len() })),
+    )
+    .await?;
+
+    Ok(ApiJson::new(
+        ApiMessageBody {
+            message: "certifications updated".to_string(),
+        },
+        time,
+    ))
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/solo-certifications", tag = "workflows", params(ListSoloCertificationsQuery), responses((status = 200, description = "Solo certification list", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_solo_certifications(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersDirectoryRead>,
@@ -603,10 +912,10 @@ pub async fn create_staffing_request(
     Ok((StatusCode::CREATED, ApiJson::new(full, time)))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/staffing-requests", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "Staffing request list", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/staffing-requests", tag = "workflows", params(ListStaffingRequestsQuery), responses((status = 200, description = "Staffing request list", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_staffing_requests(
     State(state): State<AppState>,
-    _permission: RequirePermission<UsersDirectoryRead>,
+    _permission: RequirePermission<OrgStaffingRequestsRead>,
     Query(query): Query<ListStaffingRequestsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<StaffingRequestListResponse>, ApiError> {
@@ -615,10 +924,13 @@ pub async fn admin_list_staffing_requests(
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
 
-    let total = staffing_requests::count_admin_staffing_requests(pool, query.cid).await?;
+    let display_name = query.display_name.as_deref();
+    let total =
+        staffing_requests::count_admin_staffing_requests(pool, query.cid, display_name).await?;
     let items = staffing_requests::list_admin_staffing_requests(
         pool,
         query.cid,
+        display_name,
         pagination.page_size,
         pagination.offset,
     )
@@ -638,7 +950,7 @@ pub async fn admin_list_staffing_requests(
 pub async fn delete_staffing_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-    _permission: RequirePermission<UsersControllerStatusUpdate>,
+    _permission: RequirePermission<OrgStaffingRequestsDelete>,
     Path(request_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<ApiMessageBody>, ApiError> {
@@ -759,6 +1071,27 @@ pub async fn create_sua_request(
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
+/// Public, unauthenticated single-mission lookup — matches by either the
+/// mission's internal id or its human-readable `mission_number`, since a
+/// controller who only has the mission number (shared verbally/via a
+/// disclaimer-referenced lookup) needs to be able to find it without being
+/// the submitter or even logged in. Mirrors the legacy website's exact
+/// exposure (mission details were never gated to the owner there either —
+/// only the delete action was).
+#[utoipa::path(get, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID or mission number")), responses((status = 200, description = "SUA mission details", body = PublicSuaMissionItem), (status = 404, description = "SUA request not found")))]
+pub async fn get_sua_mission_by_lookup(
+    State(state): State<AppState>,
+    Path(lookup): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<PublicSuaMissionItem>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let item = sua_requests::fetch_sua_block_by_lookup(pool, &lookup)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    Ok(ApiJson::new(PublicSuaMissionItem::from(item), time))
+}
+
 #[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "SUA request not found")))]
 pub async fn delete_sua_request(
     State(state): State<AppState>,
@@ -795,7 +1128,7 @@ pub async fn delete_sua_request(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/sua", tag = "workflows", params(PaginationQuery, ("cid" = Option<i64>, Query, description = "Optional user CID filter")), responses((status = 200, description = "SUA request list", body = SuaListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/sua", tag = "workflows", params(ListSuaQuery), responses((status = 200, description = "SUA request list", body = SuaListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn admin_list_sua_requests(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersDirectoryRead>,
@@ -820,6 +1153,34 @@ pub async fn admin_list_sua_requests(
     ))
 }
 
+const SUA_UPCOMING_WINDOW_HOURS: i64 = 2;
+const SUA_UPCOMING_LIMIT: i64 = 10;
+
+/// Public, unauthenticated feed of missions starting within the next
+/// [`SUA_UPCOMING_WINDOW_HOURS`] hours — no session or permission required,
+/// since external clients (controller plugins, etc.) poll this directly.
+/// Also expires (deletes) any mission more than an hour past its `end_at`,
+/// same "delete on read" behavior the legacy website route had.
+#[utoipa::path(get, path = "/api/v1/sua/upcoming", tag = "workflows", responses((status = 200, description = "Missions starting soon", body = UpcomingSuaMissionsResponse)))]
+pub async fn list_upcoming_sua_missions(
+    State(state): State<AppState>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UpcomingSuaMissionsResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    sua_requests::delete_expired_sua_blocks(pool).await?;
+    let items =
+        sua_requests::list_upcoming_sua_blocks(pool, SUA_UPCOMING_WINDOW_HOURS, SUA_UPCOMING_LIMIT)
+            .await?;
+
+    Ok(ApiJson::new(
+        UpcomingSuaMissionsResponse {
+            items: items.into_iter().map(PublicSuaMissionItem::from).collect(),
+        },
+        time,
+    ))
+}
+
 #[utoipa::path(patch, path = "/api/v1/admin/users/{cid}/controller-lifecycle", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = ControllerLifecycleRequest, responses((status = 200, description = "Updated controller lifecycle", body = ControllerLifecycleResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "User not found")))]
 pub async fn update_controller_lifecycle(
     State(state): State<AppState>,
@@ -833,9 +1194,37 @@ pub async fn update_controller_lifecycle(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let normalized_status = normalize_controller_status(&payload.controller_status)?;
+
+    // Purging (transition to NONE) is far more destructive than an ordinary
+    // status change — it triggers VATUSA roster removal and cascading
+    // cleanup — so it requires the narrower, ATM/DATM-only
+    // users.controller_status.delete permission on top of the base
+    // UsersControllerStatusUpdate gate every caller of this endpoint needs.
+    if normalized_status == "NONE" {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Delete),
+        )
+        .await?;
+    }
+
     let before = controller_lifecycle::fetch_membership_lifecycle_row(pool, cid)
         .await?
         .ok_or(ApiError::NotFound)?;
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+
+    // Remove from VATUSA's real roster before touching our own DB, mirroring
+    // sync_approved_visitor_to_vatusa's pattern (admin.rs): the external
+    // call blocks and its failure aborts the whole request via `?`, rather
+    // than running best-effort after a local commit. Skipped when the
+    // membership is already NONE — there's nothing on VATUSA's roster to
+    // remove for a no-op transition.
+    if normalized_status == "NONE" && before.controller_status != "NONE" {
+        remove_from_vatusa_roster(cid, user.cid, before.controller_status == "VISITOR").await?;
+    }
+
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
 
     let cleanup_on_none = payload.cleanup_on_none.unwrap_or(true);
@@ -902,6 +1291,12 @@ pub async fn update_controller_lifecycle(
     }
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    if normalized_status == "NONE" && before.controller_status != "NONE" {
+        maybe_send_roster_removed_email(&state, pool, actor, &before.user_id, &before.display_name)
+            .await;
+    }
+
     let after = controller_lifecycle::fetch_membership_lifecycle_row(pool, cid)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -927,6 +1322,63 @@ pub async fn update_controller_lifecycle(
     Ok(ApiJson::new(response, time))
 }
 
+#[utoipa::path(get, path = "/api/v1/admin/roster/purge-candidates", tag = "workflows", params(PurgeCandidatesQuery), responses((status = 200, description = "Roster purge candidate activity for a month range", body = PurgeCandidatesResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+pub async fn list_purge_candidates(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
+    Query(query): Query<PurgeCandidatesQuery>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<PurgeCandidatesResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    if !(0..=11).contains(&query.start_month)
+        || !(0..=11).contains(&query.end_month)
+        || query.start_month > query.end_month
+    {
+        return Err(ApiError::BadRequest);
+    }
+
+    let period_start = chrono::NaiveDate::from_ymd_opt(query.year, query.start_month as u32 + 1, 1)
+        .ok_or(ApiError::BadRequest)?
+        .and_hms_opt(0, 0, 0)
+        .ok_or(ApiError::Internal)?
+        .and_utc();
+
+    // Exclusive upper bound: the first of the month *after* end_month (0-indexed),
+    // wrapping into January of the following year when end_month is December.
+    let (end_year, end_month_exclusive) = if query.end_month == 11 {
+        (query.year + 1, 1u32)
+    } else {
+        (query.year, query.end_month as u32 + 2)
+    };
+    let period_end_exclusive = chrono::NaiveDate::from_ymd_opt(end_year, end_month_exclusive, 1)
+        .ok_or(ApiError::BadRequest)?
+        .and_hms_opt(0, 0, 0)
+        .ok_or(ApiError::Internal)?
+        .and_utc();
+
+    // Controlling hours only ever came from the real VATSIM network in the
+    // legacy site's stats feed — sweatbox/training-environment time never
+    // counted toward a roster-inactivity purge.
+    let rows = roster_purge::list_purge_candidates(
+        pool,
+        "live",
+        query.year,
+        query.start_month,
+        query.end_month,
+        period_start,
+        period_end_exclusive,
+    )
+    .await?;
+
+    Ok(ApiJson::new(
+        PurgeCandidatesResponse {
+            items: rows.into_iter().map(PurgeCandidateItem::from).collect(),
+        },
+        time,
+    ))
+}
+
 #[utoipa::path(get, path = "/api/v1/admin/jobs", tag = "workflows", responses((status = 200, description = "Backend jobs", body = [JobStatusItem]), (status = 401, description = "Not authenticated")))]
 pub async fn list_jobs(
     State(state): State<AppState>,
@@ -946,6 +1398,8 @@ pub async fn list_jobs(
         "loa_expiration",
         "solo_expiration",
         "event_automation",
+        "appointments_sync",
+        "faa_preferred_routes",
     ] {
         items.push(build_job_status(pool, &health, job_name).await?);
     }
@@ -994,6 +1448,12 @@ pub async fn run_job(
         "loa_expiration" => execute_loa_expiration(&state, pool, actor).await,
         "solo_expiration" => execute_solo_expiration(&state, pool, actor).await,
         "event_automation" => execute_event_automation(pool).await,
+        "appointments_sync" => {
+            crate::jobs::appointments_sync::execute_appointments_sync(&state, pool).await
+        }
+        "faa_preferred_routes" => {
+            crate::jobs::faa_preferred_routes::execute_faa_preferred_routes_sync(&state, pool).await
+        }
         _ => return Err(ApiError::BadRequest),
     };
     let run = finish_job_run(pool, &run_id, result).await?;
@@ -1040,6 +1500,56 @@ async fn build_job_status(
             last_error: health.roster_sync.last_error.clone(),
             latest_run,
         },
+        "event_automation" => JobStatusItem {
+            job_name: job_name.to_string(),
+            enabled: health.event_automation.enabled,
+            last_started_at: health.event_automation.last_started_at,
+            last_finished_at: health.event_automation.last_finished_at,
+            last_success_at: health.event_automation.last_success_at,
+            last_result_ok: health.event_automation.last_result_ok,
+            last_error: health.event_automation.last_error.clone(),
+            latest_run,
+        },
+        "loa_expiration" => JobStatusItem {
+            job_name: job_name.to_string(),
+            enabled: health.loa_expiration.enabled,
+            last_started_at: health.loa_expiration.last_started_at,
+            last_finished_at: health.loa_expiration.last_finished_at,
+            last_success_at: health.loa_expiration.last_success_at,
+            last_result_ok: health.loa_expiration.last_result_ok,
+            last_error: health.loa_expiration.last_error.clone(),
+            latest_run,
+        },
+        "solo_expiration" => JobStatusItem {
+            job_name: job_name.to_string(),
+            enabled: health.solo_expiration.enabled,
+            last_started_at: health.solo_expiration.last_started_at,
+            last_finished_at: health.solo_expiration.last_finished_at,
+            last_success_at: health.solo_expiration.last_success_at,
+            last_result_ok: health.solo_expiration.last_result_ok,
+            last_error: health.solo_expiration.last_error.clone(),
+            latest_run,
+        },
+        "appointments_sync" => JobStatusItem {
+            job_name: job_name.to_string(),
+            enabled: health.appointments_sync.enabled,
+            last_started_at: health.appointments_sync.last_started_at,
+            last_finished_at: health.appointments_sync.last_finished_at,
+            last_success_at: health.appointments_sync.last_success_at,
+            last_result_ok: health.appointments_sync.last_result_ok,
+            last_error: health.appointments_sync.last_error.clone(),
+            latest_run,
+        },
+        "faa_preferred_routes" => JobStatusItem {
+            job_name: job_name.to_string(),
+            enabled: health.faa_preferred_routes.enabled,
+            last_started_at: health.faa_preferred_routes.last_started_at,
+            last_finished_at: health.faa_preferred_routes.last_finished_at,
+            last_success_at: health.faa_preferred_routes.last_success_at,
+            last_result_ok: health.faa_preferred_routes.last_result_ok,
+            last_error: health.faa_preferred_routes.last_error.clone(),
+            latest_run,
+        },
         _ => {
             let enabled = true;
             let last_started_at = latest_run.as_ref().map(|row| row.started_at);
@@ -1067,7 +1577,7 @@ async fn build_job_status(
     Ok(item)
 }
 
-async fn execute_loa_expiration(
+pub(crate) async fn execute_loa_expiration(
     state: &AppState,
     pool: &sqlx::PgPool,
     actor: audit_repo::AuditActor,
@@ -1087,7 +1597,7 @@ async fn execute_loa_expiration(
     })
 }
 
-async fn execute_solo_expiration(
+pub(crate) async fn execute_solo_expiration(
     state: &AppState,
     pool: &sqlx::PgPool,
     actor: audit_repo::AuditActor,
@@ -1216,6 +1726,36 @@ async fn maybe_send_solo_email(
         .await;
 }
 
+async fn maybe_send_roster_removed_email(
+    state: &AppState,
+    pool: &sqlx::PgPool,
+    actor: audit_repo::AuditActor,
+    user_id: &str,
+    controller_name: &str,
+) {
+    let payload = json!({
+        "controller_name": controller_name,
+        "reason": "Inactivity"
+    });
+
+    let email_actor = EmailActor {
+        actor_id: actor.actor_id,
+        user_id: None,
+        service_account_id: None,
+        request_source: "api".to_string(),
+    };
+    let _ = state
+        .email
+        .enqueue_to_users(
+            pool,
+            email_actor,
+            "roster.removed".to_string(),
+            payload,
+            vec![user_id.to_string()],
+        )
+        .await;
+}
+
 async fn finish_job_run(
     pool: &sqlx::PgPool,
     run_id: &str,
@@ -1268,6 +1808,65 @@ fn normalize_controller_status(value: &str) -> Result<&'static str, ApiError> {
         "NONE" => Ok("NONE"),
         _ => Err(ApiError::BadRequest),
     }
+}
+
+const DEFAULT_VATUSA_API_BASE_URL: &str = "https://api.vatusa.net/v2";
+const DEFAULT_VATUSA_FACILITY_ID: &str = "ZDC";
+
+/// Removes a controller from VATUSA's real facility roster on purge (transition
+/// to NONE) — the DELETE counterpart of admin.rs's `sync_approved_visitor_to_vatusa`
+/// (POST manageVisitor on approval), matching the legacy site's
+/// `removeVatusaController` exactly: `visitor` picks the `manageVisitor/`
+/// path variant, `by`/`reason` are sent as a form-encoded body.
+async fn remove_from_vatusa_roster(cid: i64, by_cid: i64, visitor: bool) -> Result<(), ApiError> {
+    let api_key = std::env::var("VATUSA_API_KEY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or(ApiError::ServiceUnavailable)?;
+    let facility_id = std::env::var("VATUSA_FACILITY_ID")
+        .ok()
+        .map(|value| value.trim().to_ascii_uppercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_VATUSA_FACILITY_ID.to_string());
+    let api_base_url = std::env::var("VATUSA_API_BASE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_VATUSA_API_BASE_URL.to_string());
+
+    let url = format!(
+        "{}/facility/{}/roster/{}{}",
+        api_base_url,
+        facility_id,
+        if visitor { "manageVisitor/" } else { "" },
+        cid
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|_| ApiError::Internal)?;
+
+    let response = client
+        .delete(&url)
+        .query(&[("apikey", api_key.as_str())])
+        .form(&[("reason", "Inactivity"), ("by", &by_cid.to_string())])
+        .send()
+        .await
+        .map_err(|error| {
+            tracing::warn!(cid, %url, ?error, "vatusa roster removal request failed");
+            ApiError::ServiceUnavailable
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        tracing::warn!(cid, %url, %status, body, "vatusa roster removal returned non-success status");
+        return Err(ApiError::ServiceUnavailable);
+    }
+
+    Ok(())
 }
 
 fn validate_sua_request(payload: &CreateSuaRequest) -> Result<(), ApiError> {

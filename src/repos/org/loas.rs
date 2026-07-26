@@ -165,7 +165,7 @@ pub async fn update_loa_row(
             updated_at = now()
         where id = $1
           and user_id = $2
-          and status = 'PENDING'
+          and status not in ('INACTIVE', 'EXPIRED')
         returning
             id,
             user_id,
@@ -193,10 +193,52 @@ pub async fn update_loa_row(
     .map_err(|_| ApiError::Internal)
 }
 
+/// Self-service cancel: the owner can deactivate their own LOA from any
+/// non-terminal status (mirrors the auto-expiration path's own
+/// `expire_loa_row`, which likewise leaves `decided_at`/`decided_by_actor_id`
+/// untouched since this isn't a staff decision).
+pub async fn cancel_loa_owned(
+    pool: &PgPool,
+    loa_id: &str,
+    user_id: &str,
+) -> Result<Option<LoaItem>, ApiError> {
+    sqlx::query_as::<_, LoaRow>(
+        r#"
+        update org.loas
+        set status = 'INACTIVE',
+            updated_at = now()
+        where id = $1
+          and user_id = $2
+          and status <> 'INACTIVE'
+        returning
+            id,
+            user_id,
+            start,
+            "end",
+            reason,
+            status,
+            submitted_at,
+            decided_at,
+            decided_by_actor_id,
+            created_at,
+            updated_at,
+            null::bigint as cid,
+            null::text as display_name
+        "#,
+    )
+    .bind(loa_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map(|row| row.map(Into::into))
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn count_admin_loas(
     pool: &PgPool,
     status: Option<&str>,
     cid: Option<i64>,
+    display_name: Option<&str>,
 ) -> Result<i64, ApiError> {
     sqlx::query_scalar::<_, i64>(
         r#"
@@ -205,10 +247,12 @@ pub async fn count_admin_loas(
         join identity.users u on u.id = l.user_id
         where ($1::text is null or l.status = $1)
           and ($2::bigint is null or u.cid = $2)
+          and ($3::text is null or u.display_name ilike '%' || $3 || '%')
         "#,
     )
     .bind(status)
     .bind(cid)
+    .bind(display_name)
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -218,6 +262,7 @@ pub async fn list_admin_loas(
     pool: &PgPool,
     status: Option<&str>,
     cid: Option<i64>,
+    display_name: Option<&str>,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<LoaItem>, ApiError> {
@@ -241,12 +286,14 @@ pub async fn list_admin_loas(
         join identity.users u on u.id = l.user_id
         where ($1::text is null or l.status = $1)
           and ($2::bigint is null or u.cid = $2)
+          and ($3::text is null or u.display_name ilike '%' || $3 || '%')
         order by l.start desc, l.created_at desc, l.id asc
-        limit $3 offset $4
+        limit $4 offset $5
         "#,
     )
     .bind(status)
     .bind(cid)
+    .bind(display_name)
     .bind(page_size)
     .bind(offset)
     .fetch_all(pool)

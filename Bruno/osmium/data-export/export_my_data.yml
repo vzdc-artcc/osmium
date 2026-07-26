@@ -1,0 +1,43 @@
+info:
+  name: export_my_data
+  type: http
+  seq: 1
+  tags:
+    - data-export
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/me/data-export"
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: The caller's GDPR personal-data export
+    request:
+      url: "{{baseUrl}}/api/v1/me/data-export"
+      method: GET
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/me/data-export"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized

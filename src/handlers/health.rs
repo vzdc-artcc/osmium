@@ -91,10 +91,7 @@ pub async fn health(time: ResponseTimeContext) -> ApiJson<HealthBody> {
 
 pub async fn ready(State(state): State<AppState>, time: ResponseTimeContext) -> ApiJson<ReadyBody> {
     let database_ready = if let Some(pool) = state.db {
-        sqlx::query_scalar::<_, i32>("select 1")
-            .fetch_one(&pool)
-            .await
-            .is_ok()
+        crate::repos::health::is_database_ready(&pool).await
     } else {
         false
     };

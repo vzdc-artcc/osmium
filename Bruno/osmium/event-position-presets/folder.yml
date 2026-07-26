@@ -1,0 +1,7 @@
+info:
+  name: event-position-presets
+  type: folder
+  seq: 2
+
+request:
+  auth: inherit

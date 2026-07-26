@@ -37,5 +37,23 @@ pub fn render_template(
     let theme = EmailTheme::new(branding, logo_url);
 
     let rsx_template = find_rsx_template(template.id).ok_or(ApiError::Internal)?;
-    rsx_template.render(payload, &theme, link.as_deref())
+    let mut rendered = rsx_template.render(payload, &theme, link.as_deref())?;
+    rendered.html = inline_email_css(&rendered.html);
+    Ok(rendered)
+}
+
+/// Inlines the email's `<style>` class rules onto each element so clients that
+/// strip `<style>` (Gmail, Outlook, …) still render the brand colors — otherwise
+/// the sent email loses the header/CTA colors even though the browser preview
+/// (which honors `<style>`) looks correct. `keep_style_tags` leaves the original
+/// block in place too, so the responsive `@media` rule (not inline-able) survives.
+fn inline_email_css(html: &str) -> String {
+    let options = css_inline::InlineOptions {
+        keep_style_tags: true,
+        load_remote_stylesheets: false,
+        ..Default::default()
+    };
+    css_inline::CSSInliner::new(options)
+        .inline(html)
+        .unwrap_or_else(|_| html.to_string())
 }

@@ -1,0 +1,25 @@
+info:
+  name: create_dossier_entry
+  type: http
+  seq: 61
+  tags:
+    - training
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/users/{{cid}}/dossier"
+  auth: inherit
+
+body:
+  mode: json
+  json: |
+    {
+      "message": "Example dossier entry",
+      "confidential": false
+    }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -49,17 +49,25 @@ Operating initials live on `org.memberships.operating_initials`.
 
 For local development, the code still supports `auth-dev.vatsim.net` when `VATSIM_DEV_MODE=true`. In that mode, `post` client authentication should be used, and the login origin must exactly match `VATSIM_REDIRECT_URI` so the OAuth state cookie survives the round trip.
 
-## Dev Login
+## Impersonation (replaces the old dev login-as)
 
-When `DEV_LOGIN_AS_CID_ENABLED=true`, dev login is available at:
+The former `DEV_LOGIN_AS_CID_ENABLED` / `GET /api/v1/auth/login/as/{cid}` dev
+shortcut has been **removed**. Acting as another user is now done through
+authenticated impersonation after a normal login (typically as `SERVER_ADMIN`):
 
 ```text
-GET /api/v1/auth/login/as/{cid}
+POST /api/v1/admin/impersonate/{cid}   # start (auth.impersonate.create, SERVER_ADMIN only)
+POST /api/v1/admin/impersonate/stop    # end and restore the admin session
 ```
 
-This is for local development only.
+A single session row toggles between the admin and the target: while impersonating,
+`user_id` is the target (so ACL resolves as them) and `impersonator_user_id` records
+the real admin. Durable audit is attributed to the impersonator; start/stop are logged
+as server-level `AUTH_IMPERSONATION` rows that facility admins cannot see. While
+impersonating, self-service writes and admin/integration mutations (the outbound
+side-effect surface) are refused with `403` — impersonation is read-only support.
 
-`VATSIM_DEV_MODE=true` does not expose dev login or seed routes.
+`VATSIM_DEV_MODE=true` does not expose the seed route.
 
 ## Service-Account Authentication
 

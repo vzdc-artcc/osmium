@@ -16,9 +16,11 @@ use crate::{
         CreateVisitorApplicationRequest, ListUsersQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
         ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
-        PaginationQuery, RosterUserRow, UserBasicInfo, UserDetailsResponse,
-        UserFeedbackListResponse, UserFeedbackQuery, UserFullInfo, UserListItem, UserListResponse,
-        UserPrivateInfo, VisitArtccRequest, VisitArtccResponse, VisitorApplicationItem,
+        PaginationQuery, RosterUserRow, StaffPositionHoldersResponse, StaffPositionsResponse,
+        UserBasicInfo,
+        UserDetailsResponse, UserFeedbackListResponse, UserFeedbackQuery, UserFullInfo,
+        UserListItem, UserListResponse, UserPrivateInfo, VisitArtccRequest, VisitArtccResponse,
+        VisitorApplicationItem,
     },
     repos::{audit as audit_repo, feedback as feedback_repo, users as user_repo},
     state::AppState,
@@ -29,10 +31,9 @@ use crate::{
     get,
     path = "/api/v1/users",
     tag = "users",
-    params(PaginationQuery),
+    params(ListUsersQuery),
     responses(
-        (status = 200, description = "List users", body = UserListResponse),
-        (status = 401, description = "Not authenticated")
+        (status = 200, description = "List users", body = UserListResponse)
     )
 )]
 pub async fn list_users(
@@ -41,32 +42,53 @@ pub async fn list_users(
     Query(query): Query<ListUsersQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<UserListResponse>, ApiError> {
-    let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(viewer),
-        None,
-        PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
-    )
-    .await?;
+    // Public by policy — the roster is public information on the live site
+    // today (no login required). Extended per-row fields (`full`) are gated
+    // by can_view_extended_directory / self-match — every authenticated
+    // controller has this via the baseline `users.directory.read` grant, not
+    // just staff. Roster-hidden users are excluded from the listing entirely
+    // unless the viewer holds the staff-only `users.directory_private.read`
+    // — deliberately a separate, stricter check, so granting the broad
+    // directory permission to every controller doesn't also bypass the
+    // hidden_from_roster opt-out for everyone.
+    let viewer = current_user.as_ref();
+    let can_view_hidden = match viewer {
+        Some(v) => can_view_private_directory(&state, v).await?,
+        None => false,
+    };
+    let can_view_extended = match viewer {
+        Some(v) => can_view_extended_directory(&state, v).await?,
+        None => false,
+    };
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let can_view_private = can_view_private_directory(&state, viewer).await?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
+    let controllers_only = query.controllers_only.unwrap_or(false);
+    let role = query
+        .role
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let total =
-        sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
-    let rows = user_repo::list_roster_users(pool, pagination.page_size, pagination.offset).await?;
+        user_repo::count_roster_users(pool, controllers_only, can_view_hidden, role).await?;
+    let rows = user_repo::list_roster_users(
+        pool,
+        controllers_only,
+        can_view_hidden,
+        role,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
 
     let items = rows
         .into_iter()
         .map(|row| {
             let basic = basic_info_from_row(&row);
-            let full = if can_view_private || row.cid == viewer.cid {
+            let is_self = viewer.map(|v| v.cid == row.cid).unwrap_or(false);
+            let full = if can_view_extended || is_self {
                 Some(private_info_from_row(&row))
             } else {
                 None
@@ -96,7 +118,6 @@ pub async fn list_users(
     ),
     responses(
         (status = 200, description = "User details", body = UserDetailsResponse),
-        (status = 401, description = "Not authenticated"),
         (status = 404, description = "User not found")
     )
 )]
@@ -106,7 +127,7 @@ pub async fn get_user(
     Path(cid): Path<i64>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<UserDetailsResponse>, ApiError> {
-    let viewer = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    // Public by policy — see list_users.
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let row = user_repo::find_roster_user_by_cid(pool, cid)
@@ -114,7 +135,53 @@ pub async fn get_user(
         .ok_or(ApiError::NotFound)?;
 
     Ok(ApiJson::new(
-        build_user_details_response(&state, viewer, row).await?,
+        build_user_details_response(&state, current_user.as_ref(), row).await?,
+        time,
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/{cid}/staff-positions",
+    tag = "users",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID")
+    ),
+    responses(
+        (status = 200, description = "Currently held staff position tags", body = StaffPositionsResponse)
+    )
+)]
+pub async fn get_staff_positions(
+    State(state): State<AppState>,
+    Path(cid): Path<i64>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StaffPositionsResponse>, ApiError> {
+    // Public by policy, same as get_user — these are roster/profile display
+    // tags, not permissions.
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let positions = user_repo::list_held_staff_positions(pool, cid).await?;
+    Ok(ApiJson::new(StaffPositionsResponse { cid, positions }, time))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/staff-positions/{position}/holders",
+    tag = "users",
+    params(("position" = String, Path, description = "Staff position code, e.g. ATM")),
+    responses(
+        (status = 200, description = "Controllers holding the given staff position", body = StaffPositionHoldersResponse)
+    )
+)]
+pub async fn get_staff_position_holders(
+    State(state): State<AppState>,
+    Path(position): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StaffPositionHoldersResponse>, ApiError> {
+    // Public by policy, like get_staff_positions — display tags, not permissions.
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let holders = user_repo::list_staff_position_holders(pool, &position).await?;
+    Ok(ApiJson::new(
+        StaffPositionHoldersResponse { position, holders },
         time,
     ))
 }
@@ -223,7 +290,7 @@ pub async fn refresh_my_vatusa(
     let before = user_repo::find_roster_user_by_cid(pool, viewer.cid).await?;
     let refreshed = roster_sync::refresh_single_user_from_vatusa(pool, viewer.cid).await?;
     let response = ManualVatusaRefreshResponseBody {
-        user: build_user_details_response(&state, viewer, refreshed.user.clone()).await?,
+        user: build_user_details_response(&state, Some(viewer), refreshed.user.clone()).await?,
         refresh_result: ManualVatusaRefreshResultBody {
             cid: refreshed.cid,
             membership_outcome: match refreshed.membership_outcome {
@@ -375,8 +442,7 @@ pub async fn create_visitor_application(
     tag = "users",
     params(
         ("cid" = i64, Path, description = "VATSIM CID"),
-        PaginationQuery,
-        ("status" = Option<String>, Query, description = "Optional feedback status filter")
+        UserFeedbackQuery
     ),
     responses(
         (status = 200, description = "Feedback for a user", body = UserFeedbackListResponse),
@@ -456,6 +522,9 @@ pub async fn get_user_feedback(
     ))
 }
 
+// Gates admin-only surfaces (GET /api/v1/admin/users, .../overview) and the
+// hidden_from_roster bypass — staff-only, deliberately NOT part of the
+// baseline every user gets, unlike `can_view_extended_directory` below.
 async fn can_view_private_directory(
     state: &AppState,
     user: &CurrentUser,
@@ -468,34 +537,50 @@ async fn can_view_private_directory(
     )))
 }
 
+// Gates the per-row `full` (extended profile: operating initials,
+// controller_status, artcc, role_names, bio, etc.) fields on the general
+// roster listing/detail endpoints. Broader than `can_view_private_directory`
+// on purpose — every controller gets `users.directory.read` at login (it's
+// part of the baseline self-service set), so this returns true for any
+// authenticated user, not just staff. Staff (`users.directory_private.read`)
+// implicitly get this too. Does NOT bypass hidden_from_roster or unlock the
+// admin endpoints — those stay on `can_view_private_directory` alone.
+async fn can_view_extended_directory(
+    state: &AppState,
+    user: &CurrentUser,
+) -> Result<bool, ApiError> {
+    let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+
+    Ok(
+        permissions.contains(&PermissionPath::from_segments(
+            ["users", "directory"],
+            PermissionAction::Read,
+        )) || permissions.contains(&PermissionPath::from_segments(
+            ["users", "directory_private"],
+            PermissionAction::Read,
+        )),
+    )
+}
+
 pub(crate) async fn build_user_details_response(
     state: &AppState,
-    viewer: &CurrentUser,
+    viewer: Option<&CurrentUser>,
     row: RosterUserRow,
 ) -> Result<UserDetailsResponse, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let basic = basic_info_from_row(&row);
-    let is_self = row.cid == viewer.cid;
-    if is_self {
-        ensure_permission(
-            state,
-            Some(viewer),
-            None,
-            PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
-        )
-        .await?;
-    } else {
-        ensure_permission(
-            state,
-            Some(viewer),
-            None,
-            PermissionPath::from_segments(["users", "directory"], PermissionAction::Read),
-        )
-        .await?;
-    }
+    let is_self = viewer.map(|v| v.cid == row.cid).unwrap_or(false);
 
-    let can_view_private = can_view_private_directory(state, viewer).await?;
-    if !can_view_private && !is_self {
+    // Public by policy — the caller's own operation-specific permission check
+    // (if any) already happened before reaching this shared helper; this is
+    // just response shaping (does the viewer get extended fields or not).
+    // See can_view_extended_directory: every authenticated controller has
+    // this via the baseline grant, not just staff.
+    let can_view_extended = match viewer {
+        Some(v) => can_view_extended_directory(state, v).await?,
+        None => false,
+    };
+    if !can_view_extended && !is_self {
         return Ok(UserDetailsResponse { basic, full: None });
     }
 
@@ -529,6 +614,7 @@ fn private_info_from_row(row: &RosterUserRow) -> UserPrivateInfo {
         role: row.role.clone(),
         first_name: row.first_name.clone(),
         last_name: row.last_name.clone(),
+        preferred_name: row.preferred_name.clone(),
         artcc: row.artcc.clone(),
         division: row.division.clone(),
         status: row.status.clone(),
@@ -538,6 +624,11 @@ fn private_info_from_row(row: &RosterUserRow) -> UserPrivateInfo {
         home_facility: row.home_facility.clone(),
         visitor_home_facility: row.visitor_home_facility.clone(),
         is_active: row.is_active,
+        operating_initials: row.operating_initials.clone(),
+        role_names: row.role_names.clone(),
+        bio: row.bio.clone(),
+        timezone: row.timezone.clone(),
+        avatar_asset_id: row.avatar_asset_id.clone(),
     }
 }
 

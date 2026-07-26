@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
 };
-use chrono::{Datelike, Utc};
+use chrono::{DateTime, Datelike, TimeZone, Utc};
 
 use crate::auth::context::{CurrentServiceAccount, CurrentUser};
 use crate::auth::permissions::{StatsPrefixesRead, StatsPrefixesUpdate};
@@ -11,14 +11,28 @@ use crate::auth::require_permission::RequirePermission;
 use crate::models::stats::{
     ArtccStatsQuery, ArtccStatsResponse, ControllerEventItem, ControllerEventsQuery,
     ControllerEventsResponse, ControllerHistoryQuery, ControllerHistoryResponse, ControllerLeader,
-    ControllerTotals, ControllerTotalsResponse, MonthlyBucket, StatisticsPrefixes,
+    ControllerPositionListResponse, ControllerPositionsQuery, ControllerTotals,
+    ControllerTotalsQuery, ControllerTotalsResponse, MonthlyBucket, OnlineControllersResponse,
+    StatisticsPrefixes,
     UpdateStatisticsPrefixesRequest,
 };
+use crate::models::{PaginationMeta, PaginationQuery};
 use crate::repos::audit as audit_repo;
 use crate::repos::stats as stats_repo;
 use crate::repos::stats::{ControllerIdentityRow, ControllerTotalsRow};
 use crate::time::{ApiJson, ResponseTimeContext};
 use crate::{errors::ApiError, jobs::stats_sync::parse_environment, state::AppState};
+
+#[utoipa::path(get, path = "/api/v1/stats/online", tag = "stats", responses((status = 200, description = "Currently online controllers", body = OnlineControllersResponse)))]
+pub async fn get_online_controllers(
+    State(state): State<AppState>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<OnlineControllersResponse>, ApiError> {
+    // Public, like the other stats reads — backs the homepage "Online ATC" card.
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let items = stats_repo::list_online_controllers(pool).await?;
+    Ok(ApiJson::new(OnlineControllersResponse { items }, time))
+}
 
 #[utoipa::path(
     get,
@@ -119,6 +133,50 @@ pub async fn get_artcc_stats(
         })
         .collect::<Vec<_>>();
 
+    // ARTCC-wide monthly breakdown only makes sense for the full-year view —
+    // a single month has nothing to break down further, and all-time spans
+    // more than one year so a 12-bucket breakdown wouldn't be meaningful.
+    let monthly = if all_time || month_input.is_some() {
+        None
+    } else {
+        let rows =
+            stats_repo::list_artcc_monthly_buckets(pool, environment.as_str(), selected_year)
+                .await?;
+
+        let mut months = (1..=12)
+            .map(|month| MonthlyBucket {
+                month,
+                online_hours: 0.0,
+                delivery_hours: 0.0,
+                ground_hours: 0.0,
+                tower_hours: 0.0,
+                tracon_hours: 0.0,
+                center_hours: 0.0,
+                active_hours: 0.0,
+                total_hours: 0.0,
+            })
+            .collect::<Vec<_>>();
+
+        for row in rows {
+            let month_idx = row.month as usize;
+            if month_idx < 12 {
+                months[month_idx] = MonthlyBucket {
+                    month: row.month + 1,
+                    online_hours: row.online_hours,
+                    delivery_hours: row.delivery_hours,
+                    ground_hours: row.ground_hours,
+                    tower_hours: row.tower_hours,
+                    tracon_hours: row.tracon_hours,
+                    center_hours: row.center_hours,
+                    active_hours: row.active_hours,
+                    total_hours: row.total_hours,
+                };
+            }
+        }
+
+        Some(months)
+    };
+
     Ok(ApiJson::new(
         ArtccStatsResponse {
             environment: environment_name,
@@ -131,6 +189,7 @@ pub async fn get_artcc_stats(
             summary,
             leaders,
             controllers,
+            monthly,
         },
         time,
     ))
@@ -221,7 +280,7 @@ pub async fn get_controller_history(
     tag = "stats",
     params(
         ("cid" = i64, Path, description = "VATSIM CID"),
-        ("environment" = Option<String>, Query, description = "Environment: live, sweatbox1, or sweatbox2")
+        ControllerTotalsQuery
     ),
     responses(
         (status = 200, description = "Controller aggregate totals", body = ControllerTotalsResponse),
@@ -232,7 +291,7 @@ pub async fn get_controller_history(
 pub async fn get_controller_totals(
     State(state): State<AppState>,
     Path(cid): Path<i64>,
-    Query(query): Query<ControllerHistoryQuery>,
+    Query(query): Query<ControllerTotalsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<ControllerTotalsResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -242,8 +301,20 @@ pub async fn get_controller_totals(
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    let totals =
-        stats_repo::fetch_controller_totals_aggregate(pool, environment.as_str(), cid).await?;
+    // Default (no window) keeps the all-time rollup path unchanged; a `since`
+    // or `until` switches to activation-level summing for the window.
+    let totals = if query.since.is_some() || query.until.is_some() {
+        stats_repo::fetch_controller_totals_aggregate_ranged(
+            pool,
+            environment.as_str(),
+            cid,
+            query.since,
+            query.until,
+        )
+        .await?
+    } else {
+        stats_repo::fetch_controller_totals_aggregate(pool, environment.as_str(), cid).await?
+    };
 
     let last_activity_at =
         stats_repo::fetch_last_activity_at(pool, environment.as_str(), cid).await?;
@@ -266,6 +337,70 @@ pub async fn get_controller_totals(
             total_hours: totals.total_hours,
             last_activity_at,
             updated_at,
+        },
+        time,
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/controller/{cid}/positions",
+    tag = "stats",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID"),
+        ControllerPositionsQuery
+    ),
+    responses(
+        (status = 200, description = "Controller's individual online-position sessions", body = ControllerPositionListResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Controller not found")
+    )
+)]
+pub async fn list_controller_positions(
+    State(state): State<AppState>,
+    Path(cid): Path<i64>,
+    Query(query): Query<ControllerPositionsQuery>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ControllerPositionListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let environment = parse_environment(query.environment.as_deref())?;
+
+    stats_repo::fetch_controller_identity(pool, environment.as_str(), cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let range = match (query.year, query.month) {
+        (Some(year), Some(month)) if (1..=12).contains(&month) => {
+            Some((ym_start(year, month as u32)?, ym_start(year, month as u32 + 1)?))
+        }
+        (Some(_), Some(_)) => return Err(ApiError::BadRequest),
+        (Some(year), None) => Some((ym_start(year, 1)?, ym_start(year + 1, 1)?)),
+        (None, Some(_)) => return Err(ApiError::BadRequest),
+        (None, None) => None,
+    };
+
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+
+    let total =
+        stats_repo::count_controller_positions(pool, environment.as_str(), cid, range).await?;
+    let rows = stats_repo::list_controller_positions(
+        pool,
+        environment.as_str(),
+        cid,
+        range,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
+
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(ApiJson::new(
+        ControllerPositionListResponse {
+            items: rows,
+            pagination: meta,
         },
         time,
     ))
@@ -403,6 +538,17 @@ pub async fn update_statistics_prefixes(
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok(ApiJson::new(after, time))
+}
+
+fn ym_start(year: i32, month: u32) -> Result<DateTime<Utc>, ApiError> {
+    let (year, month) = if month > 12 {
+        (year + 1, month - 12)
+    } else {
+        (year, month)
+    };
+    Utc.with_ymd_and_hms(year, month, 1, 0, 0, 0)
+        .single()
+        .ok_or(ApiError::BadRequest)
 }
 
 fn normalize_prefixes(prefixes: &[String]) -> Result<Vec<String>, ApiError> {

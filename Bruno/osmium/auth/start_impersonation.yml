@@ -1,0 +1,34 @@
+info:
+  name: start_impersonation
+  type: http
+  seq: 12
+  tags:
+    - auth
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/impersonate/:cid"
+  params:
+    - name: cid
+      value: ""
+      type: path
+      description: VATSIM CID of the user to impersonate
+  body:
+    mode: json
+    json: |-
+      {
+        "reason": "support debugging"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |
+  Start impersonating another user (spec 012). SERVER_ADMIN only
+  (auth.impersonate.create). Refuses nested impersonation, self-target, and
+  SERVER_ADMIN targets. Returns the target's /me view; the session cookie now
+  resolves to the target until POST /api/v1/admin/impersonate/stop.

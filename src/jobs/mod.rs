@@ -1,5 +1,12 @@
+pub mod appointments_sync;
 pub mod email_delivery;
+pub mod event_lifecycle;
+pub mod faa_preferred_routes;
+pub mod ip_log_cleanup;
+pub mod ip_log_writer;
+pub mod loa_expiration;
 pub mod roster_sync;
+pub mod solo_expiration;
 pub mod stats_sync;
 
 use std::{

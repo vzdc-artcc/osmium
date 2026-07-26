@@ -24,6 +24,41 @@ http:
       type: query
       description: Optional feedback status
       disabled: true
+    - name: submitter_cid
+      value: ""
+      type: query
+      description: Filter by submitter CID (exact match)
+      disabled: true
+    - name: submitter_name
+      value: ""
+      type: query
+      description: Filter by submitter display name (contains)
+      disabled: true
+    - name: target_cid
+      value: ""
+      type: query
+      description: Filter by target CID (exact match)
+      disabled: true
+    - name: target_name
+      value: ""
+      type: query
+      description: Filter by target display name (contains)
+      disabled: true
+    - name: controller_position
+      value: ""
+      type: query
+      description: Filter by staffed position (contains)
+      disabled: true
+    - name: min_rating
+      value: ""
+      type: query
+      description: Minimum rating (inclusive)
+      disabled: true
+    - name: max_rating
+      value: ""
+      type: query
+      description: Maximum rating (inclusive)
+      disabled: true
   headers:
     - name: X-Response-Timezone
       value: "{{responseTimezone}}"
@@ -62,6 +97,41 @@ examples:
           type: query
           description: Optional feedback status
           disabled: true
+        - name: submitter_cid
+          value: ""
+          type: query
+          description: Filter by submitter CID (exact match)
+          disabled: true
+        - name: submitter_name
+          value: ""
+          type: query
+          description: Filter by submitter display name (contains)
+          disabled: true
+        - name: target_cid
+          value: ""
+          type: query
+          description: Filter by target CID (exact match)
+          disabled: true
+        - name: target_name
+          value: ""
+          type: query
+          description: Filter by target display name (contains)
+          disabled: true
+        - name: controller_position
+          value: ""
+          type: query
+          description: Filter by staffed position (contains)
+          disabled: true
+        - name: min_rating
+          value: ""
+          type: query
+          description: Minimum rating (inclusive)
+          disabled: true
+        - name: max_rating
+          value: ""
+          type: query
+          description: Maximum rating (inclusive)
+          disabled: true
     response:
       status: 200
       statusText: OK
@@ -84,7 +154,11 @@ examples:
               "status": "",
               "submitted_at": "",
               "submitter_user_id": "",
-              "target_user_id": ""
+              "submitter_cid": 0,
+              "submitter_name": "",
+              "target_user_id": "",
+              "target_cid": 0,
+              "target_name": ""
             }
           ]
   - name: 401 Response
@@ -107,6 +181,41 @@ examples:
           value: ""
           type: query
           description: Optional feedback status
+          disabled: true
+        - name: submitter_cid
+          value: ""
+          type: query
+          description: Filter by submitter CID (exact match)
+          disabled: true
+        - name: submitter_name
+          value: ""
+          type: query
+          description: Filter by submitter display name (contains)
+          disabled: true
+        - name: target_cid
+          value: ""
+          type: query
+          description: Filter by target CID (exact match)
+          disabled: true
+        - name: target_name
+          value: ""
+          type: query
+          description: Filter by target display name (contains)
+          disabled: true
+        - name: controller_position
+          value: ""
+          type: query
+          description: Filter by staffed position (contains)
+          disabled: true
+        - name: min_rating
+          value: ""
+          type: query
+          description: Minimum rating (inclusive)
+          disabled: true
+        - name: max_rating
+          value: ""
+          type: query
+          description: Maximum rating (inclusive)
           disabled: true
     response:
       status: 401

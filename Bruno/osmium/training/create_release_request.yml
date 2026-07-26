@@ -10,7 +10,10 @@ http:
   url: "{{baseUrl}}/api/v1/training/trainer-release-requests"
   body:
     type: json
-    data: "{}"
+    data: |-
+      {
+        "student_id": null
+      }
   auth: inherit
 
 settings:
@@ -43,6 +46,9 @@ examples:
             "id": "",
             "status": "",
             "student_id": "",
+            "student_cid": 0,
+            "student_name": "",
+            "student_controller_status": "HOME",
             "submitted_at": ""
           }
   - name: 401 Response

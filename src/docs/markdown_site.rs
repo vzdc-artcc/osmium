@@ -189,6 +189,18 @@ pub static DOC_PAGES: &[DocPage] = &[
         markdown: include_str!("../../docs/api/captcha.md"),
     },
     DocPage {
+        title: "Preferred Routes API",
+        section: "api",
+        slug: "routes",
+        markdown: include_str!("../../docs/api/routes.md"),
+    },
+    DocPage {
+        title: "Data Export API",
+        section: "api",
+        slug: "data-export",
+        markdown: include_str!("../../docs/api/data-export.md"),
+    },
+    DocPage {
         title: "Jobs and Sync",
         section: "operations",
         slug: "jobs-and-sync",

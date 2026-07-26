@@ -8,14 +8,6 @@ use utoipa::{
     },
 };
 
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
-pub struct ListUsersQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PatchMeRequest {
@@ -23,6 +15,7 @@ pub struct PatchMeRequest {
     pub timezone: Option<String>,
     pub bio: Option<Option<String>>,
     pub receive_event_notifications: Option<bool>,
+    pub operating_initials: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,6 +33,7 @@ pub struct RosterUserRow {
     pub role: String,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub preferred_name: Option<String>,
     pub artcc: Option<String>,
     pub rating: Option<String>,
     pub division: Option<String>,
@@ -51,6 +45,29 @@ pub struct RosterUserRow {
     pub home_facility: Option<String>,
     pub visitor_home_facility: Option<String>,
     pub is_active: Option<bool>,
+    pub hidden_from_roster: bool,
+    pub operating_initials: Option<String>,
+    pub role_names: Vec<String>,
+    pub bio: Option<String>,
+    pub timezone: Option<String>,
+    pub avatar_asset_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct ListUsersQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    /// When true, only include users who currently hold an active controller
+    /// status (HOME or VISITOR), matching the live site's roster-picker filter.
+    pub controllers_only: Option<bool>,
+    /// When set, only include users who currently hold this exact role name
+    /// (e.g. "INS" for instructor, "MTR" for mentor) among all of their
+    /// roles — checked against the full role set, not just the single
+    /// highest-priority "primary role" the listing otherwise displays, so a
+    /// user who is both STAFF and INS is still matched by `role=INS`.
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
@@ -94,6 +111,24 @@ pub struct TeamSpeakUidBody {
     pub linked_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct TeamSpeakLookupRequest {
+    /// The TeamSpeak client UID to resolve to a controller.
+    pub uid: String,
+}
+
+/// Controller identity + live position for a TeamSpeak UID. Backs the
+/// TeamSpeak server's presence lookup (formerly the website's Prisma-backed
+/// `/api/teamspeak` route). `online_position` is null when the controller is
+/// not currently connected.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct TeamSpeakLookupResponse {
+    pub cid: i64,
+    pub controller_status: Option<String>,
+    pub rating: Option<String>,
+    pub online_position: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct MeBody {
     pub id: String,
@@ -101,10 +136,25 @@ pub struct MeBody {
     pub email: String,
     pub display_name: String,
     pub rating: Option<String>,
+    pub controller_status: Option<String>,
     pub server_admin: bool,
+    pub role_names: Vec<String>,
     pub permissions: serde_json::Value,
     pub profile: MeProfileBody,
+    pub flags: UserFlagsBody,
     pub teamspeak_uids: Vec<TeamSpeakUidBody>,
+    /// Present only while this session is impersonating another user (spec 012).
+    /// Carries just enough real-actor identity for a global "acting as …" banner
+    /// and a stop control — no more (security checklist #10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impersonation: Option<ImpersonationBanner>,
+}
+
+/// Minimal real-admin identity surfaced on `/me` while impersonating.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ImpersonationBanner {
+    pub impersonator_cid: i64,
+    pub impersonator_display_name: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -115,6 +165,7 @@ pub struct UserPrivateInfo {
     pub role: String,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub preferred_name: Option<String>,
     pub artcc: Option<String>,
     pub division: Option<String>,
     pub status: Option<String>,
@@ -125,6 +176,16 @@ pub struct UserPrivateInfo {
     pub home_facility: Option<String>,
     pub visitor_home_facility: Option<String>,
     pub is_active: Option<bool>,
+    pub operating_initials: Option<String>,
+    /// The user's full set of assigned role names (e.g. `["STAFF", "INS"]`),
+    /// unlike `role` above which is just the single highest-priority
+    /// "primary role" used for display. Needed by pickers that need to
+    /// check role membership (e.g. "is this user an instructor or mentor")
+    /// without an extra per-user request.
+    pub role_names: Vec<String>,
+    pub bio: Option<String>,
+    pub timezone: Option<String>,
+    pub avatar_asset_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -241,6 +302,56 @@ pub struct SetControllerStatusBody {
     pub artcc: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct UserFlagsBody {
+    pub no_request_loas: bool,
+    pub no_request_training_assignments: bool,
+    pub no_request_trainer_release: bool,
+    pub no_force_progression_finish: bool,
+    pub no_event_signup: bool,
+    pub no_edit_profile: bool,
+    pub excluded_from_roster_sync: bool,
+    pub hidden_from_roster: bool,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateUserFlagsRequest {
+    pub no_request_loas: bool,
+    pub no_request_training_assignments: bool,
+    pub no_request_trainer_release: bool,
+    pub no_force_progression_finish: bool,
+    pub no_event_signup: bool,
+    pub no_edit_profile: bool,
+    pub excluded_from_roster_sync: bool,
+    pub hidden_from_roster: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateOperatingInitialsRequest {
+    pub operating_initials: String,
+}
+
+/// Admin edit of another controller's profile (preferred name / bio / timezone).
+/// Operating initials stay on the dedicated operating-initials endpoint; flags
+/// stay on the flags endpoint; the event-notification opt-in is a personal
+/// self-service preference (`PATCH /me`) and is intentionally not touched here.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AdminUpdateProfileRequest {
+    pub preferred_name: Option<String>,
+    pub bio: Option<String>,
+    pub timezone: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UpdateOperatingInitialsResponse {
+    pub cid: i64,
+    pub operating_initials: String,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct VisitorApplicationItem {
     pub id: String,
@@ -271,6 +382,11 @@ pub struct ListVisitorApplicationsQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub status: Option<String>,
+    pub cid: Option<i64>,
+    /// Contains-match against the applicant's display name.
+    pub display_name: Option<String>,
+    /// Contains-match against the applicant's stated home facility.
+    pub home_facility: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -285,6 +401,30 @@ pub struct AdminUserListResponse {
     pub items: Vec<AdminUserListItem>,
     #[serde(flatten)]
     pub pagination: crate::models::PaginationMeta,
+}
+
+/// One of a user's active auth sessions, for the admin session manager. Deliberately
+/// omits the raw `session_token` — it is never exposed.
+#[derive(Debug, Serialize, ToSchema, sqlx::FromRow)]
+pub struct UserSessionItem {
+    pub id: String,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    #[schema(value_type = String, format = DateTime)]
+    pub expires_at: DateTime<Utc>,
+    /// True when this session is currently impersonating (i.e. an admin is acting as
+    /// this user through it); `impersonator_cid` names the real admin.
+    pub impersonated: bool,
+    pub impersonator_cid: Option<i64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserSessionListResponse {
+    pub items: Vec<UserSessionItem>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -369,6 +509,44 @@ impl PartialSchema for CreateTeamSpeakUidRequest {
             .required("uid")
             .into()
     }
+}
+
+pub const STAFF_POSITIONS: [&str; 14] = [
+    "ATM", "DATM", "TA", "EC", "WM", "FE", "AEC", "AWM", "AFE", "EP", "TMU",
+    "FC", "INS", "MTR",
+];
+
+/// Subset of STAFF_POSITIONS that VATUSA's roster API actually reports.
+/// The rest (AEC/AWM/AFE/EP/TMU/FC) have no VATUSA equivalent and are
+/// always manually assigned — roster sync never touches them.
+pub const VATUSA_SYNCED_STAFF_POSITIONS: [&str; 8] =
+    ["ATM", "DATM", "TA", "EC", "WM", "FE", "INS", "MTR"];
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct StaffPositionItem {
+    pub position: String,
+    pub source: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StaffPositionsResponse {
+    pub cid: i64,
+    pub positions: Vec<StaffPositionItem>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct StaffPositionHolder {
+    pub cid: i64,
+    pub display_name: String,
+    pub rating: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StaffPositionHoldersResponse {
+    pub position: String,
+    pub holders: Vec<StaffPositionHolder>,
 }
 
 #[cfg(test)]

@@ -19,9 +19,9 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        AssignEventPositionRequest, CreateEventPositionRequest, CreateEventRequest, Event,
-        EventListResponse, EventPosition, EventPositionListResponse, ListEventsQuery,
-        PaginationMeta, PaginationQuery, UpdateEventRequest, UserEventPositionListResponse,
+        CreateEventPositionRequest, CreateEventRequest, Event, EventListResponse, EventPosition,
+        EventPositionListResponse, PaginationMeta, PaginationQuery, UpdateEventPositionRequest,
+        UpdateEventRequest, UserEventPositionListResponse,
     },
     repos::{audit as audit_repo, events as events_repo},
     state::AppState,
@@ -51,7 +51,7 @@ fn validate_event_window(
 )]
 pub async fn list_events(
     State(state): State<AppState>,
-    Query(query): Query<ListEventsQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EventListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -132,6 +132,7 @@ pub async fn create_event(
         req.event_type.as_deref(),
         req.host.as_deref(),
         req.description.as_deref(),
+        req.banner_asset_id.as_deref(),
         "SCHEDULED",
         false,
         req.starts_at,
@@ -206,6 +207,11 @@ pub async fn update_event(
         req.description,
         req.status,
         req.published,
+        req.banner_asset_id.is_some(),
+        req.banner_asset_id.flatten(),
+        req.hidden,
+        req.manual_positions_open,
+        req.archived,
         req.starts_at,
         req.ends_at,
         now,
@@ -331,7 +337,7 @@ mod tests {
 pub async fn list_event_positions(
     State(state): State<AppState>,
     Path(event_id): Path<String>,
-    Query(query): Query<ListEventsQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EventPositionListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -387,7 +393,7 @@ pub async fn get_user_event_positions(
     Ok(ApiJson::new(UserEventPositionListResponse { items }, time))
 }
 
-// Create event position (user signup)
+// Create event position (self-service signup, or admin manual-add on behalf of another user)
 #[utoipa::path(
     post,
     path = "/api/v1/events/{event_id}/positions",
@@ -414,6 +420,24 @@ pub async fn create_event_position(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    // Admin manual-add: creating on behalf of a different user requires the
+    // staff assign permission on top of the self-request permission every
+    // caller already has.
+    let target_user_id = match req.user_id.as_deref() {
+        Some(target) if target != user.id => {
+            ensure_permission(
+                &state,
+                Some(user),
+                None,
+                PermissionPath::from_segments(["events", "positions"], PermissionAction::Assign),
+            )
+            .await?;
+            target.to_string()
+        }
+        Some(_) | None => user.id.clone(),
+    };
+    let is_manual_add = target_user_id != user.id;
+
     let position_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
@@ -421,9 +445,23 @@ pub async fn create_event_position(
         db,
         &position_id,
         &event_id,
-        &req.callsign,
-        &user.id,
-        req.requested_slot,
+        &target_user_id,
+        &req.requested_position,
+        req.requested_secondary_position.as_deref().unwrap_or("UNKNOWN"),
+        req.notes.as_deref(),
+        req.requested_start_time,
+        req.requested_end_time,
+        req.final_position.as_deref(),
+        req.final_start_time,
+        req.final_end_time,
+        req.final_notes.as_deref(),
+        req.controlling_category.as_deref(),
+        req.is_instructor.unwrap_or(false),
+        req.is_solo.unwrap_or(false),
+        req.is_ots.unwrap_or(false),
+        req.is_tmu.unwrap_or(false),
+        req.is_cic.unwrap_or(false),
+        if is_manual_add { "ASSIGNED" } else { "REQUESTED" },
         now,
     )
     .await?;
@@ -448,7 +486,8 @@ pub async fn create_event_position(
     Ok((StatusCode::CREATED, ApiJson::new(position, time)))
 }
 
-// Assign event position (staff only)
+// Update event position (staff only) — reassign, finalize, publish/unpublish, or
+// change status of an existing signup.
 #[utoipa::path(
     patch,
     path = "/api/v1/events/{event_id}/positions/{position_id}",
@@ -457,9 +496,9 @@ pub async fn create_event_position(
         ("event_id" = String, Path, description = "Event ID"),
         ("position_id" = String, Path, description = "Position ID")
     ),
-    request_body = AssignEventPositionRequest,
+    request_body = UpdateEventPositionRequest,
     responses(
-        (status = 200, description = "Position assigned", body = EventPosition),
+        (status = 200, description = "Position updated", body = EventPosition),
         (status = 400, description = "Invalid request"),
         (status = 401, description = "Not authorized"),
         (status = 404, description = "Event or position not found")
@@ -472,7 +511,7 @@ pub async fn assign_event_position(
     Path((event_id, position_id)): Path<(String, String)>,
     headers: HeaderMap,
     time: ResponseTimeContext,
-    Json(req): Json<AssignEventPositionRequest>,
+    Json(req): Json<UpdateEventPositionRequest>,
 ) -> Result<ApiJson<EventPosition>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -481,12 +520,37 @@ pub async fn assign_event_position(
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    let position = events_repo::assign_event_position_row(
+    // Assigning a real user (not clearing the assignment) defaults status to
+    // ASSIGNED unless the caller explicitly overrides it — matches the
+    // historical "assign a slot" behavior this endpoint started as.
+    let status = req.status.clone().or_else(|| {
+        matches!(req.user_id, Some(Some(_))).then(|| "ASSIGNED".to_string())
+    });
+
+    let position = events_repo::update_event_position_row(
         db,
         &position_id,
         &event_id,
+        req.user_id.is_some(),
+        req.user_id.flatten(),
         req.assigned_slot,
-        &req.user_id,
+        req.final_position.is_some(),
+        req.final_position.flatten(),
+        req.final_start_time.is_some(),
+        req.final_start_time.flatten(),
+        req.final_end_time.is_some(),
+        req.final_end_time.flatten(),
+        req.final_notes.is_some(),
+        req.final_notes.flatten(),
+        req.controlling_category.is_some(),
+        req.controlling_category.flatten(),
+        req.is_instructor,
+        req.is_solo,
+        req.is_ots,
+        req.is_tmu,
+        req.is_cic,
+        req.published,
+        status,
         now,
     )
     .await?
@@ -497,7 +561,7 @@ pub async fn assign_event_position(
         db,
         audit_repo::AuditEntryInput {
             actor_id: actor.actor_id,
-            action: "ASSIGN".to_string(),
+            action: "UPDATE".to_string(),
             resource_type: "EVENT_POSITION".to_string(),
             resource_id: Some(position.id.clone()),
             scope_type: "event".to_string(),

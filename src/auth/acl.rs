@@ -147,7 +147,6 @@ fn default_permission_names() -> Vec<String> {
         "auth.teamspeak_uids.create",
         "auth.teamspeak_uids.delete",
         "auth.sessions.delete",
-        "auth.dev_login.create",
         "access.self.read",
         "access.catalog.read",
         "access.users.read",
@@ -193,7 +192,7 @@ fn default_permission_names() -> Vec<String> {
         "training.release_requests.read",
         "training.release_requests.self.request",
         "training.release_requests.decide",
-        "feedback.items.self.read",
+        "feedback.items_self.read",
         "feedback.items.read",
         "feedback.items.create",
         "feedback.items.decide",
@@ -244,6 +243,10 @@ fn default_permission_names() -> Vec<String> {
         "web.welcome_messages.update",
         "integrations.stats.update",
         "system.read",
+        // spec 010 IP rate-limit bypass. Single segment (see SystemRateLimitBypass
+        // in permissions.rs) to avoid the leaf/parent collision with system.read.
+        // Assignable but seeded to no role by default.
+        "system_rate_limit.update",
     ]
     .into_iter()
     .map(str::to_string)
@@ -298,6 +301,7 @@ pub async fn fetch_access_catalog(
     if permissions.is_empty() {
         permissions = default_permission_names();
     }
+    permissions = filter_assignable_permissions(permissions);
 
     Ok((roles, permissions))
 }
@@ -306,6 +310,25 @@ fn filter_assignable_roles(roles: Vec<String>) -> Vec<String> {
     roles
         .into_iter()
         .filter(|role| role != SERVER_ADMIN_ROLE)
+        .collect()
+}
+
+/// Permissions that exist (and are enforceable) but must never be offered in the
+/// facility access-assignment UI. `auth.impersonate.create` is SERVER_ADMIN-only
+/// (security checklist #9) — it's seeded in `access.permissions` so SERVER_ADMIN
+/// holds it via the effective-permissions cross-join, but it should never appear as
+/// an assignable option. The access editor's actor-scope guard already blocks a
+/// facility admin from granting it; this keeps it out of the catalog too.
+fn filter_assignable_permissions(permissions: Vec<String>) -> Vec<String> {
+    const NON_ASSIGNABLE: &[&str] = &[
+        "auth.impersonate.create",
+        "users.sessions.read",
+        "users.sessions.delete",
+        "users.data_export.read",
+    ];
+    permissions
+        .into_iter()
+        .filter(|permission| !NON_ASSIGNABLE.contains(&permission.as_str()))
         .collect()
 }
 

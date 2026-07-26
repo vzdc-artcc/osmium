@@ -499,16 +499,152 @@ pub async fn delete_progression_assignment_row(
     Ok(())
 }
 
-pub async fn count_dossier_entries(pool: &PgPool, cid: i64) -> Result<i64, ApiError> {
+/// The progression currently assigned to a user, as `(id, name,
+/// next_progression_id)`, or `None` if unassigned.
+pub async fn get_user_progression(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Option<(String, String, Option<String>)>, ApiError> {
+    sqlx::query_as::<_, (String, String, Option<String>)>(
+        r#"
+        select tp.id, tp.name, tp.next_progression_id
+        from training.user_progressions up
+        join training.training_progressions tp on tp.id = up.progression_id
+        where up.user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// The first progression flagged `auto_assign_new_home_obs`, as `(id, name,
+/// next_progression_id)` — the starter progression given to new home OBS in
+/// roster sync. `None` if no progression is so flagged.
+pub async fn find_auto_assign_home_obs_progression(
+    pool: &PgPool,
+) -> Result<Option<(String, String, Option<String>)>, ApiError> {
+    sqlx::query_as::<_, (String, String, Option<String>)>(
+        r#"
+        select id, name, next_progression_id
+        from training.training_progressions
+        where auto_assign_new_home_obs
+        order by created_at asc
+        limit 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Whether the controller has already received their one-time auto-assigned
+/// starter progression (roster sync sets this the first time it assigns a new
+/// home OBS a progression, so it never re-assigns after the user completes it).
+pub async fn get_auto_assign_single_pass(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, Option<bool>>(
+        "select flag_auto_assign_single_pass from identity.user_flags where user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map(|opt| opt.flatten().unwrap_or(false))
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Marks the one-time starter-progression auto-assignment as done for a user.
+pub async fn set_auto_assign_single_pass(pool: &PgPool, user_id: &str) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        insert into identity.user_flags (user_id, flag_auto_assign_single_pass)
+        values ($1, true)
+        on conflict (user_id) do update
+        set flag_auto_assign_single_pass = true,
+            updated_at = now()
+        "#,
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    Ok(())
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ProgressionStatusStepRow {
+    pub step_id: String,
+    pub lesson_id: String,
+    pub lesson_identifier: String,
+    pub lesson_name: String,
+    pub sort_order: i32,
+    pub optional: bool,
+    pub passed: bool,
+    pub training_session_id: Option<String>,
+    pub session_end: Option<DateTime<Utc>>,
+}
+
+/// Per-step pass state for a progression, computed against a specific student.
+/// For each step (ordered), the most recent training ticket for the step's
+/// lesson where the session's student is `user_id` decides `passed`. Mirrors
+/// the website's `getProgressionStatus`.
+pub async fn compute_progression_status_steps(
+    pool: &PgPool,
+    progression_id: &str,
+    user_id: &str,
+) -> Result<Vec<ProgressionStatusStepRow>, ApiError> {
+    sqlx::query_as::<_, ProgressionStatusStepRow>(
+        r#"
+        select
+            s.id as step_id,
+            s.lesson_id,
+            l.identifier as lesson_identifier,
+            l.name as lesson_name,
+            s.sort_order,
+            s.optional,
+            coalesce(t.passed, false) as passed,
+            t.session_id as training_session_id,
+            t.session_end
+        from training.training_progression_steps s
+        join training.lessons l on l.id = s.lesson_id
+        left join lateral (
+            select tt.passed, ts.id as session_id, ts."end" as session_end
+            from training.training_tickets tt
+            join training.training_sessions ts on ts.id = tt.session_id
+            where tt.lesson_id = s.lesson_id and ts.student_id = $2
+            order by ts."end" desc
+            limit 1
+        ) t on true
+        where s.progression_id = $1
+        order by s.sort_order asc
+        "#,
+    )
+    .bind(progression_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn count_dossier_entries(
+    pool: &PgPool,
+    cid: i64,
+    include_confidential: bool,
+) -> Result<i64, ApiError> {
     sqlx::query_scalar::<_, i64>(
         r#"
         select count(*)::bigint
         from feedback.dossier_entries d
         join identity.users target on target.id = d.user_id
         where target.cid = $1
+          and ($2 or not d.is_confidential)
         "#,
     )
     .bind(cid)
+    .bind(include_confidential)
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -517,6 +653,7 @@ pub async fn count_dossier_entries(pool: &PgPool, cid: i64) -> Result<i64, ApiEr
 pub async fn list_dossier_entries(
     pool: &PgPool,
     cid: i64,
+    include_confidential: bool,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<DossierEntryItem>, ApiError> {
@@ -527,6 +664,7 @@ pub async fn list_dossier_entries(
             d.user_id,
             d.writer_id,
             d.message,
+            d.is_confidential,
             d.timestamp,
             d.created_at,
             u.cid as writer_cid,
@@ -535,6 +673,7 @@ pub async fn list_dossier_entries(
         join identity.users target on target.id = d.user_id
         join identity.users u on u.id = d.writer_id
         where target.cid = $1
+          and ($4 or not d.is_confidential)
         order by d.timestamp desc, d.created_at desc
         limit $2 offset $3
         "#,
@@ -542,7 +681,47 @@ pub async fn list_dossier_entries(
     .bind(cid)
     .bind(page_size)
     .bind(offset)
+    .bind(include_confidential)
     .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn insert_dossier_entry(
+    pool: &PgPool,
+    id: &str,
+    user_id: &str,
+    writer_id: &str,
+    message: &str,
+    is_confidential: bool,
+) -> Result<DossierEntryItem, ApiError> {
+    sqlx::query_as::<_, DossierEntryItem>(
+        r#"
+        with inserted as (
+            insert into feedback.dossier_entries (id, user_id, writer_id, message, is_confidential, timestamp)
+            values ($1, $2, $3, $4, $5, now())
+            returning id, user_id, writer_id, message, is_confidential, timestamp, created_at
+        )
+        select
+            inserted.id,
+            inserted.user_id,
+            inserted.writer_id,
+            inserted.message,
+            inserted.is_confidential,
+            inserted.timestamp,
+            inserted.created_at,
+            u.cid as writer_cid,
+            u.display_name as writer_name
+        from inserted
+        join identity.users u on u.id = inserted.writer_id
+        "#,
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(writer_id)
+    .bind(message)
+    .bind(is_confidential)
+    .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
 }

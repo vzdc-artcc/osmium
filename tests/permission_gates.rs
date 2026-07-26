@@ -118,6 +118,43 @@ async fn admin_decide_visitor_application_endpoint_requires_staff_session() {
 }
 
 #[tokio::test]
+async fn admin_list_staffing_requests_endpoint_requires_permission() {
+    let state = osmium::state::AppState::without_db();
+    let app = osmium::router::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/admin/staffing-requests")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn admin_delete_staffing_request_endpoint_requires_permission() {
+    let state = osmium::state::AppState::without_db();
+    let app = osmium::router::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/admin/staffing-requests/test-request-id")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn admin_access_catalog_endpoint_requires_staff_session() {
     let state = osmium::state::AppState::without_db();
     let app = osmium::router::build_router(state);
@@ -136,7 +173,11 @@ async fn admin_access_catalog_endpoint_requires_staff_session() {
 }
 
 #[tokio::test]
-async fn user_list_endpoint_requires_session() {
+async fn user_list_endpoint_is_public_by_policy() {
+    // The roster is public information on the live site today (no login
+    // required) — GET /users must not reject an anonymous caller. Private
+    // fields still stay hidden from anonymous/non-privileged viewers, that's
+    // enforced separately at the response-shaping layer, not the route gate.
     let state = osmium::state::AppState::without_db();
     let app = osmium::router::build_router(state);
 
@@ -150,11 +191,11 @@ async fn user_list_endpoint_requires_session() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[tokio::test]
-async fn user_lookup_endpoint_requires_session() {
+async fn user_lookup_endpoint_is_public_by_policy() {
     let state = osmium::state::AppState::without_db();
     let app = osmium::router::build_router(state);
 
@@ -168,7 +209,7 @@ async fn user_lookup_endpoint_requires_session() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[tokio::test]

@@ -159,7 +159,7 @@ pub async fn create_suppression(
         )
         "#,
     )
-    .bind(Uuid::new_v4().to_string())
+    .bind(Uuid::new_v4())
     .bind(&claims.category)
     .bind(&claims.user_id)
     .bind(&claims.email)

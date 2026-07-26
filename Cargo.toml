@@ -6,8 +6,6 @@ edition = "2024"
 [workspace]
 members = [
     ".",
-    "tools/api-load-tester",
-    "tools/db-migrator",
 ]
 resolver = "2"
 
@@ -26,6 +24,13 @@ thiserror = "2.0.17"
 time = "0.3.44"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal", "fs"] }
 tower-http = { version = "0.6.6", features = ["cors", "trace"] }
+# spec 010 IP rate limiting. tower_governor's GovernorLayer is a sync tower layer and
+# cannot run the async, DB-backed permission-bypass the spec's own algorithm requires
+# (permission check only *after* an IP is over its limit). We therefore use governor —
+# the exact keyed limiter tower_governor wraps (tower_governor 0.8 pins governor 0.10) —
+# directly inside a custom `from_fn` middleware (src/rate_limit.rs). Same engine, but the
+# hot-path/bypass control flow lives in our code. See src/rate_limit.rs for the rationale.
+governor = "0.10"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
@@ -37,10 +42,18 @@ aes-gcm = "0.10.3"
 getrandom = "0.4.2"
 pulldown-cmark = "0.13.3"
 maud = "0.27.0"
+# Inlines the email templates' <style> class rules onto elements so email clients
+# that strip <style> (Gmail/Outlook) still render the brand colors. default-features
+# off — we never load remote stylesheets during render.
+css-inline = { version = "0.16", default-features = false }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 base64 = "0.22.1"
 urlencoding = "2.1.3"
+# FAA preferred-routes ingest (Worker B) — unzip the NASR PFR CSV bundle. Only the
+# deflate codec is needed; default features (bzip2/zstd/aes) are disabled to keep
+# the dependency surface minimal.
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tower = { version = "0.5.2", features = ["util"] }

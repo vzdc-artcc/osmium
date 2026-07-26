@@ -22,6 +22,26 @@ http:
       value: "false"
       type: query
       disabled: true
+    - name: reporter_cid
+      value: ""
+      type: query
+      description: Filter by reporter CID (exact match)
+      disabled: true
+    - name: reporter_name
+      value: ""
+      type: query
+      description: Filter by reporter display name (contains)
+      disabled: true
+    - name: reportee_cid
+      value: ""
+      type: query
+      description: Filter by reportee CID (exact match)
+      disabled: true
+    - name: reportee_name
+      value: ""
+      type: query
+      description: Filter by reportee display name (contains)
+      disabled: true
   auth: inherit
 
 settings:

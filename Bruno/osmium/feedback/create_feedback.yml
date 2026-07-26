@@ -63,10 +63,14 @@ examples:
             "status": "",
             "submitted_at": "",
             "submitter_user_id": "",
-            "target_user_id": ""
+            "submitter_cid": 0,
+            "submitter_name": "",
+            "target_user_id": "",
+            "target_cid": 0,
+            "target_name": ""
           }
   - name: 400 Response
-    description: Invalid request
+    description: Invalid request (includes rating out of range, empty pilot_callsign/controller_position, or target_cid resolving to the submitter)
     request:
       url: "{{baseUrl}}/api/v1/feedback"
       method: POST

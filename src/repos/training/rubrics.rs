@@ -14,6 +14,23 @@ pub struct CriteriaRow {
     pub description: String,
     pub passing: i32,
     pub max_points: i32,
+    pub sort_order: i32,
+}
+
+pub async fn next_criteria_sort_order<'e, E>(
+    executor: E,
+    rubric_id: &str,
+) -> Result<i32, ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query_scalar::<_, i32>(
+        "select coalesce(max(sort_order), -1) + 1 from training.lesson_rubric_criteria where rubric_id = $1",
+    )
+    .bind(rubric_id)
+    .fetch_one(executor)
+    .await
+    .map_err(|_| ApiError::Internal)
 }
 
 pub async fn fetch_lesson_rubric_id<'e, E>(
@@ -71,6 +88,7 @@ pub async fn insert_criteria<'e, E>(
     description: &str,
     passing: i32,
     max_points: i32,
+    sort_order: i32,
     now: DateTime<Utc>,
 ) -> Result<(), ApiError>
 where
@@ -79,9 +97,9 @@ where
     sqlx::query(
         r#"
         insert into training.lesson_rubric_criteria (
-            id, rubric_id, criteria, description, passing, max_points, created_at, updated_at
+            id, rubric_id, criteria, description, passing, max_points, sort_order, created_at, updated_at
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $7)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $8)
         "#,
     )
     .bind(id)
@@ -90,6 +108,7 @@ where
     .bind(description)
     .bind(passing)
     .bind(max_points)
+    .bind(sort_order)
     .bind(now)
     .execute(executor)
     .await
@@ -107,7 +126,7 @@ where
 {
     sqlx::query_as::<_, CriteriaRow>(
         r#"
-        select c.id, c.rubric_id, c.criteria, c.description, c.passing, c.max_points
+        select c.id, c.rubric_id, c.criteria, c.description, c.passing, c.max_points, c.sort_order
         from training.lesson_rubric_criteria c
         join training.lessons l on l.rubric_id = c.rubric_id
         where l.id = $1 and c.id = $2
@@ -120,6 +139,7 @@ where
     .map_err(|_| ApiError::Internal)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_criteria_row<'e, E>(
     executor: E,
     criteria_id: &str,
@@ -127,6 +147,7 @@ pub async fn update_criteria_row<'e, E>(
     description: &str,
     passing: i32,
     max_points: i32,
+    sort_order: i32,
     now: DateTime<Utc>,
 ) -> Result<(), ApiError>
 where
@@ -135,7 +156,7 @@ where
     sqlx::query(
         r#"
         update training.lesson_rubric_criteria
-        set criteria = $2, description = $3, passing = $4, max_points = $5, updated_at = $6
+        set criteria = $2, description = $3, passing = $4, max_points = $5, sort_order = $6, updated_at = $7
         where id = $1
         "#,
     )
@@ -144,6 +165,7 @@ where
     .bind(description)
     .bind(passing)
     .bind(max_points)
+    .bind(sort_order)
     .bind(now)
     .execute(executor)
     .await
@@ -311,7 +333,7 @@ where
 
     let criteria_rows = sqlx::query_as::<_, CriteriaRow>(
         r#"
-        select id, rubric_id, criteria, description, passing, max_points
+        select id, rubric_id, criteria, description, passing, max_points, sort_order
         from training.lesson_rubric_criteria
         where rubric_id = $1
         order by sort_order asc, id asc
@@ -332,6 +354,7 @@ where
             description: row.description,
             passing: row.passing,
             max_points: row.max_points,
+            sort_order: row.sort_order,
             cells,
         });
     }

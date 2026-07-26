@@ -19,12 +19,130 @@ pub fn vatsim_dev_mode_enabled() -> bool {
     env_flag_enabled("VATSIM_DEV_MODE")
 }
 
-pub fn dev_impersonation_enabled() -> bool {
-    env_flag_enabled("DEV_LOGIN_AS_CID_ENABLED")
-}
-
 pub fn dev_seed_enabled() -> bool {
     env_flag_enabled("DEV_SEED_ENABLED")
+}
+
+/// TTL for an impersonation session (spec 012). Deliberately much shorter than a
+/// normal 30-day login so a forgotten "act as" doesn't linger. On stop the session
+/// is restored to a normal login TTL.
+pub fn impersonation_ttl_secs() -> i64 {
+    std::env::var("IMPERSONATION_TTL_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(60 * 60)
+}
+
+/// Whether a boolean env var is enabled, defaulting to `true` when unset or
+/// unparseable (used for feature flags that should be on unless explicitly
+/// disabled, unlike [`env_flag_enabled`] which defaults off).
+fn env_flag_enabled_default_true(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off"
+            )
+        })
+        .unwrap_or(true)
+}
+
+fn env_u32_or(name: &str, default: u32) -> u32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+/// IP rate limiting is on unless `RATE_LIMIT_ENABLED` is explicitly falsey
+/// (spec 010). The test harness sets it to `false` so unrelated tests don't trip
+/// the limiter.
+pub fn rate_limit_enabled() -> bool {
+    env_flag_enabled_default_true("RATE_LIMIT_ENABLED")
+}
+
+/// Sustained requests allowed per source IP per minute (governor replenishment
+/// rate). Generous default so SPA/NAT clients aren't falsely throttled while a
+/// scraping/brute-force flood still trips it.
+pub fn rate_limit_requests_per_min() -> u32 {
+    env_u32_or("RATE_LIMIT_REQUESTS_PER_MIN", 1200)
+}
+
+/// Burst capacity per source IP (governor cell/bucket size) — how many requests
+/// may arrive back-to-back before the per-minute rate begins to apply.
+pub fn rate_limit_burst() -> u32 {
+    env_u32_or("RATE_LIMIT_BURST", 240)
+}
+
+/// Dedicated tight limit for the GDPR data export (`GET /me/data-export`), keyed
+/// per user. The export is one of the most expensive requests in the API (a full
+/// cross-domain assembly), so the loose global per-IP limit is not enough — this
+/// caps how often any one user can trigger it. Only enforced when `RATE_LIMIT_ENABLED`.
+pub fn data_export_rate_limit_per_hour() -> u32 {
+    env_u32_or("DATA_EXPORT_RATE_LIMIT_PER_HOUR", 12)
+}
+
+/// Burst for the per-user data-export limit — how many back-to-back exports before
+/// the hourly rate applies (stops rapid button-spam while allowing a couple of
+/// legitimate re-downloads).
+pub fn data_export_rate_limit_burst() -> u32 {
+    env_u32_or("DATA_EXPORT_RATE_LIMIT_BURST", 3)
+}
+
+/// per-hour cap on the admin mass (whole-roster) data export. This assembles the
+/// full cross-domain document for every on-roster controller in one request — the
+/// single most expensive call in the API — so it is capped far tighter than the
+/// per-user export. Keyed by the admin's user id; only enforced when `RATE_LIMIT_ENABLED`.
+pub fn mass_data_export_rate_limit_per_hour() -> u32 {
+    env_u32_or("MASS_DATA_EXPORT_RATE_LIMIT_PER_HOUR", 5)
+}
+
+/// Burst for the admin mass data export — how many back-to-back roster exports
+/// before the hourly rate applies.
+pub fn mass_data_export_rate_limit_burst() -> u32 {
+    env_u32_or("MASS_DATA_EXPORT_RATE_LIMIT_BURST", 2)
+}
+
+// ---------------------------------------------------------------------------
+// spec 011 — durable IP request tracking
+// ---------------------------------------------------------------------------
+
+/// Whether per-request IP metadata is buffered and persisted. On unless explicitly
+/// falsey; the test harness disables it so unrelated tests don't produce log rows.
+pub fn ip_request_log_enabled() -> bool {
+    env_flag_enabled_default_true("IP_REQUEST_LOG_ENABLED")
+}
+
+/// Rows older than this are pruned by the cleanup job.
+pub fn ip_request_log_retention_days() -> i64 {
+    std::env::var("IP_REQUEST_LOG_RETENTION_DAYS")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(30)
+}
+
+/// How often the drain job flushes buffered entries to the database.
+pub fn ip_request_log_flush_secs() -> u64 {
+    std::env::var("IP_REQUEST_LOG_FLUSH_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(5)
+}
+
+/// Maximum rows drained + inserted per flush tick.
+pub fn ip_request_log_batch_size() -> usize {
+    env_u32_or("IP_REQUEST_LOG_BATCH_SIZE", 500) as usize
+}
+
+/// Bounded channel capacity between the request middleware and the drain job.
+/// When full, new entries are dropped (with a warning) rather than back-pressuring
+/// real traffic.
+pub fn ip_request_log_channel_capacity() -> usize {
+    env_u32_or("IP_REQUEST_LOG_CHANNEL_CAPACITY", 10_000) as usize
 }
 
 /// Origins trusted for credentialed cross-origin requests. Reused as the
@@ -103,7 +221,7 @@ fn normalize_origin(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{dev_impersonation_enabled, dev_seed_enabled, normalize_origin};
+    use super::{dev_seed_enabled, normalize_origin};
 
     struct EnvVarGuard {
         key: &'static str,
@@ -152,11 +270,8 @@ mod tests {
     }
 
     #[test]
-    fn explicit_dev_login_flag_enables_impersonation_only() {
-        let _login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "true");
-        let _seed = EnvVarGuard::set("DEV_SEED_ENABLED", "false");
-
-        assert!(dev_impersonation_enabled());
-        assert!(!dev_seed_enabled());
+    fn dev_seed_flag_parses_independently() {
+        let _seed = EnvVarGuard::set("DEV_SEED_ENABLED", "true");
+        assert!(dev_seed_enabled());
     }
 }

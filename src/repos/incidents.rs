@@ -3,6 +3,15 @@ use sqlx::PgPool;
 
 use crate::{errors::ApiError, models::incidents::IncidentItem};
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct IncidentFilters<'a> {
+    pub closed: Option<bool>,
+    pub reporter_cid: Option<i64>,
+    pub reporter_name: Option<&'a str>,
+    pub reportee_cid: Option<i64>,
+    pub reportee_name: Option<&'a str>,
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct IncidentItemRow {
     id: String,
@@ -101,18 +110,28 @@ pub async fn insert_incident(
 pub async fn count_my_incidents(
     pool: &PgPool,
     user_id: &str,
-    closed: Option<bool>,
+    filters: IncidentFilters<'_>,
 ) -> Result<i64, ApiError> {
     sqlx::query_scalar::<_, i64>(
         r#"
         select count(*)::bigint
-        from feedback.incident_reports
-        where (reporter_id = $1 or reportee_id = $1)
-          and ($2::bool is null or closed = $2)
+        from feedback.incident_reports i
+        join identity.users ru on ru.id = i.reporter_id
+        join identity.users tu on tu.id = i.reportee_id
+        where (i.reporter_id = $1 or i.reportee_id = $1)
+          and ($2::bool is null or i.closed = $2)
+          and ($3::bigint is null or ru.cid = $3)
+          and ($4::text is null or ru.display_name ilike '%' || $4 || '%')
+          and ($5::bigint is null or tu.cid = $5)
+          and ($6::text is null or tu.display_name ilike '%' || $6 || '%')
         "#,
     )
     .bind(user_id)
-    .bind(closed)
+    .bind(filters.closed)
+    .bind(filters.reporter_cid)
+    .bind(filters.reporter_name)
+    .bind(filters.reportee_cid)
+    .bind(filters.reportee_name)
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -121,7 +140,7 @@ pub async fn count_my_incidents(
 pub async fn list_my_incidents(
     pool: &PgPool,
     user_id: &str,
-    closed: Option<bool>,
+    filters: IncidentFilters<'_>,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<IncidentItem>, ApiError> {
@@ -147,12 +166,20 @@ pub async fn list_my_incidents(
         join identity.users tu on tu.id = i.reportee_id
         where (i.reporter_id = $1 or i.reportee_id = $1)
           and ($2::bool is null or i.closed = $2)
+          and ($3::bigint is null or ru.cid = $3)
+          and ($4::text is null or ru.display_name ilike '%' || $4 || '%')
+          and ($5::bigint is null or tu.cid = $5)
+          and ($6::text is null or tu.display_name ilike '%' || $6 || '%')
         order by i.timestamp desc, i.created_at desc, i.id asc
-        limit $3 offset $4
+        limit $7 offset $8
         "#,
     )
     .bind(user_id)
-    .bind(closed)
+    .bind(filters.closed)
+    .bind(filters.reporter_cid)
+    .bind(filters.reporter_name)
+    .bind(filters.reportee_cid)
+    .bind(filters.reportee_name)
     .bind(page_size)
     .bind(offset)
     .fetch_all(pool)
@@ -161,11 +188,28 @@ pub async fn list_my_incidents(
     .map_err(|_| ApiError::Internal)
 }
 
-pub async fn count_all_incidents(pool: &PgPool, closed: Option<bool>) -> Result<i64, ApiError> {
+pub async fn count_all_incidents(
+    pool: &PgPool,
+    filters: IncidentFilters<'_>,
+) -> Result<i64, ApiError> {
     sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from feedback.incident_reports where ($1::bool is null or closed = $1)",
+        r#"
+        select count(*)::bigint
+        from feedback.incident_reports i
+        join identity.users ru on ru.id = i.reporter_id
+        join identity.users tu on tu.id = i.reportee_id
+        where ($1::bool is null or i.closed = $1)
+          and ($2::bigint is null or ru.cid = $2)
+          and ($3::text is null or ru.display_name ilike '%' || $3 || '%')
+          and ($4::bigint is null or tu.cid = $4)
+          and ($5::text is null or tu.display_name ilike '%' || $5 || '%')
+        "#,
     )
-    .bind(closed)
+    .bind(filters.closed)
+    .bind(filters.reporter_cid)
+    .bind(filters.reporter_name)
+    .bind(filters.reportee_cid)
+    .bind(filters.reportee_name)
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -173,7 +217,7 @@ pub async fn count_all_incidents(pool: &PgPool, closed: Option<bool>) -> Result<
 
 pub async fn list_all_incidents(
     pool: &PgPool,
-    closed: Option<bool>,
+    filters: IncidentFilters<'_>,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<IncidentItem>, ApiError> {
@@ -198,11 +242,19 @@ pub async fn list_all_incidents(
         join identity.users ru on ru.id = i.reporter_id
         join identity.users tu on tu.id = i.reportee_id
         where ($1::bool is null or i.closed = $1)
+          and ($2::bigint is null or ru.cid = $2)
+          and ($3::text is null or ru.display_name ilike '%' || $3 || '%')
+          and ($4::bigint is null or tu.cid = $4)
+          and ($5::text is null or tu.display_name ilike '%' || $5 || '%')
         order by i.timestamp desc, i.created_at desc, i.id asc
-        limit $2 offset $3
+        limit $6 offset $7
         "#,
     )
-    .bind(closed)
+    .bind(filters.closed)
+    .bind(filters.reporter_cid)
+    .bind(filters.reporter_name)
+    .bind(filters.reportee_cid)
+    .bind(filters.reportee_name)
     .bind(page_size)
     .bind(offset)
     .fetch_all(pool)

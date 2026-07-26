@@ -238,6 +238,9 @@ mod tests {
             timezone: timezone.to_string(),
             rating: None,
             primary_role: None,
+            impersonator_user_id: None,
+            impersonator_cid: None,
+            impersonator_display_name: None,
         }
     }
 

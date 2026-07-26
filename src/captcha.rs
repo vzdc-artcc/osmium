@@ -2,30 +2,26 @@ use serde::Deserialize;
 
 use crate::{errors::ApiError, models::VerifyCaptchaResponse};
 
-const SITEVERIFY_URL: &str = "https://www.google.com/recaptcha/api/siteverify";
+const SITEVERIFY_URL: &str = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 #[derive(Debug, Deserialize)]
 struct SiteverifyResponse {
     success: bool,
-    score: Option<f64>,
 }
 
-/// Verifies a client-supplied reCAPTCHA token against Google's siteverify
-/// endpoint, using a server-held secret that must never reach the client.
-/// Mirrors the live site's `actions/captcha.ts`: a thin proxy, no local
-/// state, no binding to the request that follows it.
+/// Verifies a client-supplied Cloudflare Turnstile token against Cloudflare's
+/// siteverify endpoint, using a server-held secret that must never reach the
+/// client. A thin proxy: no local state, no binding to the request that
+/// follows it. Turnstile is pass/fail (no score), unlike reCAPTCHA v3.
 pub async fn verify_captcha(token: &str) -> Result<VerifyCaptchaResponse, ApiError> {
-    let secret = std::env::var("GOOGLE_CAPTCHA_SECRET_KEY")
+    let secret = std::env::var("TURNSTILE_SECRET_KEY")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .ok_or(ApiError::ServiceUnavailable)?;
 
     let token = token.trim();
     if token.is_empty() {
-        return Ok(VerifyCaptchaResponse {
-            success: false,
-            score: None,
-        });
+        return Ok(VerifyCaptchaResponse { success: false });
     }
 
     let client = reqwest::Client::new();
@@ -49,6 +45,5 @@ pub async fn verify_captcha(token: &str) -> Result<VerifyCaptchaResponse, ApiErr
 
     Ok(VerifyCaptchaResponse {
         success: body.success,
-        score: body.score,
     })
 }

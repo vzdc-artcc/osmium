@@ -19,8 +19,8 @@ http:
         "airspace": [
           {
             "identifier": "R-6608A",
-            "bottom_altitude": "SFC",
-            "top_altitude": "FL180"
+            "bottom_altitude": "000",
+            "top_altitude": "180"
           }
         ]
       }

@@ -30,8 +30,8 @@ use crate::{
     errors::ApiError,
     models::{
         CdnTokenQuery, FileAsset, FileAssetListResponse, FileAuditLogListResponse, FileAuditQuery,
-        ListFilesQuery, PaginationMeta, PaginationQuery, SignedUrlQuery, SignedUrlResponse,
-        UpdateFileMetadataRequest, UploadFileQuery,
+        ImportFileFromUrlRequest, PaginationMeta, PaginationQuery, SignedUrlQuery,
+        SignedUrlResponse, UpdateFileMetadataRequest, UploadFileQuery,
     },
     repos::{audit as audit_repo, files as files_repo},
     state::AppState,
@@ -46,10 +46,7 @@ const NONCE_LEN: usize = 12;
     get,
     path = "/api/v1/admin/files/audit",
     tag = "files",
-    params(
-        PaginationQuery,
-        ("file_id" = Option<String>, Query, description = "Optional file ID filter")
-    ),
+    params(FileAuditQuery),
     responses(
         (status = 200, description = "File audit log rows", body = FileAuditLogListResponse),
         (status = 401, description = "Not authorized")
@@ -100,7 +97,7 @@ pub async fn list_files(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     _permission: RequirePermission<FilesAssetsRead>,
-    Query(query): Query<ListFilesQuery>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<FileAssetListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -250,6 +247,212 @@ pub async fn upload_file(
         &ip_address,
         "success",
         serde_json::json!({"viewer_roles": viewer_roles, "viewer_cid_count": viewer_cids.len()}),
+    )
+    .await;
+
+    let created_asset: FileAsset = row.into();
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "CREATE".to_string(),
+            resource_type: "FILE".to_string(),
+            resource_id: Some(file_id.clone()),
+            scope_type: "file".to_string(),
+            scope_key: Some(file_id.clone()),
+            before_state: None,
+            after_state: Some(audit_repo::sanitized_snapshot(&created_asset)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok((StatusCode::CREATED, ApiJson::new(created_asset, time)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/files/import",
+    tag = "files",
+    params(
+        ("public" = Option<bool>, Query, description = "Whether the file is public"),
+        ("owner_cid" = Option<i64>, Query, description = "Optional owner CID"),
+        ("viewer_cids" = Option<String>, Query, description = "Comma-separated viewer CIDs"),
+        ("viewer_roles" = Option<String>, Query, description = "Comma-separated viewer roles")
+    ),
+    request_body = ImportFileFromUrlRequest,
+    responses(
+        (status = 201, description = "File imported", body = FileAsset),
+        (status = 400, description = "Invalid request, unsafe URL, or non-image content"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "owner_cid does not reference an existing user")
+    )
+)]
+pub async fn import_file_from_url(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _asset_permission: RequirePermission<FilesAssetsCreate>,
+    _content_permission: RequirePermission<FilesContentCreate>,
+    Query(query): Query<UploadFileQuery>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<ImportFileFromUrlRequest>,
+) -> Result<(StatusCode, ApiJson<FileAsset>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let ip_address = client_ip(&headers);
+
+    let source_url = reqwest::Url::parse(payload.url.trim()).map_err(|_| ApiError::BadRequest)?;
+    if source_url.scheme() != "http" && source_url.scheme() != "https" {
+        return Err(ApiError::BadRequest);
+    }
+    let host = source_url.host_str().ok_or(ApiError::BadRequest)?.to_string();
+    if !is_safe_remote_host(&host).await {
+        record_file_audit(
+            pool,
+            "import",
+            None,
+            Some(&user.id),
+            &ip_address,
+            "bad_request",
+            serde_json::json!({"reason": "unsafe_host"}),
+        )
+        .await;
+        return Err(ApiError::BadRequest);
+    }
+
+    let max_size = max_upload_bytes();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| ApiError::Internal)?;
+
+    let response = client.get(source_url).send().await.map_err(|error| {
+        tracing::warn!(?error, "file url import request failed");
+        ApiError::BadRequest
+    })?;
+
+    if !response.status().is_success() {
+        return Err(ApiError::BadRequest);
+    }
+    if let Some(len) = response.content_length()
+        && len > max_size
+    {
+        record_file_audit(
+            pool,
+            "import",
+            None,
+            Some(&user.id),
+            &ip_address,
+            "bad_request",
+            serde_json::json!({"reason": "max_size_exceeded", "max_size": max_size}),
+        )
+        .await;
+        return Err(ApiError::BadRequest);
+    }
+    let content_type = normalize_content_type_str(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/octet-stream"),
+    )?;
+    if !content_type.starts_with("image/") {
+        record_file_audit(
+            pool,
+            "import",
+            None,
+            Some(&user.id),
+            &ip_address,
+            "bad_request",
+            serde_json::json!({"reason": "unsupported_content_type", "content_type": content_type}),
+        )
+        .await;
+        return Err(ApiError::BadRequest);
+    }
+
+    let body = response.bytes().await.map_err(|_| ApiError::BadRequest)?;
+    if body.is_empty() || body.len() as u64 > max_size {
+        record_file_audit(
+            pool,
+            "import",
+            None,
+            Some(&user.id),
+            &ip_address,
+            "bad_request",
+            serde_json::json!({"reason": "max_size_exceeded", "max_size": max_size}),
+        )
+        .await;
+        return Err(ApiError::BadRequest);
+    }
+
+    let owner_user_id = if let Some(owner_cid) = query.owner_cid {
+        Some(
+            files_repo::resolve_user_id_by_cid(pool, owner_cid)
+                .await?
+                .ok_or(ApiError::NotFound)?,
+        )
+    } else {
+        None
+    };
+    let viewer_cids = parse_csv_i64(query.viewer_cids.as_deref())?;
+    let allowed_user_ids = resolve_user_ids_by_cids(pool, &viewer_cids).await?;
+    let viewer_roles = normalize_roles(
+        parse_csv_strings(query.viewer_roles.as_deref())?,
+        state.db.as_ref(),
+    )
+    .await?;
+
+    let file_id = Uuid::new_v4().to_string();
+    let url_filename = std::path::Path::new(source_url_path(&payload.url))
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty());
+    let fallback_name = format!("{file_id}.bin");
+    let filename = sanitize_filename(
+        query
+            .filename
+            .as_deref()
+            .or(payload.filename.as_deref())
+            .or(url_filename)
+            .unwrap_or(&fallback_name),
+    )?;
+    let etag = sha256_hex(&body);
+    let storage_key = storage_key_for_id(&file_id);
+
+    write_blob(&storage_key, &body).await?;
+
+    let now = chrono::Utc::now();
+    let row = files_repo::insert_file_asset(
+        pool,
+        &file_id,
+        &filename,
+        &content_type,
+        body.len() as i64,
+        &etag,
+        &storage_key,
+        query.public.unwrap_or(true),
+        &user.id,
+        owner_user_id.as_deref(),
+        &viewer_roles,
+        now,
+    )
+    .await?;
+
+    for allowed_user_id in &allowed_user_ids {
+        files_repo::insert_allowed_user(pool, &file_id, allowed_user_id).await?;
+    }
+
+    record_file_audit(
+        pool,
+        "import",
+        Some(&file_id),
+        Some(&user.id),
+        &ip_address,
+        "success",
+        serde_json::json!({"viewer_roles": viewer_roles, "viewer_cid_count": viewer_cids.len(), "source_host": host}),
     )
     .await;
 
@@ -1110,6 +1313,61 @@ fn max_upload_bytes() -> u64 {
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(25 * 1024 * 1024)
+}
+
+fn source_url_path(raw_url: &str) -> &str {
+    raw_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(raw_url)
+        .trim_end_matches('/')
+}
+
+/// Resolves `host` and rejects loopback/private/link-local/multicast targets to
+/// guard the server-side URL import against SSRF against internal services.
+async fn is_safe_remote_host(host: &str) -> bool {
+    let Ok(addrs) = tokio::net::lookup_host((host, 443)).await else {
+        return false;
+    };
+
+    let mut resolved_any = false;
+    for addr in addrs {
+        resolved_any = true;
+        if !is_public_ip(addr.ip()) {
+            return false;
+        }
+    }
+
+    resolved_any
+}
+
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_multicast()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+                || v4.is_documentation())
+        }
+        std::net::IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_multicast() || v6.is_unspecified() {
+                return false;
+            }
+            let segments = v6.segments();
+            // fc00::/7 (unique local)
+            if (segments[0] & 0xfe00) == 0xfc00 {
+                return false;
+            }
+            // fe80::/10 (link-local)
+            if (segments[0] & 0xffc0) == 0xfe80 {
+                return false;
+            }
+            true
+        }
+    }
 }
 
 fn sanitize_filename(raw: &str) -> Result<String, ApiError> {

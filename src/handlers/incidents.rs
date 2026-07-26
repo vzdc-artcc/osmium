@@ -21,10 +21,28 @@ use crate::{
         CreateIncidentRequest, IncidentItem, IncidentListResponse, ListIncidentsQuery,
         PaginationMeta, PaginationQuery, UpdateIncidentRequest,
     },
-    repos::{audit as audit_repo, incidents as incidents_repo},
+    repos::{access as access_repo, audit as audit_repo, incidents as incidents_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
+
+fn incident_filters_from_query(query: &ListIncidentsQuery) -> incidents_repo::IncidentFilters<'_> {
+    incidents_repo::IncidentFilters {
+        closed: query.closed,
+        reporter_cid: query.reporter_cid,
+        reporter_name: query
+            .reporter_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        reportee_cid: query.reportee_cid,
+        reportee_name: query
+            .reportee_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    }
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiMessageBody {
@@ -59,11 +77,19 @@ pub async fn create_incident(
     }
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    let reportee_id = access_repo::find_user_id_by_cid(pool, payload.reportee_cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    if reportee_id == user.id {
+        return Err(ApiError::BadRequest);
+    }
+
     let item = incidents_repo::insert_incident(
         pool,
         &Uuid::new_v4().to_string(),
         &user.id,
-        &payload.reportee_id,
+        &reportee_id,
         payload.timestamp,
         payload.reason.trim(),
         payload
@@ -95,7 +121,7 @@ pub async fn create_incident(
     get,
     path = "/api/v1/incidents",
     tag = "incidents",
-    params(PaginationQuery, ("closed" = Option<bool>, Query, description = "Optional closed-state filter")),
+    params(ListIncidentsQuery),
     responses(
         (status = 200, description = "Incidents involving the current user", body = IncidentListResponse),
         (status = 401, description = "Not authenticated")
@@ -114,11 +140,12 @@ pub async fn list_my_incidents(
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
 
-    let total = incidents_repo::count_my_incidents(pool, &user.id, query.closed).await?;
+    let filters = incident_filters_from_query(&query);
+    let total = incidents_repo::count_my_incidents(pool, &user.id, filters).await?;
     let items = incidents_repo::list_my_incidents(
         pool,
         &user.id,
-        query.closed,
+        filters,
         pagination.page_size,
         pagination.offset,
     )
@@ -138,7 +165,7 @@ pub async fn list_my_incidents(
     get,
     path = "/api/v1/admin/incidents",
     tag = "incidents",
-    params(PaginationQuery, ("closed" = Option<bool>, Query, description = "Optional closed-state filter")),
+    params(ListIncidentsQuery),
     responses(
         (status = 200, description = "Incident list for staff review", body = IncidentListResponse),
         (status = 401, description = "Not authenticated")
@@ -155,10 +182,11 @@ pub async fn admin_list_incidents(
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
 
-    let total = incidents_repo::count_all_incidents(pool, query.closed).await?;
+    let filters = incident_filters_from_query(&query);
+    let total = incidents_repo::count_all_incidents(pool, filters).await?;
     let items = incidents_repo::list_all_incidents(
         pool,
-        query.closed,
+        filters,
         pagination.page_size,
         pagination.offset,
     )

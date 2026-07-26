@@ -9,5 +9,4 @@ pub struct VerifyCaptchaRequest {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct VerifyCaptchaResponse {
     pub success: bool,
-    pub score: Option<f64>,
 }

@@ -17,10 +17,12 @@ http:
     type: json
     data: |-
       {
-        "permission_overrides": "",
-        "permissions": "",
-        "role": "",
-        "roles": ""
+        "permissions": {
+          "auth": {
+            "profile": ["read", "update"]
+          }
+        },
+        "reason": "Granting profile access per staff request"
       }
   auth: inherit
 

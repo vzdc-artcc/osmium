@@ -49,6 +49,11 @@ impl<'a> EmailLayout<'a> {
                 head {
                     meta charset="utf-8";
                     meta name="viewport" content="width=device-width, initial-scale=1";
+                    // Declare support for both schemes so clients apply the email's own
+                    // `@media (prefers-color-scheme: dark)` styles (see branding.rs) instead
+                    // of auto-inverting/recoloring the brand palette.
+                    meta name="color-scheme" content="light dark";
+                    meta name="supported-color-schemes" content="light dark";
                     title { (self.subject) }
                     style { (PreEscaped(style)) }
                 }

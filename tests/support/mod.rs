@@ -25,6 +25,9 @@ use uuid::Uuid;
 pub struct TestApp {
     pub pool: PgPool,
     pub app: Router,
+    /// A clone of the router's `AppState`, so tests can reach shared runtime handles
+    /// (e.g. the spec-011 IP-log channel receiver for a synchronous flush).
+    pub state: AppState,
     root_database_url: String,
     database_name: String,
     file_root: PathBuf,
@@ -50,6 +53,15 @@ pub fn lock_env() -> MutexGuard<'static, ()> {
 
 impl TestApp {
     pub async fn new() -> Option<Self> {
+        Self::new_with_env_overrides(&[]).await
+    }
+
+    /// Like `new()`, but applies `overrides` on top of the base test env
+    /// guards *before* the router is built — needed for env vars (like
+    /// `DEV_LOGIN_AS_CID_ENABLED`) that gate route registration itself at
+    /// `build_router` time rather than being read per-request, so setting
+    /// them after construction would be too late.
+    pub async fn new_with_env_overrides(overrides: &[(&'static str, &str)]) -> Option<Self> {
         let root_database_url = std::env::var("DATABASE_URL").ok()?;
         let database_name = format!("osmium_test_{}", Uuid::new_v4().simple());
         let database_url = database_url_for_name(&root_database_url, &database_name);
@@ -81,7 +93,7 @@ impl TestApp {
         let file_root = std::env::temp_dir().join(format!("osmium-files-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&file_root).expect("create file storage root");
 
-        let env_guards = vec![
+        let mut env_guards = vec![
             EnvVarGuard::set("FILE_STORAGE_ROOT", file_root.to_string_lossy().as_ref()),
             EnvVarGuard::set("FILE_SIGNING_SECRET", "test-signing-secret"),
             EnvVarGuard::set("CDN_BASE_URL", "http://127.0.0.1:3000"),
@@ -90,25 +102,43 @@ impl TestApp {
             EnvVarGuard::set("COOKIE_SECURE", "false"),
             EnvVarGuard::set("CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3000"),
             EnvVarGuard::set("VATSIM_DEV_MODE", "false"),
-            EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "false"),
             EnvVarGuard::set("DEV_SEED_ENABLED", "false"),
+            // Rate limiting off by default so unrelated tests don't trip it;
+            // tests/rate_limiting.rs re-enables it via an override (spec 010).
+            EnvVarGuard::set("RATE_LIMIT_ENABLED", "false"),
+            // IP request logging off by default so unrelated tests don't emit log
+            // rows; tests/ip_request_log.rs re-enables it via an override (spec 011).
+            EnvVarGuard::set("IP_REQUEST_LOG_ENABLED", "false"),
         ];
+        for (key, value) in overrides {
+            env_guards.push(EnvVarGuard::set(*key, *value));
+        }
 
         let email = Arc::new(EmailService::disabled());
         let (controller_events, _) = broadcast::channel(1024);
+        let (ip_log_tx, ip_log_rx) =
+            tokio::sync::mpsc::channel(osmium::config::ip_request_log_channel_capacity());
         let state = AppState {
             db: Some(pool.clone()),
             job_health: Arc::new(std::sync::RwLock::new(JobHealth::default())),
             email_health: Arc::new(std::sync::RwLock::new(EmailHealth::default())),
             email,
             controller_events,
+            rate_limiter: osmium::rate_limit::build_rate_limiter(),
+            data_export_limiter: osmium::rate_limit::build_data_export_limiter(),
+            mass_data_export_limiter: osmium::rate_limit::build_mass_data_export_limiter(),
+            rate_limit_enabled: osmium::config::rate_limit_enabled(),
+            ip_log_tx,
+            ip_log_rx: Arc::new(tokio::sync::Mutex::new(ip_log_rx)),
+            ip_log_enabled: osmium::config::ip_request_log_enabled(),
         };
 
-        let app = router::build_router(state);
+        let app = router::build_router(state.clone());
 
         Some(Self {
             pool,
             app,
+            state,
             root_database_url,
             database_name,
             file_root,

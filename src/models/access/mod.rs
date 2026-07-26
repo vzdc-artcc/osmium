@@ -12,6 +12,17 @@ pub struct AclDebugBody {
 #[serde(deny_unknown_fields)]
 pub struct UpdateUserAccessRequest {
     pub permissions: serde_json::Value,
+    /// Coarse authorization role names to assign, from the assignable set
+    /// (STAFF/INS/MTR/EVENT_STAFF — never SERVER_ADMIN, which is only ever
+    /// claimed via the OSMIUM_SERVER_ADMIN_CID login path). Omit to leave
+    /// roles unchanged. Auto-synced roles (STAFF/INS/MTR, from VATUSA
+    /// facility roles) become manually-owned once set here and stop
+    /// following roster sync until changed again by a human.
+    #[serde(default)]
+    pub role_names: Option<Vec<String>>,
+    /// Required. Recorded as a dossier entry on the target user's log
+    /// alongside the existing USER_ACCESS audit entry.
+    pub reason: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -19,6 +30,7 @@ pub struct UserAccessBody {
     pub id: String,
     pub cid: i64,
     pub server_admin: bool,
+    pub role_names: Vec<String>,
     pub permissions: serde_json::Value,
 }
 

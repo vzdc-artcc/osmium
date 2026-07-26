@@ -1,0 +1,102 @@
+info:
+  name: get_user_ip_history
+  type: http
+  seq: 8
+  tags:
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/users/:cid/ip-history"
+  params:
+    - name: cid
+      value: ""
+      type: path
+      description: VATSIM CID
+    - name: page
+      value: ""
+      type: query
+      disabled: true
+    - name: page_size
+      value: ""
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: A user's durable request IP history (spec 011)
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/ip-history"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "items": [
+              {
+                "ip_address": "203.0.113.10",
+                "method": "GET",
+                "matched_path": "/api/v1/me",
+                "status_code": 200,
+                "created_at": "2026-07-25T00:00:00Z"
+              }
+            ],
+            "pagination": {
+              "total": 1,
+              "page": 1,
+              "page_size": 50,
+              "total_pages": 1,
+              "has_next": false,
+              "has_prev": false
+            }
+          }
+  - name: 401 Response
+    description: Not authorized
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/ip-history"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 401
+      statusText: Unauthorized
+      body:
+        type: text
+        data: ""
+  - name: 404 Response
+    description: User not found
+    request:
+      url: "{{baseUrl}}/api/v1/admin/users/:cid/ip-history"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

@@ -203,17 +203,30 @@ body{{margin:0;padding:0;background:{page_bg};color:{text};font-family:{body_fon
 .panel{{background:{panel_bg};padding:36px 32px;border-left:1px solid #d9dce5;border-right:1px solid #d9dce5}}
 .panel h1{{margin:0 0 18px;color:{heading};font-size:{heading_size}px;line-height:1.2;font-weight:700;font-family:{heading_font}}}
 .panel p{{font-size:{body_size}px;line-height:1.6;margin:0 0 16px;color:{text}}}
-.panel a{{color:{link}}}
+.panel a:not(.button){{color:{link}}}
 .panel strong{{color:{accent}}}
 .callout{{background:{callout_bg};border-left:4px solid {accent};padding:14px 16px;margin:18px 0;border-radius:{callout_r}px}}
 .callout p:last-child{{margin-bottom:0}}
-.button{{display:inline-block;padding:12px 18px;background:{button_bg};color:{button_text} !important;text-decoration:none;border-radius:{button_r}px;font-weight:700}}
+.button{{display:inline-block;padding:12px 18px;background:{button_bg};color:{button_text};text-decoration:none;border-radius:{button_r}px;font-weight:700}}
 .footer{{background:#f7f8fb;padding:20px 32px;border:1px solid #d9dce5;border-top:0;border-radius:0 0 {shell_r}px {shell_r}px;color:#5d6472}}
 .footer p{{margin:0;font-size:{footer_size}px;line-height:1.6}}
 .footer a{{color:{link}}}
 .footer-link{{margin-top:8px !important}}
 .preheader{{display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden}}
 @media only screen and (max-width:640px){{.bg{{padding:12px}}.header,.panel,.footer{{padding-left:22px;padding-right:22px}}.panel{{padding-top:30px;padding-bottom:30px}}.panel h1{{font-size:{heading_size_mobile}px}}}}
+@media (prefers-color-scheme: dark){{
+body,.bg{{background:#0f1014 !important}}
+.panel{{background:#1b1c22 !important;border-color:#2a2b33 !important}}
+.panel h1{{color:#ffffff !important}}
+.panel p{{color:#d7d8e0 !important}}
+.panel a{{color:#f2bdbd !important}}
+.panel strong{{color:#f2bdbd !important}}
+.callout{{background:#2a2029 !important;border-left-color:#f2bdbd !important}}
+.footer{{background:#15161b !important;border-color:#2a2b33 !important;color:#a9abb6 !important}}
+.footer a{{color:#f2bdbd !important}}
+.header{{color:#ededf5 !important}}
+.button{{color:#ffffff !important}}
+}}
 "#,
         page_bg = branding.page_background_color,
         text = branding.text_color,

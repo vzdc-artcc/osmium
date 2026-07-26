@@ -1,0 +1,17 @@
+info:
+  name: cancel_loa
+  type: http
+  seq: 27
+  tags:
+    - workflows
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/loa/{{loaId}}/cancel"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

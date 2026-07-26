@@ -18,12 +18,20 @@ Public-by-policy routes:
 - `GET /api/v1/stats/controller-events`
 - `GET /api/v1/stats/controller/{cid}/history`
 - `GET /api/v1/stats/controller/{cid}/totals`
+- `GET /api/v1/stats/controller/{cid}/positions`
+- `GET /api/v1/users` (basic fields only — private fields still require `auth.profile.read` self-match or `users.directory_private.read`)
+- `GET /api/v1/users/{cid}` (same private-field caveat as above)
+- `GET /api/v1/users/{cid}/staff-positions` (display-only roster tags, never permissions)
+- `GET /api/v1/staff-positions/{position}/holders` (public; display-only list of controllers holding a staff position, e.g. all ATM holders — backs admin-menu headers)
 - `POST /api/v1/captcha/verify`
 
 Permission-gated routes:
 
 - `GET /api/v1/me` -> `auth.profile.read`
 - `PATCH /api/v1/me` -> `auth.profile.update`
+- `GET /api/v1/me/data-export` -> `auth.profile.read` (self-service GDPR Article 15 export; hard-scoped to the caller's own user id)
+- `GET /api/v1/admin/data-export/roster` -> `users.data_export.read` (admin bulk export of every on-roster controller's document; granted to no role = SERVER_ADMIN-only, kept out of the assignable catalog)
+- `GET /api/v1/routes/preferred` -> authenticated (any logged-in member; no specific permission — public FAA reference data, deliberately not exposed unauthenticated)
 - `GET /api/v1/me/discord` -> `auth.profile.read`
 - `POST /api/v1/me/discord/link/start` -> `auth.profile.read`
 - `POST /api/v1/me/discord/link/complete` -> `auth.profile.read`
@@ -31,8 +39,10 @@ Permission-gated routes:
 - `GET /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.read`
 - `POST /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.create`
 - `DELETE /api/v1/me/teamspeak-uids/{identity_id}` -> `auth.teamspeak_uids.delete`
+- `POST /api/v1/integrations/teamspeak/lookup` -> `auth.teamspeak_uids.read` (service-account; resolves a TS UID to controller status/rating/online position)
 - `POST /api/v1/auth/logout` -> `auth.sessions.delete`
-- `GET /api/v1/auth/login/as/{cid}` -> `auth.dev_login.create` plus dev-mode gate
+- `POST /api/v1/admin/impersonate/{cid}` -> `auth.impersonate.create` (SERVER_ADMIN only; refuses nested impersonation, self-target, and SERVER_ADMIN targets)
+- `POST /api/v1/admin/impersonate/stop` -> authenticated impersonating session (no permission — the effective subject may hold none)
 - `GET /api/v1/emails/templates` -> `emails.templates.read`
 - `POST /api/v1/emails/preview` -> `emails.preview.create`
 - `POST /api/v1/emails/send` -> `emails.send.create`
@@ -56,12 +66,18 @@ Permission-gated routes:
 - `POST /api/v1/admin/solo-certifications` -> `users.controller_status.update`
 - `PATCH /api/v1/admin/solo-certifications/{solo_id}` -> `users.controller_status.update`
 - `DELETE /api/v1/admin/solo-certifications/{solo_id}` -> `users.controller_status.update`
-- `GET /api/v1/admin/staffing-requests` -> `users.directory.read`
-- `DELETE /api/v1/admin/staffing-requests/{request_id}` -> `users.controller_status.update`
+- `GET /api/v1/admin/roster-certifications` -> `users.directory.read`
+- `GET /api/v1/admin/certification-types` -> `org.certifications.read`
+- `POST /api/v1/admin/certification-types` -> `org.certifications.update`
+- `PATCH /api/v1/admin/certification-types/order` -> `org.certifications.update`
+- `DELETE /api/v1/admin/certification-types/{id}` -> `org.certifications.update`
+- `GET /api/v1/admin/staffing-requests` -> `org.staffing_requests.read`
+- `DELETE /api/v1/admin/staffing-requests/{request_id}` -> `org.staffing_requests.delete`
 - `GET /api/v1/admin/sua` -> `users.directory.read`
 - `GET /api/v1/admin/stats/prefixes` -> `stats.prefixes.read`
 - `PATCH /api/v1/admin/stats/prefixes` -> `stats.prefixes.update`
 - `GET /api/v1/admin/broadcasts` -> `web.broadcasts.read`
+- `GET /api/v1/admin/broadcasts/{broadcast_id}` -> `web.broadcasts.read`
 - `POST /api/v1/admin/broadcasts` -> `web.broadcasts.create`
 - `PATCH /api/v1/admin/broadcasts/{broadcast_id}` -> `web.broadcasts.update`
 - `DELETE /api/v1/admin/broadcasts/{broadcast_id}` -> `web.broadcasts.delete`
@@ -91,8 +107,19 @@ Permission-gated routes:
 - `POST /api/v1/admin/integrations/outbound-jobs/run` -> `integrations.stats.update`
 - `POST /api/v1/admin/notifications/announcements` -> `integrations.stats.update`
 - `PATCH /api/v1/admin/users/{cid}/controller-status` -> `users.controller_status.update`
-- `PATCH /api/v1/admin/users/{cid}/controller-lifecycle` -> `users.controller_status.update`
+- `PATCH /api/v1/admin/users/{cid}/controller-lifecycle` -> `users.controller_status.update` (additionally requires `users.controller_status.delete`, ATM/DATM-only, when `controller_status` is `NONE` — this is the roster-purge path: VATUSA removal + cascading cleanup)
+- `GET /api/v1/admin/roster/purge-candidates` -> `users.controller_status.update`
+- `GET /api/v1/admin/users/{cid}/flags` -> `users.flags.read`
+- `PATCH /api/v1/admin/users/{cid}/flags` -> `users.flags.update` (requires non-empty `reason`, recorded as a dossier entry)
+- `PATCH /api/v1/admin/users/{cid}/profile` -> `users.flags.update` (admin edit of another controller's preferred name / bio / timezone / event-notification opt-in)
+- `PATCH /api/v1/admin/users/{cid}/operating-initials` -> `users.operating_initials.update`
 - `POST /api/v1/admin/users/{cid}/refresh-vatusa` -> `users.vatusa_refresh.request`
+- `GET /api/v1/admin/users/{cid}/ip-history` -> `users.directory_private.read` (spec 011 — durable per-request IP metadata for one user)
+- `GET /api/v1/admin/users/{cid}/sessions` -> `users.sessions.read` (SERVER_ADMIN only; list active auth sessions, metadata only — never tokens)
+- `DELETE /api/v1/admin/users/{cid}/sessions/{session_id}` -> `users.sessions.delete` (SERVER_ADMIN only; revoke one session, audited)
+- `DELETE /api/v1/admin/users/{cid}/sessions` -> `users.sessions.delete` (SERVER_ADMIN only; revoke all the user's sessions, audited)
+- `POST /api/v1/admin/users/{cid}/staff-positions/{position}` -> `users.staff_positions.update`
+- `DELETE /api/v1/admin/users/{cid}/staff-positions/{position}` -> `users.staff_positions.update`
 - `GET /api/v1/admin/visitor-applications` -> `users.visitor_applications.read`
 - `PATCH /api/v1/admin/visitor-applications/{application_id}` -> `users.visitor_applications.decide`
 - `GET /api/v1/admin/publications` -> `publications.items.read`
@@ -104,11 +131,17 @@ Permission-gated routes:
 - `POST /api/v1/admin/publications/categories` -> `publications.categories.create`
 - `PATCH /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.update`
 - `DELETE /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.delete`
-- `GET /api/v1/users` -> `users.directory.read`
-- `GET /api/v1/users/{cid}` -> `auth.profile.read` for self, `users.directory.read` for other users, `users.directory_private.read` for private fields
-- `GET /api/v1/users/{cid}/feedback` -> `feedback.items.self.read` for self, `users.directory_private.read` for other users
+- `GET /api/v1/users/{cid}/feedback` -> `feedback.items_self.read` for self, `users.directory_private.read` for other users
 - `GET /api/v1/users/{cid}/solo-certifications` -> self `auth.profile.read`, otherwise `users.directory.read`
 - `GET /api/v1/users/{cid}/certifications` -> self `auth.profile.read`, otherwise `users.directory.read`
+- `POST /api/v1/users/{cid}/certifications` -> `org.certifications.update` (bulk-save a controller's certification grid; writes a required dossier note)
+- `GET /api/v1/bookings` -> any authenticated user (ARTCC-wide ATC-booking calendar; `?cid=` filters to one controller)
+- `GET /api/v1/bookings/{id}` -> any authenticated user
+- `POST /api/v1/bookings` -> self non-training booking (`body.cid == caller` and `type != training`) needs `auth.profile.update`; another cid or a `training` booking needs `training.appointments.update`
+- `PUT /api/v1/bookings/{id}` -> same self-vs-privileged split as POST (on the request body's cid/type)
+- `DELETE /api/v1/bookings/{id}` -> same split, evaluated against the fetched booking's cid/type
+- `GET /api/v1/users/{cid}/progression` -> self `auth.profile.read`, otherwise `training.lessons.read`
+- `POST /api/v1/users/{cid}/progression/complete` -> self `auth.profile.update` (honors the `no_force_progression_finish` opt-out flag), otherwise `training.lessons.update`
 - `GET /api/v1/users/{cid}/event-positions` -> self `auth.profile.read`, otherwise `users.directory.read`
 - `POST /api/v1/users/refresh-vatusa` -> `users.vatusa_refresh.self.request`
 - `POST /api/v1/users/visit-artcc` -> `users.visit_artcc.request`
@@ -117,7 +150,7 @@ Permission-gated routes:
 - `POST /api/v1/events` -> `events.items.create`
 - `PATCH /api/v1/events/{event_id}` -> `events.items.update`
 - `DELETE /api/v1/events/{event_id}` -> `events.items.delete`
-- `POST /api/v1/events/{event_id}/positions` -> `events.positions.self.request`
+- `POST /api/v1/events/{event_id}/positions` -> `events.positions.self.request` (also requires `events.positions.assign` if `user_id` targets a different user — admin manual-add)
 - `GET /api/v1/events/{event_id}/ops-plan` -> public-by-policy
 - `PATCH /api/v1/events/{event_id}/ops-plan` -> `events.items.update`
 - `GET /api/v1/events/{event_id}/tmis` -> public-by-policy
@@ -132,14 +165,24 @@ Permission-gated routes:
 - `PATCH /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.assign`
 - `DELETE /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.delete`
 - `POST /api/v1/events/{event_id}/positions/publish` -> `events.positions.publish`
+- `GET /api/v1/events/{event_id}/ops-plan/files` -> public-by-policy
+- `POST /api/v1/events/{event_id}/ops-plan/files` -> `events.ops_plan_files.create`
+- `DELETE /api/v1/events/{event_id}/ops-plan/files/{file_id}` -> `events.ops_plan_files.delete`
+- `GET /api/v1/event-position-presets` -> `events.presets.read`
+- `GET /api/v1/event-position-presets/{preset_id}` -> `events.presets.read`
+- `POST /api/v1/event-position-presets` -> `events.presets.create`
+- `PATCH /api/v1/event-position-presets/{preset_id}` -> `events.presets.update`
+- `DELETE /api/v1/event-position-presets/{preset_id}` -> `events.presets.delete`
 - `POST /api/v1/feedback` -> `feedback.items.create`
-- `GET /api/v1/feedback` -> `feedback.items.read` for full list, `feedback.items.self.read` for own list
+- `GET /api/v1/feedback` -> `feedback.items.read` for full list, `feedback.items_self.read` for own list
+- `GET /api/v1/feedback/{feedback_id}` -> `feedback.items.read`, or the submitter/target of that record
 - `PATCH /api/v1/feedback/{feedback_id}` -> `feedback.items.decide`
 - `POST /api/v1/incidents` -> `feedback.items.create`
-- `GET /api/v1/incidents` -> `feedback.items.self.read`
+- `GET /api/v1/incidents` -> `feedback.items_self.read`
 - `GET /api/v1/admin/files/audit` -> `files.audit.read`
 - `GET /api/v1/files` -> `files.assets.read`
 - `POST /api/v1/files` -> `files.assets.create` and `files.content.create`
+- `POST /api/v1/files/import` -> `files.assets.create` and `files.content.create`
 - `GET /api/v1/files/{file_id}` -> `files.assets.read`
 - `PATCH /api/v1/files/{file_id}` -> `files.assets.update` for metadata, `files.assets.policy.update` for policy
 - `DELETE /api/v1/files/{file_id}` -> `files.assets.delete`
@@ -148,6 +191,9 @@ Permission-gated routes:
 - `GET /api/v1/files/{file_id}/signed-url` -> `files.content.read`
 - `GET /api/v1/training/assignments` -> `training.assignments.read`
 - `POST /api/v1/training/assignments` -> `training.assignments.create`
+- `GET /api/v1/training/assignments/{assignment_id}` -> `training.assignments.read`
+- `PATCH /api/v1/training/assignments/{assignment_id}` -> `training.assignments.update`
+- `DELETE /api/v1/training/assignments/{assignment_id}` -> `training.assignments.delete`
 - `GET /api/v1/training/ots-recommendations` -> `training.ots_recommendations.read`
 - `POST /api/v1/training/ots-recommendations` -> `training.ots_recommendations.create`
 - `PATCH /api/v1/training/ots-recommendations/{recommendation_id}` -> `training.ots_recommendations.update`
@@ -168,20 +214,25 @@ Permission-gated routes:
 - `POST /api/v1/training/appointments` -> `training.appointments.create`
 - `PATCH /api/v1/training/appointments/{appointment_id}` -> `training.appointments.update`
 - `DELETE /api/v1/training/appointments/{appointment_id}` -> `training.appointments.delete`
+- `GET /api/v1/training/stats` -> `training.sessions.read`
+- `GET /api/v1/training/stats/all-time-hours` -> `training.sessions.read`
 - `GET /api/v1/training/sessions` -> `training.sessions.read`
-- `GET /api/v1/training/sessions/{session_id}` -> `training.sessions.read`
+- `GET /api/v1/training/sessions/{session_id}` -> the session's own student via `auth.profile.read`, otherwise `training.sessions.read`
 - `POST /api/v1/training/sessions` -> `training.sessions.create`
 - `PATCH /api/v1/training/sessions/{session_id}` -> `training.sessions.update`
 - `DELETE /api/v1/training/sessions/{session_id}` -> `training.sessions.delete`
 - `GET /api/v1/training/assignment-requests` -> `training.assignment_requests.read`
-- `POST /api/v1/training/assignment-requests` -> `training.assignment_requests.self.request`
+- `POST /api/v1/training/assignment-requests` -> self (omitted/own `student_id`) needs `training.assignment_requests.self.request`; submitting on another student's behalf needs `training.assignment_requests.create`
 - `PATCH /api/v1/training/assignment-requests/{request_id}` -> `training.assignment_requests.decide`
+- `DELETE /api/v1/training/assignment-requests/{request_id}` -> self-cancel own `PENDING` request needs no permission; otherwise `training.assignment_requests.delete`
 - `POST /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests.interest.request`
 - `DELETE /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests.interest.delete`
 - `GET /api/v1/training/trainer-release-requests` -> `training.release_requests.read`
-- `POST /api/v1/training/trainer-release-requests` -> `training.release_requests.self.request`
+- `POST /api/v1/training/trainer-release-requests` -> self (omitted/own `student_id`) needs `training.release_requests.self.request`; submitting on another student's behalf needs `training.release_requests.create`
 - `PATCH /api/v1/training/trainer-release-requests/{request_id}` -> `training.release_requests.decide`
-- `GET /api/v1/users/{cid}/dossier` -> self `auth.profile.read`, otherwise `training.lessons.read`
+- `DELETE /api/v1/training/trainer-release-requests/{request_id}` -> self-cancel own `PENDING` request needs no permission; otherwise `training.release_requests.delete`
+- `GET /api/v1/users/{cid}/dossier` -> self `auth.profile.read`, otherwise `training.lessons.read` (confidential entries additionally require `training.dossier_confidential.read`, self included)
+- `POST /api/v1/users/{cid}/dossier` -> `training.dossier.create`
 - `GET /api/v1/admin/training/progressions` -> `training.lessons.read`
 - `POST /api/v1/admin/training/progressions` -> `training.lessons.update`
 - `PATCH /api/v1/admin/training/progressions/{progression_id}` -> `training.lessons.update`
@@ -210,3 +261,10 @@ Token-based public route:
 
 - `GET /api/v1/emails/preferences?token=...` -> public-by-token
 - `POST /api/v1/emails/preferences` -> public-by-token
+
+Middleware-level permission (not tied to any single route):
+
+- `system_rate_limit.update` — holding this permission (session user or service
+  account) exempts the caller from per-IP rate limiting (spec 010). Seeded but
+  granted to no role by default. Single-segment name to avoid a permission-tree
+  collision with the existing `system.read` leaf.

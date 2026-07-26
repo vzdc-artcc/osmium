@@ -70,12 +70,21 @@ pub struct DossierEntryItem {
     pub user_id: String,
     pub writer_id: String,
     pub message: String,
+    pub is_confidential: bool,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub timestamp: DateTime<Utc>,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: DateTime<Utc>,
     pub writer_cid: Option<i64>,
     pub writer_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateDossierEntryRequest {
+    pub message: String,
+    /// Defaults to false. Confidential entries are only visible to callers
+    /// with training.dossier_confidential.read.
+    pub confidential: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -198,4 +207,32 @@ pub struct DossierEntryListResponse {
     pub items: Vec<DossierEntryItem>,
     #[serde(flatten)]
     pub pagination: crate::models::PaginationMeta,
+}
+
+/// One step of a controller's assigned progression, with whether the most
+/// recent training ticket for the step's lesson passed. Mirrors the website's
+/// `TrainingProgressionStepStatus`.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProgressionStatusStep {
+    pub step_id: String,
+    pub lesson_id: String,
+    pub lesson_identifier: String,
+    pub lesson_name: String,
+    pub sort_order: i32,
+    pub optional: bool,
+    pub passed: bool,
+    /// Id of the most recent training session for this lesson (if any).
+    pub training_session_id: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub session_end: Option<DateTime<Utc>>,
+}
+
+/// A controller's progression status: the assigned progression (if any) plus
+/// per-step pass state.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProgressionStatusResponse {
+    pub progression_id: Option<String>,
+    pub progression_name: Option<String>,
+    pub next_progression_id: Option<String>,
+    pub steps: Vec<ProgressionStatusStep>,
 }

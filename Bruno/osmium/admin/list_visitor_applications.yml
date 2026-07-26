@@ -21,6 +21,18 @@ http:
       value: ""
       type: query
       disabled: true
+    - name: cid
+      value: ""
+      type: query
+      disabled: true
+    - name: display_name
+      value: ""
+      type: query
+      disabled: true
+    - name: home_facility
+      value: ""
+      type: query
+      disabled: true
   auth: inherit
 
 settings:

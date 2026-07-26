@@ -1,4 +1,5 @@
 pub mod components;
+pub mod markdown;
 pub mod templates;
 pub mod text;
 pub mod validate;

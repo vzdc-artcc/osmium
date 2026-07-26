@@ -83,14 +83,6 @@ pub struct UpdatePublicationCategoryRequest {
     pub sort_order: Option<i32>,
 }
 
-#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
-pub struct ListPublicationsQuery {
-    pub page: Option<i64>,
-    pub page_size: Option<i64>,
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
-}
-
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PublicationListResponse {
     pub items: Vec<Publication>,
@@ -137,6 +129,16 @@ pub struct CreateChangeBroadcastRequest {
     pub description: String,
     pub file_id: Option<String>,
     pub exempt_staff: bool,
+    /// Named recipient groups this broadcast is addressed to — resolved to a
+    /// concrete set of users server-side at creation time and snapshotted
+    /// into `web.change_broadcast_recipients`. Immutable after creation
+    /// (matches the live site's behavior where the recipient list can't be
+    /// edited once a broadcast is posted) — later membership changes (e.g. a
+    /// user changing rating) do not retroactively add/remove recipients.
+    /// Valid values: `ALL`, `HOME_OBS`, `HOME_S1`, `HOME_S2`, `HOME_S3`,
+    /// `HOME_C1_C3`, `VISITING`, `INSTRUCTORS`, `MENTORS`,
+    /// `ALL_TRAINING_STAFF`.
+    pub recipient_groups: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -145,6 +147,31 @@ pub struct UpdateChangeBroadcastRequest {
     pub description: String,
     pub file_id: Option<String>,
     pub exempt_staff: bool,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct BroadcastRecipientItem {
+    pub cid: i64,
+    pub name: String,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub seen_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub agreed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ChangeBroadcastDetail {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub file_id: Option<String>,
+    pub file_filename: Option<String>,
+    pub exempt_staff: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub recipients: Vec<BroadcastRecipientItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]

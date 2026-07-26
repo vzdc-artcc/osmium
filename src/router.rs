@@ -1,16 +1,17 @@
 use axum::{
     Router, middleware,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 
 use crate::{
     auth::middleware::resolve_current_user,
-    config::{build_cors_layer, dev_impersonation_enabled, dev_seed_enabled},
+    config::{build_cors_layer, dev_seed_enabled},
     docs,
     handlers::{
-        admin, api_keys, auth, broadcasts, captcha, dev, docs as docs_handlers, emails, event_ops,
-        events, feedback, files, health, incidents, integrations, org, publications, stats,
-        training, training_admin, users, welcome_messages,
+        admin, api_keys, auth, bookings, broadcasts, captcha, data_export, dev,
+        docs as docs_handlers, emails, event_ops, events, feedback, files, health, incidents,
+        integrations, org, publications, routes as routes_handlers, stats, training,
+        training_admin, users, welcome_messages,
     },
     state::AppState,
 };
@@ -20,6 +21,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/acl", get(admin::acl_debug))
         .route("/audit", get(admin::list_audit_logs))
         .route("/access/catalog", get(admin::get_access_catalog))
+        // Authenticated user impersonation (spec 012). Start is SERVER_ADMIN-only
+        // (auth.impersonate.create); stop only requires an impersonating session.
+        .route("/impersonate/{cid}", post(auth::start_impersonation))
+        .route("/impersonate/stop", post(auth::stop_impersonation))
         .route("/jobs", get(org::list_jobs))
         .route("/jobs/{job_name}", get(org::get_job))
         .route("/jobs/{job_name}/run", post(org::run_job))
@@ -39,6 +44,22 @@ pub fn build_router(state: AppState) -> Router {
             "/solo-certifications/{solo_id}",
             patch(org::update_solo_certification).delete(org::delete_solo_certification),
         )
+        .route(
+            "/roster-certifications",
+            get(org::list_roster_certifications),
+        )
+        .route(
+            "/certification-types",
+            get(org::list_certification_types).post(org::create_or_update_certification_type),
+        )
+        .route(
+            "/certification-types/order",
+            patch(org::update_certification_type_order),
+        )
+        .route(
+            "/certification-types/{id}",
+            axum::routing::delete(org::delete_certification_type),
+        )
         .route("/staffing-requests", get(org::admin_list_staffing_requests))
         .route(
             "/staffing-requests/{request_id}",
@@ -55,7 +76,9 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/broadcasts/{broadcast_id}",
-            patch(broadcasts::update_broadcast).delete(broadcasts::delete_broadcast),
+            get(broadcasts::admin_get_broadcast)
+                .patch(broadcasts::update_broadcast)
+                .delete(broadcasts::delete_broadcast),
         )
         .route(
             "/welcome-messages",
@@ -84,7 +107,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/integrations/discord/configs/{config_id}",
-            patch(integrations::update_discord_config),
+            patch(integrations::update_discord_config).delete(integrations::delete_discord_config),
         )
         .route(
             "/integrations/discord/channels",
@@ -195,8 +218,44 @@ pub fn build_router(state: AppState) -> Router {
             patch(org::update_controller_lifecycle),
         )
         .route(
+            "/users/{cid}/flags",
+            get(admin::get_user_flags).patch(admin::update_user_flags),
+        )
+        .route(
+            "/users/{cid}/profile",
+            patch(admin::admin_update_user_profile),
+        )
+        .route(
+            "/users/{cid}/operating-initials",
+            patch(admin::reassign_user_operating_initials),
+        )
+        .route(
+            "/users/{cid}/staff-positions/{position}",
+            post(admin::assign_staff_position).delete(admin::revoke_staff_position),
+        )
+        .route(
+            "/roster/purge-candidates",
+            get(org::list_purge_candidates),
+        )
+        .route(
             "/users/{cid}/refresh-vatusa",
             post(admin::refresh_user_vatusa),
+        )
+        .route(
+            "/users/{cid}/ip-history",
+            get(admin::get_user_ip_history),
+        )
+        .route(
+            "/users/{cid}/sessions",
+            get(admin::list_user_sessions).delete(admin::revoke_all_user_sessions),
+        )
+        .route(
+            "/users/{cid}/sessions/{session_id}",
+            delete(admin::revoke_user_session),
+        )
+        .route(
+            "/data-export/roster",
+            get(data_export::export_roster_data),
         )
         .nest(
             "/publications",
@@ -233,6 +292,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/", get(users::list_users))
         .route("/{cid}/feedback", get(users::get_user_feedback))
+        .route("/{cid}/staff-positions", get(users::get_staff_positions))
         .route("/{cid}", get(users::get_user));
 
     let event_routes = Router::new()
@@ -283,12 +343,38 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{event_id}/publish/discord",
             post(integrations::queue_event_publish_discord),
+        )
+        .route(
+            "/{event_id}/ops-plan/files",
+            get(event_ops::list_ops_plan_files).post(event_ops::create_ops_plan_file),
+        )
+        .route(
+            "/{event_id}/ops-plan/files/{file_id}",
+            delete(event_ops::delete_ops_plan_file),
+        );
+
+    let event_preset_routes = Router::new()
+        .route(
+            "/",
+            get(event_ops::list_event_position_presets).post(event_ops::create_event_position_preset),
+        )
+        .route(
+            "/{preset_id}",
+            get(event_ops::get_event_position_preset)
+                .patch(event_ops::update_event_position_preset)
+                .delete(event_ops::delete_event_position_preset),
         );
 
     let training_routes = Router::new()
         .route(
             "/assignments",
             get(training::list_assignments).post(training::create_assignment),
+        )
+        .route(
+            "/assignments/{assignment_id}",
+            get(training::get_assignment)
+                .patch(training::update_assignment)
+                .delete(training::delete_assignment),
         )
         .route(
             "/ots-recommendations",
@@ -337,6 +423,11 @@ pub fn build_router(state: AppState) -> Router {
                 .patch(training::update_training_appointment)
                 .delete(training::delete_training_appointment),
         )
+        .route("/stats", get(training::get_training_stats))
+        .route(
+            "/stats/all-time-hours",
+            get(training::get_all_time_training_hours),
+        )
         .route(
             "/sessions",
             get(training::list_training_sessions).post(training::create_training_session),
@@ -353,7 +444,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/assignment-requests/{request_id}",
-            patch(training::decide_assignment_request),
+            patch(training::decide_assignment_request).delete(training::delete_assignment_request),
         )
         .route(
             "/assignment-requests/{request_id}/interest",
@@ -366,7 +457,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/trainer-release-requests/{request_id}",
-            patch(training::decide_release_request),
+            patch(training::decide_release_request).delete(training::delete_release_request),
         );
 
     let feedback_routes = Router::new()
@@ -374,10 +465,14 @@ pub fn build_router(state: AppState) -> Router {
             "/",
             get(feedback::list_feedback).post(feedback::create_feedback),
         )
-        .route("/{feedback_id}", patch(feedback::decide_feedback));
+        .route(
+            "/{feedback_id}",
+            get(feedback::get_feedback).patch(feedback::decide_feedback),
+        );
 
     let file_routes = Router::new()
         .route("/", get(files::list_files).post(files::upload_file))
+        .route("/import", post(files::import_file_from_url))
         .route(
             "/{file_id}",
             get(files::get_file_metadata)
@@ -400,7 +495,8 @@ pub fn build_router(state: AppState) -> Router {
 
     let loa_routes = Router::new()
         .route("/me", get(org::list_my_loas).post(org::create_loa))
-        .route("/{loa_id}", patch(org::update_loa));
+        .route("/{loa_id}", patch(org::update_loa))
+        .route("/{loa_id}/cancel", post(org::cancel_loa));
 
     let broadcast_routes = Router::new()
         .route("/me", get(broadcasts::list_my_broadcasts))
@@ -423,9 +519,10 @@ pub fn build_router(state: AppState) -> Router {
             "/me",
             get(org::list_my_sua_requests).post(org::create_sua_request),
         )
+        .route("/upcoming", get(org::list_upcoming_sua_missions))
         .route(
             "/{mission_id}",
-            axum::routing::delete(org::delete_sua_request),
+            get(org::get_sua_mission_by_lookup).delete(org::delete_sua_request),
         );
 
     let api_keys_routes = Router::new()
@@ -454,6 +551,11 @@ pub fn build_router(state: AppState) -> Router {
 
     let mut api = Router::new()
         .route("/me", get(auth::me).patch(auth::patch_me))
+        .route("/me/data-export", get(data_export::export_my_data))
+        .route(
+            "/routes/preferred",
+            get(routes_handlers::search_preferred_routes),
+        )
         .route("/me/discord", get(integrations::get_my_discord))
         .route(
             "/me/discord/link/start",
@@ -472,12 +574,17 @@ pub fn build_router(state: AppState) -> Router {
             "/me/teamspeak-uids/{identity_id}",
             axum::routing::delete(auth::delete_my_teamspeak_uid),
         )
+        .route(
+            "/integrations/teamspeak/lookup",
+            post(auth::lookup_teamspeak_controller),
+        )
         .route("/auth/service-account/me", get(auth::service_account_me))
         .route("/auth/vatsim/login", get(auth::vatsim_login))
         .route("/auth/vatsim/callback", get(auth::vatsim_callback))
         .route("/auth/logout", post(auth::logout))
         .route("/admin/files/audit", get(files::list_file_audit_logs))
         .route("/stats/artcc", get(stats::get_artcc_stats))
+        .route("/stats/online", get(stats::get_online_controllers))
         .route(
             "/stats/controller-events",
             get(stats::list_controller_events),
@@ -491,6 +598,10 @@ pub fn build_router(state: AppState) -> Router {
             get(stats::get_controller_totals),
         )
         .route(
+            "/stats/controller/{cid}/positions",
+            get(stats::list_controller_positions),
+        )
+        .route(
             "/welcome-message",
             get(welcome_messages::get_my_welcome_message),
         )
@@ -500,12 +611,34 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/captcha/verify", post(captcha::verify_captcha))
         .route(
+            "/bookings",
+            get(bookings::list_atc_bookings).post(bookings::create_atc_booking),
+        )
+        .route(
+            "/bookings/{id}",
+            get(bookings::get_atc_booking)
+                .put(bookings::update_atc_booking)
+                .delete(bookings::delete_atc_booking),
+        )
+        .route(
+            "/staff-positions/{position}/holders",
+            get(users::get_staff_position_holders),
+        )
+        .route(
             "/users/{cid}/solo-certifications",
             get(org::get_user_solo_certifications),
         )
         .route(
             "/users/{cid}/certifications",
-            get(org::get_user_certifications),
+            get(org::get_user_certifications).post(org::save_user_certifications),
+        )
+        .route(
+            "/users/{cid}/progression",
+            get(training_admin::get_user_progression_status),
+        )
+        .route(
+            "/users/{cid}/progression/complete",
+            post(training_admin::force_complete_progression),
         )
         .route(
             "/users/{cid}/event-positions",
@@ -513,7 +646,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/users/{cid}/dossier",
-            get(training_admin::get_user_dossier),
+            get(training_admin::get_user_dossier).post(training_admin::create_dossier_entry),
         )
         .route(
             "/incidents",
@@ -524,6 +657,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/broadcasts", broadcast_routes)
         .nest("/emails", email_routes)
         .nest("/events", event_routes)
+        .nest("/event-position-presets", event_preset_routes)
         .nest("/feedback", feedback_routes)
         .nest("/files", file_routes)
         .nest("/loa", loa_routes)
@@ -532,10 +666,6 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/sua", sua_routes)
         .nest("/training", training_routes)
         .nest("/users", user_routes);
-
-    if dev_impersonation_enabled() {
-        api = api.route("/auth/login/as/{cid}", get(auth::login_as_cid));
-    }
 
     if dev_seed_enabled() {
         api = api.route("/dev/seed", post(dev::seed_data));
@@ -550,6 +680,19 @@ pub fn build_router(state: AppState) -> Router {
         .route("/docs/health", get(docs_handlers::docs_health))
         .nest("/api/v1", api)
         .merge(docs::build_docs_router())
+        // Registered first => innermost => runs last, closest to the handler. Runs
+        // inside resolve_current_user, so CurrentUser (incl. impersonation state) is
+        // populated. Blocks self-service writes during impersonation (spec 012 #6).
+        .layer(middleware::from_fn(
+            crate::auth::impersonation::block_impersonated_self_service,
+        ))
+        // Sits *inside* log_requests (so throttled `429`s are still logged, per
+        // spec 011) and *inside* resolve_current_user (so the bypass permission
+        // check can see the authenticated user/service account). See spec 010.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::rate_limit::enforce_rate_limit,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             crate::logging::log_requests,

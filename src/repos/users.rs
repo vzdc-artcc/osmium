@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 
-use sqlx::{Error as SqlxError, PgPool, Postgres, Transaction};
+use sqlx::{Acquire, Error as SqlxError, PgPool, Postgres, Transaction};
 
 use crate::{
     errors::ApiError,
     models::users::{
-        AdminUserListItem, MeProfileBody, RosterUserRow, TeamSpeakUidBody, UserStats,
-        VisitorApplicationItem,
+        AdminUserListItem, MeProfileBody, RosterUserRow, TeamSpeakLookupResponse, TeamSpeakUidBody,
+        UpdateUserFlagsRequest,
+        UserFlagsBody, UserStats, VisitorApplicationItem,
     },
 };
 
@@ -24,6 +25,7 @@ pub struct LoginUserRow {
     pub id: String,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub was_new_user: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -103,6 +105,16 @@ pub async fn list_admin_users(
     .map_err(|_| ApiError::Internal)
 }
 
+/// Count companion for [`list_admin_users`] — total roster-profile rows, for the
+/// paginated response's total. Moved verbatim out of `handlers/admin.rs::list_users`
+/// per spec 009.
+pub async fn count_admin_users(pool: &PgPool) -> Result<i64, ApiError> {
+    sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)
+}
+
 pub async fn find_admin_user_by_cid(
     pool: &PgPool,
     cid: i64,
@@ -131,36 +143,90 @@ pub async fn find_admin_user_by_cid(
     .map_err(|_| ApiError::Internal)
 }
 
+pub async fn count_roster_users(
+    pool: &PgPool,
+    controllers_only: bool,
+    include_hidden: bool,
+    role: Option<&str>,
+) -> Result<i64, ApiError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from org.v_user_roster_profile v
+        where ($1::bool = true or hidden_from_roster = false)
+          and ($2::bool = false or (controller_status is not null and controller_status <> 'NONE'))
+          and (
+              $3::text is null
+              or exists (
+                  select 1 from access.user_roles ur
+                  where ur.user_id = v.id and ur.role_name = $3
+              )
+          )
+        "#,
+    )
+    .bind(include_hidden)
+    .bind(controllers_only)
+    .bind(role)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn list_roster_users(
     pool: &PgPool,
+    controllers_only: bool,
+    include_hidden: bool,
+    role: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<RosterUserRow>, ApiError> {
     sqlx::query_as::<_, RosterUserRow>(
         r#"
         select
-            id,
-            cid,
-            coalesce(email::text, '') as email,
-            display_name,
-            role,
-            first_name,
-            last_name,
-            artcc,
-            rating,
-            division,
-            status,
-            controller_status,
-            membership_status,
-            join_date,
-            home_facility,
-            visitor_home_facility,
-            is_active
-        from org.v_user_roster_profile
+            v.id,
+            v.cid,
+            coalesce(v.email::text, '') as email,
+            v.display_name,
+            v.role,
+            v.first_name,
+            v.last_name,
+            v.preferred_name,
+            v.artcc,
+            v.rating,
+            v.division,
+            v.status,
+            v.controller_status,
+            v.membership_status,
+            v.join_date,
+            v.home_facility,
+            v.visitor_home_facility,
+            v.is_active,
+            v.hidden_from_roster,
+            v.operating_initials,
+            coalesce(
+                (select array_agg(ur.role_name) from access.user_roles ur where ur.user_id = v.id),
+                array[]::text[]
+            ) as role_names,
+            v.bio,
+            v.timezone,
+            v.avatar_asset_id
+        from org.v_user_roster_profile v
+        where ($1::bool = true or hidden_from_roster = false)
+          and ($2::bool = false or (controller_status is not null and controller_status <> 'NONE'))
+          and (
+              $3::text is null
+              or exists (
+                  select 1 from access.user_roles ur
+                  where ur.user_id = v.id and ur.role_name = $3
+              )
+          )
         order by cid asc
-        limit $1 offset $2
+        limit $4 offset $5
         "#,
     )
+    .bind(include_hidden)
+    .bind(controllers_only)
+    .bind(role)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -175,24 +241,34 @@ pub async fn find_roster_user_by_cid(
     sqlx::query_as::<_, RosterUserRow>(
         r#"
         select
-            id,
-            cid,
-            coalesce(email::text, '') as email,
-            display_name,
-            role,
-            first_name,
-            last_name,
-            artcc,
-            rating,
-            division,
-            status,
-            controller_status,
-            membership_status,
-            join_date,
-            home_facility,
-            visitor_home_facility,
-            is_active
-        from org.v_user_roster_profile
+            v.id,
+            v.cid,
+            coalesce(v.email::text, '') as email,
+            v.display_name,
+            v.role,
+            v.first_name,
+            v.last_name,
+            v.preferred_name,
+            v.artcc,
+            v.rating,
+            v.division,
+            v.status,
+            v.controller_status,
+            v.membership_status,
+            v.join_date,
+            v.home_facility,
+            v.visitor_home_facility,
+            v.is_active,
+            v.hidden_from_roster,
+            v.operating_initials,
+            coalesce(
+                (select array_agg(ur.role_name) from access.user_roles ur where ur.user_id = v.id),
+                array[]::text[]
+            ) as role_names,
+            v.bio,
+            v.timezone,
+            v.avatar_asset_id
+        from org.v_user_roster_profile v
         where cid = $1
         "#,
     )
@@ -200,6 +276,109 @@ pub async fn find_roster_user_by_cid(
     .fetch_optional(pool)
     .await
     .map_err(|_| ApiError::Internal)
+}
+
+pub async fn fetch_user_flags(pool: &PgPool, user_id: &str) -> Result<UserFlagsBody, ApiError> {
+    sqlx::query_as::<_, UserFlagsBody>(
+        r#"
+        select
+            no_request_loas,
+            no_request_training_assignments,
+            no_request_trainer_release,
+            no_force_progression_finish,
+            no_event_signup,
+            no_edit_profile,
+            excluded_from_roster_sync,
+            hidden_from_roster
+        from identity.user_flags
+        where user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+    .map(|row| row.unwrap_or(UserFlagsBody {
+        no_request_loas: false,
+        no_request_training_assignments: false,
+        no_request_trainer_release: false,
+        no_force_progression_finish: false,
+        no_event_signup: false,
+        no_edit_profile: false,
+        excluded_from_roster_sync: false,
+        hidden_from_roster: false,
+    }))
+}
+
+pub async fn upsert_user_flags(
+    pool: &PgPool,
+    user_id: &str,
+    flags: &UpdateUserFlagsRequest,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        insert into identity.user_flags (
+            user_id, no_request_loas, no_request_training_assignments,
+            no_request_trainer_release, no_force_progression_finish, no_event_signup,
+            no_edit_profile, excluded_from_roster_sync, hidden_from_roster
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        on conflict (user_id) do update set
+            no_request_loas = excluded.no_request_loas,
+            no_request_training_assignments = excluded.no_request_training_assignments,
+            no_request_trainer_release = excluded.no_request_trainer_release,
+            no_force_progression_finish = excluded.no_force_progression_finish,
+            no_event_signup = excluded.no_event_signup,
+            no_edit_profile = excluded.no_edit_profile,
+            excluded_from_roster_sync = excluded.excluded_from_roster_sync,
+            hidden_from_roster = excluded.hidden_from_roster,
+            updated_at = now()
+        "#,
+    )
+    .bind(user_id)
+    .bind(flags.no_request_loas)
+    .bind(flags.no_request_training_assignments)
+    .bind(flags.no_request_trainer_release)
+    .bind(flags.no_force_progression_finish)
+    .bind(flags.no_event_signup)
+    .bind(flags.no_edit_profile)
+    .bind(flags.excluded_from_roster_sync)
+    .bind(flags.hidden_from_roster)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
+}
+
+/// Manually reassigns operating initials to `user_id`. Returns `false` (no
+/// error) if the initials are already held by a different user, matching
+/// the live site's "already in use" UX rather than a hard 500 — this is a
+/// distinct, admin/self-driven manual reassignment, not the deterministic
+/// auto-generation in `ensure_operating_initials` above.
+pub async fn reassign_operating_initials(
+    pool: &PgPool,
+    user_id: &str,
+    initials: &str,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query(
+        r#"
+        update org.memberships
+        set operating_initials = $2,
+            updated_at = now()
+        where user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .bind(initials)
+    .execute(pool)
+    .await;
+
+    match result {
+        Ok(_) => Ok(true),
+        Err(error) if is_unique_violation(&error) => Ok(false),
+        Err(_) => Err(ApiError::Internal),
+    }
 }
 
 pub async fn update_controller_status(
@@ -273,6 +452,23 @@ pub async fn fetch_me_profile(pool: &PgPool, user_id: &str) -> Result<MeProfileB
     .map_err(|_| ApiError::Internal)
 }
 
+/// The current user's controller status (HOME/VISITOR/NONE) from their
+/// membership — surfaced on /me so the website's self-service pages can gate
+/// on "am I a controller" without an extra roster fetch.
+pub async fn fetch_controller_status(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Option<String>, ApiError> {
+    sqlx::query_scalar::<_, Option<String>>(
+        "select controller_status from org.memberships where user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map(|opt| opt.flatten())
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn update_me_profile(
     pool: &PgPool,
     user_id: &str,
@@ -309,6 +505,75 @@ pub async fn update_me_profile(
     .bind(&update.bio)
     .bind(&update.timezone)
     .bind(update.receive_event_notifications)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let profile = sqlx::query_as::<_, MeProfileBody>(
+        r#"
+        select
+            u.first_name,
+            u.last_name,
+            u.preferred_name,
+            p.bio,
+            p.timezone,
+            p.new_event_notifications as receive_event_notifications,
+            m.operating_initials
+        from identity.users u
+        join identity.user_profiles p on p.user_id = u.id
+        left join org.memberships m on m.user_id = u.id
+        where u.id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(profile)
+}
+
+/// Admin edit of another controller's profile basics (preferred name / bio /
+/// timezone). Deliberately does NOT touch `new_event_notifications` — that stays
+/// a self-service preference — so the on-conflict update leaves it untouched.
+pub async fn admin_update_user_profile(
+    pool: &PgPool,
+    user_id: &str,
+    preferred_name: Option<&str>,
+    bio: Option<&str>,
+    timezone: &str,
+) -> Result<MeProfileBody, ApiError> {
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+
+    sqlx::query(
+        r#"
+        update identity.users
+        set preferred_name = $2,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(user_id)
+    .bind(preferred_name)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    sqlx::query(
+        r#"
+        insert into identity.user_profiles (user_id, bio, timezone)
+        values ($1, $2, $3)
+        on conflict (user_id) do update
+        set bio = excluded.bio,
+            timezone = excluded.timezone,
+            updated_at = now()
+        "#,
+    )
+    .bind(user_id)
+    .bind(bio)
+    .bind(timezone)
     .execute(&mut *tx)
     .await
     .map_err(|_| ApiError::Internal)?;
@@ -448,6 +713,41 @@ pub async fn delete_teamspeak_uid(
     }
 }
 
+/// Resolve a TeamSpeak client UID to the linked controller's identity, rating,
+/// membership status, and current online position (null when offline). Used by
+/// the TeamSpeak presence-lookup endpoint.
+pub async fn lookup_teamspeak_controller(
+    pool: &PgPool,
+    uid: &str,
+) -> Result<Option<TeamSpeakLookupResponse>, ApiError> {
+    sqlx::query_as::<_, TeamSpeakLookupResponse>(
+        r#"
+        select
+            u.cid,
+            m.controller_status,
+            m.rating,
+            (
+                select cp.position
+                from stats.controller_positions cp
+                join stats.controller_logs cl on cl.id = cp.log_id
+                where cl.user_id = u.id and cp.active
+                order by cp.start asc
+                limit 1
+            ) as online_position
+        from identity.user_identities ui
+        join identity.users u on u.id = ui.user_id
+        left join org.memberships m on m.user_id = u.id
+        where ui.provider = 'TEAMSPEAK'
+          and ui.provider_subject = $1
+        limit 1
+        "#,
+    )
+    .bind(uid)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn ensure_user_profile(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
@@ -484,7 +784,7 @@ pub async fn upsert_login_user(
             full_name = excluded.full_name,
             display_name = excluded.display_name,
             updated_at = now()
-        returning id, first_name, last_name
+        returning id, first_name, last_name, (xmax = 0) as was_new_user
         "#,
     )
     .bind(user_id)
@@ -552,6 +852,12 @@ pub async fn ensure_operating_initials(
     let candidates = operating_initial_candidates(first_name, last_name, display_name);
 
     for candidate in candidates {
+        // Each attempt runs in its own savepoint: a unique-violation on one
+        // candidate would otherwise poison the whole outer transaction
+        // (Postgres error 25P02), aborting every later candidate too.
+        let mut savepoint: Transaction<'_, Postgres> =
+            tx.begin().await.map_err(|_| ApiError::Internal)?;
+
         let updated = sqlx::query(
             r#"
             update org.memberships
@@ -563,24 +869,34 @@ pub async fn ensure_operating_initials(
         )
         .bind(user_id)
         .bind(&candidate)
-        .execute(&mut **tx)
+        .execute(&mut *savepoint)
         .await;
 
         match updated {
-            Ok(result) if result.rows_affected() == 1 => return Ok(Some(candidate)),
+            Ok(result) if result.rows_affected() == 1 => {
+                savepoint.commit().await.map_err(|_| ApiError::Internal)?;
+                return Ok(Some(candidate));
+            }
             Ok(_) => {
                 let current = sqlx::query_scalar::<_, Option<String>>(
                     "select operating_initials from org.memberships where user_id = $1",
                 )
                 .bind(user_id)
-                .fetch_optional(&mut **tx)
+                .fetch_optional(&mut *savepoint)
                 .await
                 .map_err(|_| ApiError::Internal)?;
 
+                savepoint.commit().await.map_err(|_| ApiError::Internal)?;
                 return Ok(current.flatten());
             }
-            Err(error) if is_unique_violation(&error) => continue,
-            Err(_) => return Err(ApiError::Internal),
+            Err(error) if is_unique_violation(&error) => {
+                savepoint.rollback().await.map_err(|_| ApiError::Internal)?;
+                continue;
+            }
+            Err(_) => {
+                let _ = savepoint.rollback().await;
+                return Err(ApiError::Internal);
+            }
         }
     }
 
@@ -667,9 +983,39 @@ pub async fn find_visitor_application_by_user_id(
     .map_err(|_| ApiError::Internal)
 }
 
+pub async fn count_visitor_applications(
+    pool: &PgPool,
+    status: Option<&str>,
+    cid: Option<i64>,
+    display_name: Option<&str>,
+    home_facility: Option<&str>,
+) -> Result<i64, ApiError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from org.visitor_applications va
+        join identity.users u on u.id = va.user_id
+        where ($1::text is null or va.status = $1)
+          and ($2::bigint is null or u.cid = $2)
+          and ($3::text is null or u.display_name ilike '%' || $3 || '%')
+          and ($4::text is null or va.home_facility ilike '%' || $4 || '%')
+        "#,
+    )
+    .bind(status)
+    .bind(cid)
+    .bind(display_name)
+    .bind(home_facility)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn list_visitor_applications(
     pool: &PgPool,
     status: Option<&str>,
+    cid: Option<i64>,
+    display_name: Option<&str>,
+    home_facility: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<VisitorApplicationItem>, ApiError> {
@@ -690,11 +1036,17 @@ pub async fn list_visitor_applications(
         from org.visitor_applications va
         join identity.users u on u.id = va.user_id
         where ($1::text is null or va.status = $1)
+          and ($2::bigint is null or u.cid = $2)
+          and ($3::text is null or u.display_name ilike '%' || $3 || '%')
+          and ($4::text is null or va.home_facility ilike '%' || $4 || '%')
         order by va.submitted_at desc
-        limit $2 offset $3
+        limit $5 offset $6
         "#,
     )
     .bind(status)
+    .bind(cid)
+    .bind(display_name)
+    .bind(home_facility)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
@@ -1060,4 +1412,119 @@ pub async fn find_user_identity_by_cid(
         .fetch_optional(pool)
         .await
         .map_err(|_| ApiError::Internal)
+}
+
+pub async fn list_held_staff_positions(
+    pool: &PgPool,
+    cid: i64,
+) -> Result<Vec<crate::models::StaffPositionItem>, ApiError> {
+    sqlx::query_as::<_, crate::models::StaffPositionItem>(
+        r#"
+        select sp.position, sp.source, sp.updated_at
+        from identity.staff_positions sp
+        join identity.users u on u.id = sp.user_id
+        where u.cid = $1 and sp.held
+        order by sp.position asc
+        "#,
+    )
+    .bind(cid)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Controllers currently holding a given staff position (e.g. all `ATM`
+/// holders), most recent display order. Backs the website's admin-menu headers
+/// and the OI-matrix / homepage staff callouts.
+pub async fn list_staff_position_holders(
+    pool: &PgPool,
+    position: &str,
+) -> Result<Vec<crate::models::StaffPositionHolder>, ApiError> {
+    sqlx::query_as::<_, crate::models::StaffPositionHolder>(
+        r#"
+        select u.cid, u.display_name, m.rating
+        from identity.staff_positions sp
+        join identity.users u on u.id = sp.user_id
+        left join org.memberships m on m.user_id = u.id
+        where sp.position = $1 and sp.held
+        order by u.display_name asc
+        "#,
+    )
+    .bind(position)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Sets a staff position from roster sync. Silently declines to overwrite a
+/// row a human has manually touched (`source = 'manual'`) — manual
+/// assignments survive future syncs until changed again by a human.
+pub async fn set_staff_position_auto(
+    pool: &PgPool,
+    user_id: &str,
+    position: &str,
+    held: bool,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        insert into identity.staff_positions (id, user_id, position, held, source, created_at, updated_at)
+        values ($1, $2, $3, $4, 'auto', now(), now())
+        on conflict (user_id, position) do update
+        set held = excluded.held, updated_at = now()
+        where identity.staff_positions.source = 'auto'
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(user_id)
+    .bind(position)
+    .bind(held)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    Ok(())
+}
+
+/// Reconciles the VATUSA-synced subset of staff positions
+/// (`VATUSA_SYNCED_STAFF_POSITIONS`) against the facility roles roster sync
+/// observed for this user. Never touches a manually-set row (see
+/// `set_staff_position_auto`) and never touches the manual-only positions
+/// (AEC/AWM/AFE/EP/TMU/FC) at all.
+pub async fn sync_staff_positions_from_vatusa_roles(
+    pool: &PgPool,
+    user_id: &str,
+    facility_roles: &[String],
+) -> Result<(), ApiError> {
+    for position in crate::models::VATUSA_SYNCED_STAFF_POSITIONS {
+        let held = facility_roles.iter().any(|role| role == position);
+        set_staff_position_auto(pool, user_id, position, held).await?;
+    }
+    Ok(())
+}
+
+/// Sets a staff position from a manual admin action — always wins, marks
+/// the row `source = 'manual'` so roster sync leaves it alone afterward.
+pub async fn set_staff_position_manual(
+    pool: &PgPool,
+    user_id: &str,
+    position: &str,
+    held: bool,
+    updated_by: &str,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        insert into identity.staff_positions (id, user_id, position, held, source, updated_by, created_at, updated_at)
+        values ($1, $2, $3, $4, 'manual', $5, now(), now())
+        on conflict (user_id, position) do update
+        set held = excluded.held, source = 'manual', updated_by = excluded.updated_by, updated_at = now()
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(user_id)
+    .bind(position)
+    .bind(held)
+    .bind(updated_by)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    Ok(())
 }

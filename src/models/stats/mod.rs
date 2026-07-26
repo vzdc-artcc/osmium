@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Deserialize, ToSchema)]
 pub struct ArtccStatsQuery {
@@ -26,12 +26,60 @@ pub struct ArtccStatsResponse {
     pub summary: ArtccSummary,
     pub leaders: Vec<ControllerLeader>,
     pub controllers: Vec<ControllerTotals>,
+    /// ARTCC-wide hours broken down by month, summed across every controller.
+    /// Only populated for the full-year view (`all_time = false`, no `month`
+    /// filter) — null otherwise, since a single month or all-time view has
+    /// nothing to break down further.
+    pub monthly: Option<Vec<MonthlyBucket>>,
 }
 
 #[derive(Deserialize, ToSchema)]
 pub struct ControllerHistoryQuery {
     pub environment: Option<String>,
     pub year: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+pub struct ControllerTotalsQuery {
+    pub environment: Option<String>,
+    /// Inclusive lower bound (by activation start). When `since` or `until` is
+    /// set, totals are summed from individual activations over the window;
+    /// otherwise the all-time monthly rollups are used unchanged.
+    pub since: Option<DateTime<Utc>>,
+    /// Exclusive upper bound (by activation start).
+    pub until: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ControllerPositionsQuery {
+    pub environment: Option<String>,
+    /// Restrict to a single calendar year. Required if `month` is set.
+    pub year: Option<i32>,
+    /// Restrict to a single month (1-12) within `year`.
+    pub month: Option<i32>,
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Serialize, sqlx::FromRow, ToSchema)]
+pub struct ControllerPositionItem {
+    pub position_name: String,
+    pub facility_name: String,
+    pub is_primary: bool,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub started_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub ended_at: Option<DateTime<Utc>>,
+    pub active_seconds: Option<i64>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ControllerPositionListResponse {
+    pub items: Vec<ControllerPositionItem>,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -124,6 +172,21 @@ pub struct ControllerLeader {
     pub rating: Option<String>,
     pub online_hours: f64,
     pub active_hours: f64,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct OnlineControllerItem {
+    pub cid: i64,
+    pub display_name: String,
+    pub rating: Option<String>,
+    pub position: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub start: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OnlineControllersResponse {
+    pub items: Vec<OnlineControllerItem>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]

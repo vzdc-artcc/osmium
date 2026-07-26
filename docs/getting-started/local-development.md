@@ -90,7 +90,8 @@ curl -s http://127.0.0.1:3000/docs/health
 There are two main auth paths:
 
 - VATSIM OAuth login for normal user auth
-- Dev login shortcut when `DEV_LOGIN_AS_CID_ENABLED=true`
+- Authenticated impersonation (`POST /api/v1/admin/impersonate/{cid}`, SERVER_ADMIN
+  only) after a normal login — this replaced the removed dev `login/as/{cid}` shortcut
 
 ### Recommended VATSIM Local Setup
 
@@ -127,19 +128,13 @@ If you need browser access from a separate frontend during local development, se
 CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000
 ```
 
-Dev login route:
+To act as another user locally, log in normally (as a `SERVER_ADMIN`) and use
+authenticated impersonation, which replaced the removed dev login-as shortcut:
 
 ```text
-GET /api/v1/auth/login/as/{cid}
+POST /api/v1/admin/impersonate/{cid}   # start
+POST /api/v1/admin/impersonate/stop    # end and restore your admin session
 ```
-
-This creates or reuses a local user record and issues the `osmium_session` cookie.
-
-It also now runs the same bootstrap path as OAuth login:
-
-- ensures `identity.user_profiles`
-- ensures `org.memberships`
-- assigns unique two-letter `operating_initials` if missing
 
 ## Quick Self-Service Smoke Checks
 

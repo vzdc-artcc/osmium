@@ -9,6 +9,7 @@ The generated API reference lives at `/docs/api/v1`. This page explains how to r
 - users
 - admin
 - workflows
+- bookings
 - training
 - events
 - incidents
@@ -79,7 +80,7 @@ The backend replacement work also added:
 
 - workflow APIs for LOA, solo certifications, staffing requests, SUA requests, controller lifecycle, and job operations
 - incident reporting and admin closure APIs
-- training admin/config APIs for progressions, performance indicators, assignments, and dossier reads
+- training admin/config APIs for progressions, performance indicators, assignments, and dossier reads/entries
 - event ops-plan, TMI, preset-position, and lock/unlock APIs
 - Discord identity/config APIs and outbound notification jobs
 
@@ -89,8 +90,25 @@ Common error values:
 
 - `bad_request`
 - `unauthorized`
+- `too_many_requests`
 - `service_unavailable`
 - `internal_error`
+
+## Rate Limiting
+
+Every request is rate-limited **per source IP** (resolved from `X-Forwarded-For`,
+then `X-Real-IP`). The limit covers the whole surface — business routes, `/health`,
+`/ready`, `/docs*`, and `/cdn/*` — not just `/api/v1`. Callers over their limit get
+`429 Too Many Requests` (`{"error":"too_many_requests"}`).
+
+Limits are configured with `RATE_LIMIT_REQUESTS_PER_MIN` (sustained rate) and
+`RATE_LIMIT_BURST` (how many back-to-back requests are allowed before the sustained
+rate applies), and the whole feature can be disabled with `RATE_LIMIT_ENABLED=false`.
+
+A caller — session user **or** service account — holding the `system_rate_limit.update`
+permission is exempt. A valid API key does **not** bypass on its own; the permission
+must be granted explicitly. The permission check runs only for already-over-limit
+traffic, so requests under their limit add no database cost.
 
 ## Route Prefix
 

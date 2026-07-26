@@ -23,8 +23,12 @@ http:
         //"host": "",
         "published": true,
         //"starts_at": "",
-        "status": "PUBLISHED"
-        
+        "status": "PUBLISHED",
+        //"banner_asset_id": null,
+        //"hidden": false,
+        //"manual_positions_open": false,
+        //"archived": false
+
         //"title": ""
       }
   auth: inherit
@@ -77,6 +81,11 @@ examples:
             "host": "",
             "id": "",
             "published": false,
+            "banner_asset_id": null,
+            "hidden": false,
+            "positions_locked": false,
+            "manual_positions_open": false,
+            "archived_at": null,
             "starts_at": "",
             "status": "",
             "title": "",

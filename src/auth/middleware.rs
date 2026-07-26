@@ -7,7 +7,7 @@ use axum::{
 use crate::{
     auth::{
         acl::{PermissionPath, fetch_service_account_access, fetch_user_access},
-        context::{CurrentServiceAccount, CurrentUser},
+        context::{CurrentServiceAccount, CurrentUser, SessionToken},
     },
     errors::ApiError,
     repos::access as access_repo,
@@ -47,7 +47,10 @@ pub async fn resolve_current_user(
 
     request.extensions_mut().insert(current_user);
     request.extensions_mut().insert(current_service_account);
-    request.extensions_mut().insert(session_token);
+    // Wrapped so it doesn't collide with `bearer_token` (both `Option<String>`).
+    request
+        .extensions_mut()
+        .insert(SessionToken(session_token));
     request.extensions_mut().insert(bearer_token);
 
     next.run(request).await

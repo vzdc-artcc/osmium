@@ -20,6 +20,7 @@ http:
         "ends_at": "2026-05-08T03:00:00.123Z",
         "event_type": "HOME",
         "host": "ZDC",
+        "banner_asset_id": null,
         "starts_at": "2026-05-07T23:00:00.123Z",
         "title": "Raleigh Spring Festival"
       }
@@ -49,6 +50,7 @@ examples:
             "ends_at": "",
             "event_type": "",
             "host": "",
+            "banner_asset_id": null,
             "starts_at": "",
             "title": ""
           }
@@ -70,6 +72,11 @@ examples:
             "host": "",
             "id": "",
             "published": false,
+            "banner_asset_id": null,
+            "hidden": false,
+            "positions_locked": false,
+            "manual_positions_open": false,
+            "archived_at": null,
             "starts_at": "",
             "status": "",
             "title": "",
@@ -88,6 +95,7 @@ examples:
             "ends_at": "",
             "event_type": "",
             "host": "",
+            "banner_asset_id": null,
             "starts_at": "",
             "title": ""
           }

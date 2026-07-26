@@ -1,0 +1,100 @@
+info:
+  name: get_controller_positions
+  type: http
+  seq: 7
+  tags:
+    - stats
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/stats/controller/:cid/positions"
+  params:
+    - name: cid
+      value: ""
+      type: path
+      description: VATSIM CID
+    - name: environment
+      value: ""
+      type: query
+      description: "Environment: live, sweatbox1, or sweatbox2"
+      disabled: true
+    - name: year
+      value: ""
+      type: query
+      description: "Calendar year (required if month is set)"
+      disabled: true
+    - name: month
+      value: ""
+      type: query
+      description: "Month 1-12 within year"
+      disabled: true
+    - name: page
+      value: ""
+      type: query
+      disabled: true
+    - name: page_size
+      value: ""
+      type: query
+      disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Controller's individual online-position sessions
+    request:
+      url: "{{baseUrl}}/api/v1/stats/controller/:cid/positions"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "items": [
+              {
+                "position_name": "ZDC_TWR",
+                "facility_name": "Washington ARTCC",
+                "is_primary": true,
+                "started_at": "2026-07-20T00:23:02Z",
+                "ended_at": "2026-07-20T01:23:02Z",
+                "active_seconds": 3600
+              }
+            ],
+            "total": 1,
+            "page": 1,
+            "page_size": 25,
+            "total_pages": 1,
+            "has_next": false,
+            "has_prev": false
+          }
+  - name: 404 Response
+    description: Controller not found
+    request:
+      url: "{{baseUrl}}/api/v1/stats/controller/:cid/positions"
+      method: GET
+      params:
+        - name: cid
+          value: ""
+          type: path
+          description: VATSIM CID
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

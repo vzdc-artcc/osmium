@@ -43,16 +43,34 @@ examples:
         data: |-
           [
             {
-              "assigned_slot": "",
-              "callsign": "",
-              "created_at": "",
-              "event_id": "",
               "id": "",
+              "event_id": "",
+              "callsign": "",
+              "user_id": "",
+              "user_cid": null,
+              "user_name": null,
+              "requested_slot": null,
+              "assigned_slot": null,
+              "requested_position": "",
+              "requested_secondary_position": "",
+              "notes": null,
+              "requested_start_time": null,
+              "requested_end_time": null,
+              "final_start_time": null,
+              "final_end_time": null,
+              "final_position": null,
+              "final_notes": null,
+              "controlling_category": null,
+              "is_instructor": false,
+              "is_solo": false,
+              "is_ots": false,
+              "is_tmu": false,
+              "is_cic": false,
               "published": false,
-              "requested_slot": "",
               "status": "",
-              "updated_at": "",
-              "user_id": ""
+              "submitted_at": "",
+              "created_at": "",
+              "updated_at": ""
             }
           ]
   - name: 400 Response
