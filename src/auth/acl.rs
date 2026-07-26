@@ -320,7 +320,11 @@ fn filter_assignable_roles(roles: Vec<String>) -> Vec<String> {
 /// an assignable option. The access editor's actor-scope guard already blocks a
 /// facility admin from granting it; this keeps it out of the catalog too.
 fn filter_assignable_permissions(permissions: Vec<String>) -> Vec<String> {
-    const NON_ASSIGNABLE: &[&str] = &["auth.impersonate.create"];
+    const NON_ASSIGNABLE: &[&str] = &[
+        "auth.impersonate.create",
+        "users.sessions.read",
+        "users.sessions.delete",
+    ];
     permissions
         .into_iter()
         .filter(|permission| !NON_ASSIGNABLE.contains(&permission.as_str()))

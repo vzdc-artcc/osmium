@@ -15,8 +15,9 @@ use crate::{
         permissions::{
             AccessCatalogRead, AccessSelfRead, AccessUsersRead, AccessUsersUpdate, AuditLogsRead,
             UsersControllerStatusUpdate, UsersDirectoryPrivateRead, UsersFlagsRead, UsersFlagsUpdate,
-            UsersOperatingInitialsUpdate, UsersStaffPositionsUpdate, UsersVatusaRefreshRequest,
-            UsersVisitorApplicationsDecide, UsersVisitorApplicationsRead,
+            UsersOperatingInitialsUpdate, UsersSessionsDelete, UsersSessionsRead,
+            UsersStaffPositionsUpdate, UsersVatusaRefreshRequest, UsersVisitorApplicationsDecide,
+            UsersVisitorApplicationsRead,
         },
         require_permission::RequirePermission,
     },
@@ -32,7 +33,8 @@ use crate::{
         PaginationQuery, SetControllerStatusBody, SetControllerStatusRequest,
         StaffPositionsResponse, UpdateOperatingInitialsRequest, UpdateOperatingInitialsResponse,
         UpdateUserAccessRequest, UpdateUserFlagsRequest, UserAccessBody, UserFlagsBody,
-        UserOverviewBody, VisitorApplicationItem, VisitorApplicationListResponse,
+        UserOverviewBody, UserSessionListResponse, VisitorApplicationItem,
+        VisitorApplicationListResponse,
     },
     repos::{
         access as access_repo, audit as audit_repo, ip_request_log as ip_log_repo,
@@ -929,6 +931,149 @@ pub async fn get_user_ip_history(
         },
         time,
     ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/users/{cid}/sessions",
+    tag = "admin",
+    params(("cid" = i64, Path, description = "VATSIM CID")),
+    responses(
+        (status = 200, description = "A user's active auth sessions (metadata only, no tokens)", body = UserSessionListResponse),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn list_user_sessions(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersSessionsRead>,
+    Path(cid): Path<i64>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UserSessionListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let items = access_repo::list_user_sessions(pool, &target_id).await?;
+    Ok(ApiJson::new(UserSessionListResponse { items }, time))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/users/{cid}/sessions/{session_id}",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID"),
+        ("session_id" = String, Path, description = "Session id to revoke")
+    ),
+    responses(
+        (status = 200, description = "Session revoked; returns the remaining active sessions", body = UserSessionListResponse),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User or session not found")
+    )
+)]
+pub async fn revoke_user_session(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersSessionsDelete>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path((cid, session_id)): Path<(i64, String)>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UserSessionListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    if !access_repo::revoke_user_session(pool, &target_id, &session_id).await? {
+        return Err(ApiError::NotFound);
+    }
+
+    record_session_revoke_audit(
+        pool,
+        &headers,
+        current_user.as_ref(),
+        current_service_account.as_ref(),
+        "REVOKE",
+        cid,
+        serde_json::json!({ "revoked_session_id": session_id, "target_cid": cid }),
+    )
+    .await?;
+
+    let items = access_repo::list_user_sessions(pool, &target_id).await?;
+    Ok(ApiJson::new(UserSessionListResponse { items }, time))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/users/{cid}/sessions",
+    tag = "admin",
+    params(("cid" = i64, Path, description = "VATSIM CID")),
+    responses(
+        (status = 200, description = "All the user's sessions revoked; returns the (now empty) active list", body = UserSessionListResponse),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn revoke_all_user_sessions(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersSessionsDelete>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path(cid): Path<i64>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<UserSessionListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let revoked = access_repo::revoke_all_user_sessions(pool, &target_id).await?;
+
+    record_session_revoke_audit(
+        pool,
+        &headers,
+        current_user.as_ref(),
+        current_service_account.as_ref(),
+        "REVOKE_ALL",
+        cid,
+        serde_json::json!({ "revoked_count": revoked, "target_cid": cid }),
+    )
+    .await?;
+
+    let items = access_repo::list_user_sessions(pool, &target_id).await?;
+    Ok(ApiJson::new(UserSessionListResponse { items }, time))
+}
+
+/// Records a `USER_SESSION` audit entry for a session revoke (single or all).
+async fn record_session_revoke_audit(
+    pool: &sqlx::PgPool,
+    headers: &HeaderMap,
+    current_user: Option<&CurrentUser>,
+    current_service_account: Option<&CurrentServiceAccount>,
+    action: &str,
+    target_cid: i64,
+    after_state: serde_json::Value,
+) -> Result<(), ApiError> {
+    let actor =
+        audit_repo::resolve_audit_actor(pool, current_user, current_service_account).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: action.to_string(),
+            resource_type: "USER_SESSION".to_string(),
+            resource_id: Some(target_cid.to_string()),
+            scope_type: "global".to_string(),
+            scope_key: Some(target_cid.to_string()),
+            before_state: None,
+            after_state: Some(after_state),
+            ip_address: audit_repo::client_ip(headers),
+        },
+    )
+    .await
 }
 
 fn normalize_visitor_application_status_filter(

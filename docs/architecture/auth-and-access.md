@@ -63,8 +63,9 @@ POST /api/v1/admin/impersonate/stop    # end and restore the admin session
 A single session row toggles between the admin and the target: while impersonating,
 `user_id` is the target (so ACL resolves as them) and `impersonator_user_id` records
 the real admin. Durable audit is attributed to the impersonator; start/stop are logged
-as server-level `AUTH_IMPERSONATION` rows that facility admins cannot see. Sensitive
-self-service writes are blocked while impersonating.
+as server-level `AUTH_IMPERSONATION` rows that facility admins cannot see. While
+impersonating, self-service writes and admin/integration mutations (the outbound
+side-effect surface) are refused with `403` — impersonation is read-only support.
 
 `VATSIM_DEV_MODE=true` does not expose the seed route.
 

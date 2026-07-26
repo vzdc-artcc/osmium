@@ -1,0 +1,25 @@
+info:
+  name: list_user_sessions
+  type: http
+  seq: 9
+  tags:
+    - admin
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/admin/users/:cid/sessions"
+  params:
+    - name: cid
+      value: ""
+      type: path
+      description: VATSIM CID
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+
+docs: |
+  Lists a user's active osmium auth sessions (SERVER_ADMIN only,
+  users.sessions.read). Metadata only — created/expires, IP, impersonation state;
+  the raw session_token is never returned.

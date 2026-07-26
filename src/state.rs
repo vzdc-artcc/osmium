@@ -88,6 +88,9 @@ pub struct AppState {
     /// Shared in-memory per-IP rate limiter (spec 010). `Arc` so every router
     /// layer clone throttles against the same buckets.
     pub rate_limiter: Arc<crate::rate_limit::IpRateLimiter>,
+    /// Dedicated tight limiter for the expensive GDPR data export, keyed per user.
+    /// Only enforced when `rate_limit_enabled`.
+    pub data_export_limiter: Arc<crate::rate_limit::IpRateLimiter>,
     /// Whether the limiter is enforced. Off in the test harness so unrelated
     /// tests don't trip it.
     pub rate_limit_enabled: bool,
@@ -106,6 +109,7 @@ impl AppState {
         let email = Arc::new(EmailService::from_env().await);
         let (controller_events, _) = broadcast::channel(1024);
         let rate_limiter = crate::rate_limit::build_rate_limiter();
+        let data_export_limiter = crate::rate_limit::build_data_export_limiter();
         let rate_limit_enabled = crate::config::rate_limit_enabled();
         let (ip_log_tx, ip_log_rx) = build_ip_log_channel();
         let ip_log_enabled = crate::config::ip_request_log_enabled();
@@ -121,6 +125,7 @@ impl AppState {
                 email,
                 controller_events,
                 rate_limiter,
+                data_export_limiter,
                 rate_limit_enabled,
                 ip_log_tx,
                 ip_log_rx,
@@ -135,6 +140,7 @@ impl AppState {
             email,
             controller_events,
             rate_limiter,
+            data_export_limiter,
             rate_limit_enabled,
             ip_log_tx,
             ip_log_rx,
@@ -153,6 +159,7 @@ impl AppState {
             email,
             controller_events,
             rate_limiter: crate::rate_limit::build_rate_limiter(),
+            data_export_limiter: crate::rate_limit::build_data_export_limiter(),
             // Off by default: this DB-less state is test-only, and rate limiting is
             // meaningless without a DB (the bypass check can't run). Keeps the
             // `without_db()`-based test suites from being throttled incidentally.

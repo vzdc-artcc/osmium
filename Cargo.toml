@@ -6,8 +6,6 @@ edition = "2024"
 [workspace]
 members = [
     ".",
-    "tools/api-load-tester",
-    "tools/db-migrator",
 ]
 resolver = "2"
 

@@ -58,6 +58,21 @@ pub fn build_rate_limiter() -> Arc<IpRateLimiter> {
     Arc::new(DefaultKeyedRateLimiter::keyed(quota))
 }
 
+/// Builds the dedicated per-user limiter for the expensive GDPR data export.
+/// Keyed by user id (an authenticated self-service endpoint), so one user can't
+/// hammer it regardless of source IP, and users behind a shared NAT aren't unfairly
+/// throttled together. Sustained rate = per-hour; `burst` allows a couple of rapid
+/// re-downloads before the hourly rate applies.
+pub fn build_data_export_limiter() -> Arc<IpRateLimiter> {
+    let per_hour = NonZeroU32::new(crate::config::data_export_rate_limit_per_hour())
+        .unwrap_or(NonZeroU32::new(1).expect("1 is non-zero"));
+    let burst = NonZeroU32::new(crate::config::data_export_rate_limit_burst())
+        .unwrap_or(NonZeroU32::new(1).expect("1 is non-zero"));
+
+    let quota = Quota::per_hour(per_hour).allow_burst(burst);
+    Arc::new(DefaultKeyedRateLimiter::keyed(quota))
+}
+
 /// Middleware enforcing the per-IP limit. Registered innermost (closest to the
 /// handler) so `log_requests` still observes and logs any `429` — see
 /// `router.rs` for the exact layer ordering and its rationale.

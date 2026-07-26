@@ -39,9 +39,11 @@ session to resolve as the target — a single httpOnly cookie, no separate sessi
 a shortened TTL; `POST /admin/impersonate/stop` restores the admin. `GET /me` exposes an
 `impersonation` object (the real admin's cid/name) for a banner + stop control while
 active. Guards: refuses nested impersonation, self-target, and SERVER_ADMIN targets.
-Durable audit is attributed to the impersonator, start/stop are server-level
-`AUTH_IMPERSONATION` rows hidden from facility admins, and sensitive self-service writes
-are blocked while impersonating.
+Durable audit is attributed to the impersonator, and start/stop are server-level
+`AUTH_IMPERSONATION` rows hidden from facility admins. While impersonating, both
+self-service writes (the victim's own account) and admin/integration mutations (every
+outbound side effect — VATUSA/roster, email, Discord, job runs) are refused with `403`;
+impersonation is for read-only support/debugging, and real changes are made after `stop`.
 
 ## Self-Service Profile Surface
 

@@ -757,6 +757,10 @@ pub async fn bootstrap_login_user(
     )
     .await?;
 
+    // Ensure this user has an audit actor so their actions (and IP history) attribute
+    // to them instead of resolving to a null "system" actor.
+    access_repo::ensure_user_actor(&mut tx, &user.id, display_name).await?;
+
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok((user.id, user.was_new_user))

@@ -178,7 +178,7 @@ Impersonation start/stop (and preferably attribution that an action occurred *wh
 - Session create/lookup helpers in `src/repos/access.rs`; extend auth middleware / `CurrentUser`.
 - Handlers + router for start/stop; OpenAPI + Bruno + docs.
 - Audit filter in `list_audit_logs` / `repos/audit.rs`; thread impersonator through `resolve_audit_actor`.
-- Website: start control (Website Management), global “impersonating as …” banner + stop, audit rows visible only under `/website-management/audit`.
+- Website: start control (Website Management), global “impersonating as …” banner + stop, audit rows visible only under `/website-management/audit`. Tracked on the website plan under **Later polish & known bugs** once osmium start/stop + `/me` fields land.
 - Tests: ACL-as-target, audit-as-impersonator, facility caller cannot read `AUTH_IMPERSONATION`, stop restores admin, nested/SERVER_ADMIN target refused, old login-as route gone.
 - Delete `DEV_LOGIN_AS_CID_ENABLED` path as part of the same change set.
 
@@ -301,9 +301,37 @@ step, gated only on those legacy Prisma paths.
 9. Interleave **specs 009-011** (handler cleanup, rate limiting, IP tracking) wherever convenient — they don't block or get blocked by the feature-parity work above, but 009 should land before any of Tiers 1-3 touch `admin.rs`/`emails.rs` to avoid migrating the same handler twice.
 10. ~~**Update hand-maintained docs**~~ — done. See the dedicated section above for exactly what changed.
 11. ~~**GDPR self-service data export (right of access)**~~ — **done (Track B, 2026-07-25, pending combined merge)**. `GET /me/data-export` (`handlers/data_export.rs`, `repos/data_export.rs`, `models/data_export.rs`). The open compliance question (trainer-note redaction) is **resolved: INCLUDE** — see the RESOLVED note in the dedicated section above.
-12. **Authenticated user impersonation** — not started. See the dedicated section above. Depends on server-only audit filtering (facility `audit.logs.read` callers must not see `AUTH_IMPERSONATION`) and Website Management as the log/UI surface; ships with retirement of `GET /auth/login/as/{cid}` / `DEV_LOGIN_AS_CID_ENABLED`.
+12. **Authenticated user impersonation** — backend in progress / Worker A (see
+   the dedicated section above). Website start control + impersonation banner/stop
+   are tracked as post-parity polish on the website plan (not a separate osmium
+   API gap once start/stop + `/me` fields land).
 
 **Remaining open work (not gaps I missed):** the Track A items — specs 009–011 and authenticated user impersonation (item 12). Track B's items (self-hosted FAA preferred-routes data, item 6; and GDPR data export, item 11) are **done** as of 2026-07-25 and signed off by review, pending the combined merge behind the gate. Every feature-parity item that was actually in scope, including the docs update, is now closed.
+
+**Post-parity polish (website-tracked, not blocking Track A/B):** see
+`../website/docs/osmium-migration-plan.md` § "Later polish & known bugs".
+Osmium-owned follow-ons from that list:
+- **Events OPS plan** — implement properly; rework the OPS plan model/API if that
+  simplifies a solid design. Website already has ops-plan hooks/UI.
+- **Impersonation website UI** — Website Management start + sticky banner/stop;
+  backend APIs are Worker A; UI is the website half after those land.
+- **Stats leaders / top-3 ordering** — home Top 3 and controller statistics pages
+  should rank all controllers by hours (most → least); may be
+  `handlers/stats.rs` `leaders` and/or website consumers.
+- **CDN / file manager (Website Management)** — primarily website UI on existing
+  `GET/POST/PATCH/DELETE /api/v1/files`, CDN URLs, and `GET /api/v1/admin/files/audit`.
+  Fill any small API gaps (e.g. richer creator display on list items) only if the
+  current file payloads are insufficient for the UI.
+- **Profile data-export button** — website UI on existing `GET /me/data-export`
+  (no new osmium work unless the download UX needs headers/filename polish).
+- **Admin mass data export** — new osmium admin bulk-export endpoint (multi-CID,
+  permission-gated + audited) plus Website Management multi-select UI. Reuse the
+  per-subject assembler from `GET /me/data-export`; do not expose other subjects
+  through the self-service route.
+- **User session manager** — new osmium admin session list/revoke APIs over
+  `identity.sessions` (list by user/CID, revoke one, revoke-all for a user;
+  never expose raw tokens; audit every revoke) plus Website Management UI.
+  Distinct from impersonation start/stop.
 
 **Cutover-plumbing additions the website now needs from osmium** (surfaced by the website's authorization/identity migration — see the "Website cutover status" section above): (a) a training-session self-read path so a controller can read their own `/training/sessions/{id}`, and (b) admin edit-another-user's-profile endpoints. These are small and unblock the last ~9 website `getServerSession` sites; the rest of those sites are blocked on the deferred **Certifications & Progression** domain (the last Users/Roster parity tail — Progression needs osmium auto-advance logic that doesn't exist yet) and the deferred **ATC booking proxy**.
 

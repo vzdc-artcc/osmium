@@ -158,6 +158,7 @@ pub use users::{
     StaffPositionsResponse, TeamSpeakUidBody,
     UpdateOperatingInitialsRequest,
     UpdateOperatingInitialsResponse, UpdateUserFlagsRequest, UserBasicInfo, UserDetailsResponse,
+    UserSessionItem, UserSessionListResponse,
     VATUSA_SYNCED_STAFF_POSITIONS,
     UserFeedbackListResponse, UserFeedbackQuery, UserFlagsBody, UserFullInfo, UserListItem,
     UserListResponse, UserOverviewBody, UserPrivateInfo, UserStats, VisitArtccRequest,

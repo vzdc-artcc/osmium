@@ -45,6 +45,13 @@ pub async fn export_my_data(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let uid = user.id.as_str();
 
+    // Dedicated tight per-user limit for this expensive cross-domain export — the
+    // loose global per-IP limiter (spec 010) doesn't stop hammering this one
+    // endpoint. Checked up front so a throttled request does no work.
+    if state.rate_limit_enabled && state.data_export_limiter.check_key(&user.id).is_err() {
+        return Err(ApiError::TooManyRequests);
+    }
+
     // ----- identity -----
     let identity_core = export_repo::fetch_identity_core(pool, uid).await?;
     let flags = user_repo::fetch_user_flags(pool, uid).await?;
@@ -132,7 +139,9 @@ pub async fn export_my_data(
             action: "EXPORT".to_string(),
             resource_type: "DATA_EXPORT".to_string(),
             resource_id: Some(user.id.clone()),
-            scope_type: "self".to_string(),
+            // Must be one of the audit_logs.scope_type CHECK values (0003_access.sql);
+            // "self" is not valid and made this insert (and the whole export) 500.
+            scope_type: "global".to_string(),
             scope_key: Some(user.cid.to_string()),
             before_state: None,
             after_state: None,

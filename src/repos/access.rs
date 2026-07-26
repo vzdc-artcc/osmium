@@ -506,6 +506,102 @@ pub async fn stop_impersonation(
     .map_err(|_| ApiError::Internal)
 }
 
+/// Lists a user's active auth sessions (not revoked, not expired), newest first,
+/// for the admin session manager. Never selects the raw `session_token`.
+pub async fn list_user_sessions(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Vec<crate::models::UserSessionItem>, ApiError> {
+    sqlx::query_as::<_, crate::models::UserSessionItem>(
+        r#"
+        select
+            s.id,
+            host(s.ip_address) as ip_address,
+            s.user_agent,
+            s.created_at,
+            s.expires_at,
+            (s.impersonator_user_id is not null) as impersonated,
+            imp.cid as impersonator_cid
+        from identity.sessions s
+        left join identity.users imp on imp.id = s.impersonator_user_id
+        where s.user_id = $1
+          and s.revoked_at is null
+          and s.expires_at > now()
+        order by s.created_at desc
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Revokes a single session, scoped to `user_id` so an admin can't revoke a session
+/// that doesn't belong to the target user by guessing an id. Returns `true` if a
+/// still-active session was revoked.
+pub async fn revoke_user_session(
+    pool: &PgPool,
+    user_id: &str,
+    session_id: &str,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query(
+        r#"
+        update identity.sessions
+        set revoked_at = now()
+        where id = $1 and user_id = $2 and revoked_at is null
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(result.rows_affected() == 1)
+}
+
+/// Revokes all of a user's active sessions; returns how many were revoked.
+pub async fn revoke_all_user_sessions(pool: &PgPool, user_id: &str) -> Result<u64, ApiError> {
+    let result = sqlx::query(
+        r#"
+        update identity.sessions
+        set revoked_at = now()
+        where user_id = $1 and revoked_at is null and expires_at > now()
+        "#,
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(result.rows_affected())
+}
+
+/// Idempotently ensures a logging-in user has an audit actor row (`access.actors`,
+/// `actor_type = 'user'`). Without this, `resolve_audit_actor` resolves null for every
+/// human, so user-attributed audit entries and per-user IP history lose attribution.
+/// Backed by the partial unique index from migration 0058.
+pub async fn ensure_user_actor(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    display_name: &str,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        insert into access.actors (actor_type, user_id, display_name)
+        values ('user', $1, $2)
+        on conflict (user_id) where actor_type = 'user' do nothing
+        "#,
+    )
+    .bind(user_id)
+    .bind(display_name)
+    .execute(&mut **tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
+}
+
 /// Records a dossier entry on a user's log as a side effect of a permission
 /// change. Moved verbatim out of `handlers/admin.rs::record_access_dossier_entry`
 /// per spec 009 (kept in the access repo since it's an access-change side effect,

@@ -403,6 +403,30 @@ pub struct AdminUserListResponse {
     pub pagination: crate::models::PaginationMeta,
 }
 
+/// One of a user's active auth sessions, for the admin session manager. Deliberately
+/// omits the raw `session_token` — it is never exposed.
+#[derive(Debug, Serialize, ToSchema, sqlx::FromRow)]
+pub struct UserSessionItem {
+    pub id: String,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    #[schema(value_type = String, format = DateTime)]
+    pub expires_at: DateTime<Utc>,
+    /// True when this session is currently impersonating (i.e. an admin is acting as
+    /// this user through it); `impersonator_cid` names the real admin.
+    pub impersonated: bool,
+    pub impersonator_cid: Option<i64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserSessionListResponse {
+    pub items: Vec<UserSessionItem>,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DecideVisitorApplicationRequest {
     pub status: String,

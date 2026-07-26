@@ -81,6 +81,9 @@ Timestamped admin responses follow the shared response-timezone contract via `X-
 - `PATCH /api/v1/admin/users/{cid}/operating-initials`
 - `POST /api/v1/admin/users/{cid}/refresh-vatusa`
 - `GET /api/v1/admin/users/{cid}/ip-history`
+- `GET /api/v1/admin/users/{cid}/sessions`
+- `DELETE /api/v1/admin/users/{cid}/sessions/{session_id}`
+- `DELETE /api/v1/admin/users/{cid}/sessions`
 - `POST /api/v1/admin/users/{cid}/staff-positions/{position}`
 - `DELETE /api/v1/admin/users/{cid}/staff-positions/{position}`
 - `GET /api/v1/admin/publications`
@@ -131,6 +134,7 @@ Reading another user's self-service opt-out flags requires `users.flags.read`; u
 - approving a visitor application also calls the VATUSA `manageVisitor` endpoint with the configured `VATUSA_API_KEY`; if that external call fails, the local approval does not complete
 - approving a visitor application activates the applicant's membership (`controller_status: VISITOR`, `membership_status: ACTIVE`, `visitor_home_facility` set from the application) and enables their welcome message, in the same transaction as the decision
 - `POST /api/v1/admin/users/{cid}/refresh-vatusa` refreshes one local user against the configured VATUSA facility rosters and applies the same membership upsert or off-roster demotion rules as roster sync
+- `GET/DELETE /api/v1/admin/users/{cid}/sessions` + `DELETE .../sessions/{session_id}` (user session manager) list and revoke a user's active osmium auth sessions over `identity.sessions`, gated by `users.sessions.read`/`users.sessions.delete` (SERVER_ADMIN only, kept out of the assignable catalog). The list is metadata only — created/expires time, IP (if captured), and impersonation state — and the raw `session_token` is never returned. Revokes soft-revoke (`revoked_at`), take effect immediately, and are each recorded in the audit log (`USER_SESSION` / `REVOKE` / `REVOKE_ALL`). Distinct from impersonation start/stop
 - `GET /api/v1/admin/users/{cid}/ip-history` (spec 011) returns paginated durable request-IP metadata (`ip_address`, `method`, `matched_path`, `status_code`, `created_at`) for that user's actor, newest first, gated by `users.directory_private.read`. Records are written by a batched off-hot-path pipeline (a bounded channel drained by a background job) and pruned after `IP_REQUEST_LOG_RETENTION_DAYS`; the write path adds no synchronous per-request database cost
 
 If a user is the current `SERVER_ADMIN`, the normal access endpoints still return that role and the full grouped effective permission set.

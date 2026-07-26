@@ -361,6 +361,12 @@ permission!(AuthSessionsDelete, ["auth", "sessions"], Delete);
 // acl.rs::default_permission_names, and filtered out of the access-editor catalog.
 permission!(AuthImpersonateCreate, ["auth", "impersonate"], Create);
 
+// User session manager (post-parity backlog). Like impersonate: seeded to no role
+// (SERVER_ADMIN-only via the effective-permissions cross-join), kept out of the
+// assignable catalog. Reveals login IPs/times and can force-logout a user.
+permission!(UsersSessionsRead, ["users", "sessions"], Read);
+permission!(UsersSessionsDelete, ["users", "sessions"], Delete);
+
 // spec 010 — IP rate-limit bypass. `PermissionAction` has no `Bypass` variant, so
 // this uses `Update`. It is a SINGLE segment `["system_rate_limit"]`, NOT
 // `["system", "rate_limit"]`: `system.read` (SystemRead, org.rs) already makes

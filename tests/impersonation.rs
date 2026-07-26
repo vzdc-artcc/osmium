@@ -260,6 +260,41 @@ async fn self_service_write_is_blocked_while_impersonating() {
 }
 
 #[tokio::test]
+async fn admin_outbound_write_is_blocked_while_impersonating() {
+    let Some(test) = TestApp::new().await else {
+        return;
+    };
+    let admin = make_server_admin(&test, 700_060, "Admin").await;
+    // The impersonated target *holds* an admin permission, so this proves the block
+    // (403) intercepts before the permission gate would have allowed it (#7).
+    let _target = test
+        .create_user(700_061, "Privileged Target", &["users.flags.update"])
+        .await;
+    let _other = test.create_user(700_062, "Other", &[]).await;
+
+    test.json_request(
+        "POST",
+        "/api/v1/admin/impersonate/700061",
+        Some(&admin.session_token),
+        Some(json!({})),
+    )
+    .await;
+
+    // An admin mutation (an outbound-side-effect-class route) is refused.
+    let response = test
+        .json_request(
+            "PATCH",
+            "/api/v1/admin/users/700062/flags",
+            Some(&admin.session_token),
+            Some(json!({ "no_event_signup": true, "reason": "x" })),
+        )
+        .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
+
+    test.cleanup().await;
+}
+
+#[tokio::test]
 async fn requires_the_impersonate_permission() {
     let Some(test) = TestApp::new().await else {
         return;

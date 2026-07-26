@@ -114,6 +114,9 @@ Permission-gated routes:
 - `PATCH /api/v1/admin/users/{cid}/operating-initials` -> `users.operating_initials.update`
 - `POST /api/v1/admin/users/{cid}/refresh-vatusa` -> `users.vatusa_refresh.request`
 - `GET /api/v1/admin/users/{cid}/ip-history` -> `users.directory_private.read` (spec 011 — durable per-request IP metadata for one user)
+- `GET /api/v1/admin/users/{cid}/sessions` -> `users.sessions.read` (SERVER_ADMIN only; list active auth sessions, metadata only — never tokens)
+- `DELETE /api/v1/admin/users/{cid}/sessions/{session_id}` -> `users.sessions.delete` (SERVER_ADMIN only; revoke one session, audited)
+- `DELETE /api/v1/admin/users/{cid}/sessions` -> `users.sessions.delete` (SERVER_ADMIN only; revoke all the user's sessions, audited)
 - `POST /api/v1/admin/users/{cid}/staff-positions/{position}` -> `users.staff_positions.update`
 - `DELETE /api/v1/admin/users/{cid}/staff-positions/{position}` -> `users.staff_positions.update`
 - `GET /api/v1/admin/visitor-applications` -> `users.visitor_applications.read`

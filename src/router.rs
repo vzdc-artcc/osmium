@@ -245,6 +245,14 @@ pub fn build_router(state: AppState) -> Router {
             "/users/{cid}/ip-history",
             get(admin::get_user_ip_history),
         )
+        .route(
+            "/users/{cid}/sessions",
+            get(admin::list_user_sessions).delete(admin::revoke_all_user_sessions),
+        )
+        .route(
+            "/users/{cid}/sessions/{session_id}",
+            delete(admin::revoke_user_session),
+        )
         .nest(
             "/publications",
             Router::new()

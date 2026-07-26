@@ -76,6 +76,21 @@ pub fn rate_limit_burst() -> u32 {
     env_u32_or("RATE_LIMIT_BURST", 240)
 }
 
+/// Dedicated tight limit for the GDPR data export (`GET /me/data-export`), keyed
+/// per user. The export is one of the most expensive requests in the API (a full
+/// cross-domain assembly), so the loose global per-IP limit is not enough — this
+/// caps how often any one user can trigger it. Only enforced when `RATE_LIMIT_ENABLED`.
+pub fn data_export_rate_limit_per_hour() -> u32 {
+    env_u32_or("DATA_EXPORT_RATE_LIMIT_PER_HOUR", 12)
+}
+
+/// Burst for the per-user data-export limit — how many back-to-back exports before
+/// the hourly rate applies (stops rapid button-spam while allowing a couple of
+/// legitimate re-downloads).
+pub fn data_export_rate_limit_burst() -> u32 {
+    env_u32_or("DATA_EXPORT_RATE_LIMIT_BURST", 3)
+}
+
 // ---------------------------------------------------------------------------
 // spec 011 — durable IP request tracking
 // ---------------------------------------------------------------------------

@@ -126,7 +126,7 @@ pub async fn list_for_user(
     sqlx::query_as::<_, IpRequestLogItem>(
         r#"
         select
-            l.ip_address::text as ip_address,
+            host(l.ip_address) as ip_address,
             l.method,
             l.matched_path,
             l.status_code,
