@@ -307,7 +307,10 @@ pub async fn import_file_from_url(
     if source_url.scheme() != "http" && source_url.scheme() != "https" {
         return Err(ApiError::BadRequest);
     }
-    let host = source_url.host_str().ok_or(ApiError::BadRequest)?.to_string();
+    let host = source_url
+        .host_str()
+        .ok_or(ApiError::BadRequest)?
+        .to_string();
     if !is_safe_remote_host(&host).await {
         record_file_audit(
             pool,

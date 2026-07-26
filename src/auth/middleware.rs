@@ -48,9 +48,7 @@ pub async fn resolve_current_user(
     request.extensions_mut().insert(current_user);
     request.extensions_mut().insert(current_service_account);
     // Wrapped so it doesn't collide with `bearer_token` (both `Option<String>`).
-    request
-        .extensions_mut()
-        .insert(SessionToken(session_token));
+    request.extensions_mut().insert(SessionToken(session_token));
     request.extensions_mut().insert(bearer_token);
 
     next.run(request).await

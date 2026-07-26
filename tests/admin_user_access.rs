@@ -18,7 +18,11 @@ async fn save_requires_non_empty_reason() {
     };
 
     let staff = app
-        .create_user(10000400, "Access Actor", &["access.users.update", "auth.profile.read"])
+        .create_user(
+            10000400,
+            "Access Actor",
+            &["access.users.update", "auth.profile.read"],
+        )
         .await;
     let target = app.create_user(10000401, "Access Target", &[]).await;
 
@@ -84,7 +88,11 @@ async fn actor_can_add_permission_within_their_own_scope_and_dossier_entry_is_re
     };
 
     let staff = app
-        .create_user(10000404, "Access Actor", &["access.users.update", "auth.profile.read"])
+        .create_user(
+            10000404,
+            "Access Actor",
+            &["access.users.update", "auth.profile.read"],
+        )
         .await;
     let target = app.create_user(10000405, "Access Target", &[]).await;
 

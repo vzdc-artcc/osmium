@@ -22,13 +22,12 @@ use crate::{
         CreatePerformanceIndicatorCriteriaRequest, CreatePerformanceIndicatorTemplateRequest,
         CreateProgressionAssignmentRequest, CreateTrainingProgressionRequest,
         CreateTrainingProgressionStepRequest, DossierEntryItem, DossierEntryListResponse,
-        PaginationMeta, PaginationQuery,
-        PerformanceIndicatorCategoryItem, PerformanceIndicatorCategoryListResponse,
-        PerformanceIndicatorCriteriaItem, PerformanceIndicatorCriteriaListResponse,
-        PerformanceIndicatorTemplateItem, PerformanceIndicatorTemplateListResponse,
-        ProgressionAssignmentItem, ProgressionAssignmentListResponse, ProgressionStatusResponse,
-        ProgressionStatusStep, TrainingProgressionItem,
-        TrainingProgressionListResponse, TrainingProgressionStepItem,
+        PaginationMeta, PaginationQuery, PerformanceIndicatorCategoryItem,
+        PerformanceIndicatorCategoryListResponse, PerformanceIndicatorCriteriaItem,
+        PerformanceIndicatorCriteriaListResponse, PerformanceIndicatorTemplateItem,
+        PerformanceIndicatorTemplateListResponse, ProgressionAssignmentItem,
+        ProgressionAssignmentListResponse, ProgressionStatusResponse, ProgressionStatusStep,
+        TrainingProgressionItem, TrainingProgressionListResponse, TrainingProgressionStepItem,
         TrainingProgressionStepListResponse, UpdatePerformanceIndicatorCategoryRequest,
         UpdatePerformanceIndicatorCriteriaRequest, UpdatePerformanceIndicatorTemplateRequest,
         UpdateTrainingProgressionRequest, UpdateTrainingProgressionStepRequest,
@@ -1117,8 +1116,7 @@ pub async fn get_user_dossier(
         PermissionAction::Read,
     ));
     let pagination = query.resolve(25, 200);
-    let total =
-        training_admin_repo::count_dossier_entries(pool, cid, include_confidential).await?;
+    let total = training_admin_repo::count_dossier_entries(pool, cid, include_confidential).await?;
     let rows = training_admin_repo::list_dossier_entries(
         pool,
         cid,

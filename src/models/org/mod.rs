@@ -404,7 +404,8 @@ pub struct PurgeCandidateItem {
 
 impl From<crate::repos::org::roster_purge::PurgeCandidateRow> for PurgeCandidateItem {
     fn from(row: crate::repos::org::roster_purge::PurgeCandidateRow) -> Self {
-        let total_hours = row.controlling_hours + row.trainer_hours_given + row.trainer_hours_received;
+        let total_hours =
+            row.controlling_hours + row.trainer_hours_given + row.trainer_hours_received;
         Self {
             cid: row.cid,
             display_name: row.display_name,

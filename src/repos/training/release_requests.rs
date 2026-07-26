@@ -66,8 +66,9 @@ pub async fn list_release_requests<'e, E>(
 where
     E: Executor<'e, Database = Postgres>,
 {
-    let sql =
-        format!("{RELEASE_REQUEST_SELECT} order by r.submitted_at desc, r.id asc limit $1 offset $2");
+    let sql = format!(
+        "{RELEASE_REQUEST_SELECT} order by r.submitted_at desc, r.id asc limit $1 offset $2"
+    );
     sqlx::query_as::<_, TrainerReleaseRequestRow>(&sql)
         .bind(page_size)
         .bind(offset)

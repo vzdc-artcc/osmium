@@ -44,7 +44,9 @@ async fn impersonation_resolves_as_target_audits_impersonator_and_stop_restores(
     let admin = make_server_admin(&test, 700_001, "Admin").await;
     // Grant the target the baseline self-read every real user holds (via the USER
     // role), so the ACL-as-target check on /me is meaningful.
-    let _target = test.create_user(700_002, "Target", &["auth.profile.read"]).await;
+    let _target = test
+        .create_user(700_002, "Target", &["auth.profile.read"])
+        .await;
 
     // Start.
     let response = test
@@ -68,8 +70,11 @@ async fn impersonation_resolves_as_target_audits_impersonator_and_stop_restores(
     );
 
     // The same cookie now resolves to the target (ACL as target), with a banner.
-    let me: Value =
-        json_body(test.request(get_with_session("/api/v1/me", &admin.session_token)).await).await;
+    let me: Value = json_body(
+        test.request(get_with_session("/api/v1/me", &admin.session_token))
+            .await,
+    )
+    .await;
     assert_eq!(me["cid"].as_i64(), Some(700_002));
     assert_eq!(
         me["impersonation"]["impersonator_cid"].as_i64(),
@@ -104,8 +109,11 @@ async fn impersonation_resolves_as_target_audits_impersonator_and_stop_restores(
     assert_eq!(restored["cid"].as_i64(), Some(700_001));
     assert!(restored["impersonation"].is_null());
 
-    let me_again: Value =
-        json_body(test.request(get_with_session("/api/v1/me", &admin.session_token)).await).await;
+    let me_again: Value = json_body(
+        test.request(get_with_session("/api/v1/me", &admin.session_token))
+            .await,
+    )
+    .await;
     assert_eq!(me_again["cid"].as_i64(), Some(700_001));
     assert!(me_again["impersonation"].is_null());
 
@@ -119,7 +127,9 @@ async fn facility_staff_cannot_read_impersonation_audit_rows() {
     };
     let admin = make_server_admin(&test, 700_010, "Admin").await;
     let _target = test.create_user(700_011, "Target", &[]).await;
-    let staff = test.create_user(700_012, "Staff Auditor", &["audit.logs.read"]).await;
+    let staff = test
+        .create_user(700_012, "Staff Auditor", &["audit.logs.read"])
+        .await;
 
     // Create AUTH_IMPERSONATION rows.
     test.json_request(
@@ -139,8 +149,11 @@ async fn facility_staff_cannot_read_impersonation_audit_rows() {
 
     // Facility staff (audit.logs.read, not SERVER_ADMIN) must not see them.
     let staff_view: Value = json_body(
-        test.request(get_with_session("/api/v1/admin/audit", &staff.session_token))
-            .await,
+        test.request(get_with_session(
+            "/api/v1/admin/audit",
+            &staff.session_token,
+        ))
+        .await,
     )
     .await;
     let staff_items = staff_view["items"].as_array().expect("items");
@@ -153,8 +166,11 @@ async fn facility_staff_cannot_read_impersonation_audit_rows() {
 
     // The SERVER_ADMIN does see them.
     let admin_view: Value = json_body(
-        test.request(get_with_session("/api/v1/admin/audit", &admin.session_token))
-            .await,
+        test.request(get_with_session(
+            "/api/v1/admin/audit",
+            &admin.session_token,
+        ))
+        .await,
     )
     .await;
     let admin_items = admin_view["items"].as_array().expect("items");

@@ -45,7 +45,11 @@ async fn home_and_visitor_transitions_work_via_http() {
     };
 
     let staff = app
-        .create_user(10000200, "Lifecycle Staff", &["users.controller_status.update"])
+        .create_user(
+            10000200,
+            "Lifecycle Staff",
+            &["users.controller_status.update"],
+        )
         .await;
     let target = app.create_user(10000201, "Lifecycle Target", &[]).await;
 
@@ -183,13 +187,11 @@ async fn controller_lifecycle_none_cleanup_repo_layer_deletes_expected_rows() {
     let trainer = app.create_user(10000205, "Cleanup Trainer", &[]).await;
     let student = app.create_user(10000206, "Cleanup Student", &[]).await;
 
-    sqlx::query(
-        "update org.memberships set controller_status = 'HOME' where user_id = $1",
-    )
-    .bind(&student.id)
-    .execute(&app.pool)
-    .await
-    .expect("seed HOME status");
+    sqlx::query("update org.memberships set controller_status = 'HOME' where user_id = $1")
+        .bind(&student.id)
+        .execute(&app.pool)
+        .await
+        .expect("seed HOME status");
 
     sqlx::query(
         "insert into training.training_assignment_requests (id, student_id, submitted_at, status) values ($1, $2, now(), 'PENDING')",
@@ -225,7 +227,10 @@ async fn controller_lifecycle_none_cleanup_repo_layer_deletes_expected_rows() {
     let mut tx = app.pool.begin().await.expect("begin tx");
 
     osmium::repos::org::controller_lifecycle::update_membership_status(
-        &mut *tx, &student.id, "NONE", None,
+        &mut *tx,
+        &student.id,
+        "NONE",
+        None,
     )
     .await
     .expect("update status");
@@ -238,7 +243,8 @@ async fn controller_lifecycle_none_cleanup_repo_layer_deletes_expected_rows() {
 
     let requests_deleted =
         osmium::repos::org::controller_lifecycle::delete_training_assignment_requests_for_user(
-            &mut *tx, &student.id,
+            &mut *tx,
+            &student.id,
         )
         .await
         .expect("delete requests");
@@ -246,7 +252,8 @@ async fn controller_lifecycle_none_cleanup_repo_layer_deletes_expected_rows() {
 
     let assignments_deleted =
         osmium::repos::org::controller_lifecycle::delete_training_assignments_for_user(
-            &mut *tx, &student.id,
+            &mut *tx,
+            &student.id,
         )
         .await
         .expect("delete assignments");
@@ -280,9 +287,15 @@ async fn list_purge_candidates_endpoint_returns_activity_and_respects_period_bou
     };
 
     let staff = app
-        .create_user(10000207, "Purge List Staff", &["users.controller_status.update"])
+        .create_user(
+            10000207,
+            "Purge List Staff",
+            &["users.controller_status.update"],
+        )
         .await;
-    let controller = app.create_user(10000208, "Purge List Controller", &[]).await;
+    let controller = app
+        .create_user(10000208, "Purge List Controller", &[])
+        .await;
     let trainer = app.create_user(10000209, "Purge List Trainer", &[]).await;
 
     // join_date defaults to "now" on creation, which would fall outside the

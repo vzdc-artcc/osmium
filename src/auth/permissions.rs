@@ -294,11 +294,7 @@ permission!(EmailsTemplatesRead, ["emails", "templates"], Read);
 permission!(EmailsPreviewCreate, ["emails", "preview"], Create);
 permission!(EmailsSendCreate, ["emails", "send"], Create);
 permission!(EmailsOutboxRead, ["emails", "outbox"], Read);
-permission!(
-    EmailsSuppressionsUpdate,
-    ["emails", "suppressions"],
-    Update
-);
+permission!(EmailsSuppressionsUpdate, ["emails", "suppressions"], Update);
 permission!(EmailsBrandingRead, ["emails", "branding"], Read);
 permission!(EmailsBrandingUpdate, ["emails", "branding"], Update);
 
@@ -344,16 +340,8 @@ permission!(
 // stay permission-free (OAuth flows); service_account_me keeps its existing no-gate
 // shape — none get a marker.
 permission!(AuthTeamspeakUidsRead, ["auth", "teamspeak_uids"], Read);
-permission!(
-    AuthTeamspeakUidsCreate,
-    ["auth", "teamspeak_uids"],
-    Create
-);
-permission!(
-    AuthTeamspeakUidsDelete,
-    ["auth", "teamspeak_uids"],
-    Delete
-);
+permission!(AuthTeamspeakUidsCreate, ["auth", "teamspeak_uids"], Create);
+permission!(AuthTeamspeakUidsDelete, ["auth", "teamspeak_uids"], Delete);
 permission!(AuthSessionsDelete, ["auth", "sessions"], Delete);
 // Authenticated user impersonation (spec 012). Seeded to NO role — SERVER_ADMIN
 // holds it implicitly via the effective-permissions cross-join, and no facility

@@ -84,11 +84,17 @@ async fn revoking_one_session_invalidates_only_that_session() {
         return;
     };
     let admin = test
-        .create_user(570_010, "Admin", &["users.sessions.read", "users.sessions.delete"])
+        .create_user(
+            570_010,
+            "Admin",
+            &["users.sessions.read", "users.sessions.delete"],
+        )
         .await;
     // Grant the baseline self-read so a *valid* session returns 200 on /me — otherwise
     // /me would 401 on permissions, masking whether the session itself is still live.
-    let target = test.create_user(570_011, "Target", &["auth.profile.read"]).await;
+    let target = test
+        .create_user(570_011, "Target", &["auth.profile.read"])
+        .await;
     let extra = add_session(&test, &target).await;
 
     // Find the session id of `extra` to revoke it specifically.
@@ -112,7 +118,10 @@ async fn revoking_one_session_invalidates_only_that_session() {
 
     // The revoked token no longer authenticates; the other one still does.
     assert_eq!(me_status(&test, &extra).await, StatusCode::UNAUTHORIZED);
-    assert_eq!(me_status(&test, &target.session_token).await, StatusCode::OK);
+    assert_eq!(
+        me_status(&test, &target.session_token).await,
+        StatusCode::OK
+    );
 
     // Revoking an unknown session id is a 404.
     let response = test
@@ -151,7 +160,10 @@ async fn revoke_all_clears_every_session() {
     assert_eq!(body["items"].as_array().unwrap().len(), 0);
 
     // The target's original session is now dead too.
-    assert_eq!(me_status(&test, &target.session_token).await, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        me_status(&test, &target.session_token).await,
+        StatusCode::UNAUTHORIZED
+    );
 
     test.cleanup().await;
 }
@@ -162,7 +174,9 @@ async fn session_endpoints_are_permission_gated() {
         return;
     };
     // A user with no session permissions.
-    let nobody = test.create_user(570_030, "Nobody", &["auth.profile.read"]).await;
+    let nobody = test
+        .create_user(570_030, "Nobody", &["auth.profile.read"])
+        .await;
     let _target = test.create_user(570_031, "Target", &[]).await;
 
     let list = test

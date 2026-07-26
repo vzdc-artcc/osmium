@@ -13,8 +13,7 @@ use crate::models::stats::{
     ControllerEventsResponse, ControllerHistoryQuery, ControllerHistoryResponse, ControllerLeader,
     ControllerPositionListResponse, ControllerPositionsQuery, ControllerTotals,
     ControllerTotalsQuery, ControllerTotalsResponse, MonthlyBucket, OnlineControllersResponse,
-    StatisticsPrefixes,
-    UpdateStatisticsPrefixesRequest,
+    StatisticsPrefixes, UpdateStatisticsPrefixesRequest,
 };
 use crate::models::{PaginationMeta, PaginationQuery};
 use crate::repos::audit as audit_repo;
@@ -370,9 +369,10 @@ pub async fn list_controller_positions(
         .ok_or(ApiError::NotFound)?;
 
     let range = match (query.year, query.month) {
-        (Some(year), Some(month)) if (1..=12).contains(&month) => {
-            Some((ym_start(year, month as u32)?, ym_start(year, month as u32 + 1)?))
-        }
+        (Some(year), Some(month)) if (1..=12).contains(&month) => Some((
+            ym_start(year, month as u32)?,
+            ym_start(year, month as u32 + 1)?,
+        )),
         (Some(_), Some(_)) => return Err(ApiError::BadRequest),
         (Some(year), None) => Some((ym_start(year, 1)?, ym_start(year + 1, 1)?)),
         (None, Some(_)) => return Err(ApiError::BadRequest),

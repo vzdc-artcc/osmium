@@ -370,9 +370,9 @@ pub async fn sync_user_roles_from_vatusa_roles(
     facility_roles: &[String],
 ) -> Result<(), ApiError> {
     for target_role in ["STAFF", "INS", "MTR"] {
-        let held = VATUSA_SYNCED_USER_ROLES
-            .iter()
-            .any(|(vatusa, osmium)| *osmium == target_role && facility_roles.iter().any(|r| r == vatusa));
+        let held = VATUSA_SYNCED_USER_ROLES.iter().any(|(vatusa, osmium)| {
+            *osmium == target_role && facility_roles.iter().any(|r| r == vatusa)
+        });
         set_user_role_auto(pool, user_id, target_role, held).await?;
     }
     Ok(())

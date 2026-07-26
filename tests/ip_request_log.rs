@@ -55,7 +55,10 @@ async fn requests_are_buffered_and_flushed_with_resolved_actor() {
     let inserted = drain_and_insert(&test.state, 100)
         .await
         .expect("flush ip log buffer");
-    assert!(inserted >= 2, "expected at least the two requests, got {inserted}");
+    assert!(
+        inserted >= 2,
+        "expected at least the two requests, got {inserted}"
+    );
 
     // The authenticated request resolved to the user's actor.
     let (matched_path, status_code, actor_id): (String, i16, Option<String>) = sqlx::query_as(
@@ -85,7 +88,10 @@ async fn requests_are_buffered_and_flushed_with_resolved_actor() {
     .fetch_one(&test.pool)
     .await
     .expect("anon ip row");
-    assert!(anon_actor.is_none(), "anonymous request must have null actor_id");
+    assert!(
+        anon_actor.is_none(),
+        "anonymous request must have null actor_id"
+    );
 
     test.cleanup().await;
 }
@@ -145,7 +151,11 @@ async fn admin_ip_history_endpoint_is_permission_gated_and_scoped() {
 
     // Generate a log entry attributed to the target, then flush it.
     let response = test
-        .request(ip_request("/health", "203.0.113.70", Some(&target.session_token)))
+        .request(ip_request(
+            "/health",
+            "203.0.113.70",
+            Some(&target.session_token),
+        ))
         .await;
     assert_status(&response, StatusCode::OK);
     drain_and_insert(&test.state, 100)

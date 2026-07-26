@@ -81,8 +81,8 @@ struct AppointmentListRow {
 impl AppointmentListRow {
     fn into_model(self) -> Result<TrainingAppointmentListItem, ApiError> {
         let lessons = serde_json::from_value(self.lessons_json).map_err(|_| ApiError::Internal)?;
-        let additional_trainers =
-            serde_json::from_value(self.additional_trainers_json).map_err(|_| ApiError::Internal)?;
+        let additional_trainers = serde_json::from_value(self.additional_trainers_json)
+            .map_err(|_| ApiError::Internal)?;
 
         Ok(TrainingAppointmentListItem {
             id: self.id,

@@ -342,10 +342,7 @@ where
 /// explicit list was chosen) so an exempt-staff broadcast still shows up,
 /// pre-agreed, in their own broadcast history — "exempt" means exempt from
 /// having to act, not invisible.
-pub async fn insert_staff_recipients<'e, E>(
-    executor: E,
-    broadcast_id: &str,
-) -> Result<(), ApiError>
+pub async fn insert_staff_recipients<'e, E>(executor: E, broadcast_id: &str) -> Result<(), ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {

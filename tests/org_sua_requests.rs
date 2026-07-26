@@ -236,15 +236,26 @@ async fn sua_upcoming_feed_is_public_windowed_and_expires_old_missions() {
     .await
     .expect("seed expired sua block");
 
-    let feed_response = app.json_request("GET", "/api/v1/sua/upcoming", None, None).await;
+    let feed_response = app
+        .json_request("GET", "/api/v1/sua/upcoming", None, None)
+        .await;
     assert_status(&feed_response, StatusCode::OK);
     let feed: Value = json_body(feed_response).await;
     let items = feed["items"].as_array().unwrap();
     let ids: Vec<&str> = items.iter().map(|i| i["id"].as_str().unwrap()).collect();
 
-    assert!(ids.contains(&soon_id.as_str()), "soon mission should be in the feed");
-    assert!(!ids.contains(&far_id.as_str()), "far mission should not be in the feed");
-    assert!(!ids.contains(&expired_id.as_str()), "expired mission should not be in the feed");
+    assert!(
+        ids.contains(&soon_id.as_str()),
+        "soon mission should be in the feed"
+    );
+    assert!(
+        !ids.contains(&far_id.as_str()),
+        "far mission should not be in the feed"
+    );
+    assert!(
+        !ids.contains(&expired_id.as_str()),
+        "expired mission should not be in the feed"
+    );
 
     // The public item must not leak the internal user_id.
     let soon_item = items.iter().find(|i| i["id"] == soon_id).unwrap();
@@ -252,12 +263,11 @@ async fn sua_upcoming_feed_is_public_windowed_and_expires_old_missions() {
     assert_eq!(soon_item["cid"], 10000096);
 
     // Expiration-on-read actually deleted the expired row.
-    let still_there = sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from org.sua_blocks where id = $1",
-    )
-    .bind(&expired_id)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
+    let still_there =
+        sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.sua_blocks where id = $1")
+            .bind(&expired_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     assert_eq!(still_there, 0);
 }

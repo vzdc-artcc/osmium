@@ -86,7 +86,8 @@ fn is_self_service_write(path: &str) -> bool {
         return true;
     }
     // Broadcast seen/agree acknowledgements.
-    if path.starts_with("/api/v1/broadcasts/") && (path.ends_with("/seen") || path.ends_with("/agree"))
+    if path.starts_with("/api/v1/broadcasts/")
+        && (path.ends_with("/seen") || path.ends_with("/agree"))
     {
         return true;
     }

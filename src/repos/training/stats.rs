@@ -88,13 +88,12 @@ pub async fn training_stats_bundle(
     // Resolve the instructor filter once; an unknown cid yields an empty bundle.
     let instructor_id: Option<String> = match cid {
         Some(c) => {
-            let resolved = sqlx::query_scalar::<_, String>(
-                "select id from identity.users where cid = $1",
-            )
-            .bind(c)
-            .fetch_optional(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+            let resolved =
+                sqlx::query_scalar::<_, String>("select id from identity.users where cid = $1")
+                    .bind(c)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|_| ApiError::Internal)?;
             match resolved {
                 Some(id) => Some(id),
                 None => return Ok(empty_bundle(month)),

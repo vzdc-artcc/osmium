@@ -1166,12 +1166,10 @@ async fn apply_certification_and_progression_automation(
     // (a) Rated controllers get UNRESTRICTED on every auto-assign cert type they
     // don't already hold a non-NONE option for.
     if rating_is_rated(&update.rating) {
-        let type_ids =
-            certifications_repo::list_auto_assign_unrestricted_type_ids(pool).await?;
+        let type_ids = certifications_repo::list_auto_assign_unrestricted_type_ids(pool).await?;
         for type_id in &type_ids {
             let current =
-                certifications_repo::fetch_user_cert_option(pool, &update.user_id, type_id)
-                    .await?;
+                certifications_repo::fetch_user_cert_option(pool, &update.user_id, type_id).await?;
             let already_certified = current.as_deref().map(|o| o != "NONE").unwrap_or(false);
             if already_certified {
                 continue;

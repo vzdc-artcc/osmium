@@ -68,9 +68,12 @@ impl Job for EventLifecycleJob {
                 }))
             }
             _ => {
-                let _ =
-                    jobs_repo::finish_job_run_failure(pool, &run_id, "event lifecycle sweep failed")
-                        .await;
+                let _ = jobs_repo::finish_job_run_failure(
+                    pool,
+                    &run_id,
+                    "event lifecycle sweep failed",
+                )
+                .await;
                 Err("event lifecycle sweep failed".to_string())
             }
         }

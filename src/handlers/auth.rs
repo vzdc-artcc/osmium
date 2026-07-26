@@ -28,7 +28,8 @@ use crate::{
     errors::ApiError,
     models::{
         CreateTeamSpeakUidRequest, ImpersonationBanner, MeBody, PatchMeRequest,
-        ServiceAccountSessionBody, TeamSpeakLookupRequest, TeamSpeakLookupResponse, TeamSpeakUidBody,
+        ServiceAccountSessionBody, TeamSpeakLookupRequest, TeamSpeakLookupResponse,
+        TeamSpeakUidBody,
     },
     repos::{access as access_repo, users as user_repo},
     state::AppState,

@@ -17,10 +17,7 @@ pub struct CriteriaRow {
     pub sort_order: i32,
 }
 
-pub async fn next_criteria_sort_order<'e, E>(
-    executor: E,
-    rubric_id: &str,
-) -> Result<i32, ApiError>
+pub async fn next_criteria_sort_order<'e, E>(executor: E, rubric_id: &str) -> Result<i32, ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {

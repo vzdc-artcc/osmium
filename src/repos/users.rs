@@ -6,8 +6,7 @@ use crate::{
     errors::ApiError,
     models::users::{
         AdminUserListItem, MeProfileBody, RosterUserRow, TeamSpeakLookupResponse, TeamSpeakUidBody,
-        UpdateUserFlagsRequest,
-        UserFlagsBody, UserStats, VisitorApplicationItem,
+        UpdateUserFlagsRequest, UserFlagsBody, UserStats, VisitorApplicationItem,
     },
 };
 
@@ -298,16 +297,18 @@ pub async fn fetch_user_flags(pool: &PgPool, user_id: &str) -> Result<UserFlagsB
     .fetch_optional(pool)
     .await
     .map_err(|_| ApiError::Internal)
-    .map(|row| row.unwrap_or(UserFlagsBody {
-        no_request_loas: false,
-        no_request_training_assignments: false,
-        no_request_trainer_release: false,
-        no_force_progression_finish: false,
-        no_event_signup: false,
-        no_edit_profile: false,
-        excluded_from_roster_sync: false,
-        hidden_from_roster: false,
-    }))
+    .map(|row| {
+        row.unwrap_or(UserFlagsBody {
+            no_request_loas: false,
+            no_request_training_assignments: false,
+            no_request_trainer_release: false,
+            no_force_progression_finish: false,
+            no_event_signup: false,
+            no_edit_profile: false,
+            excluded_from_roster_sync: false,
+            hidden_from_roster: false,
+        })
+    })
 }
 
 pub async fn upsert_user_flags(

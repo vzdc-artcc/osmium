@@ -25,19 +25,16 @@ use crate::{
     errors::ApiError,
     models::{
         CertificationListResponse, CertificationTypeItem, CertificationTypeListResponse,
-        ControllerLifecycleCleanupSummary, ControllerLifecycleRequest,
-        ControllerLifecycleResponse, CreateLoaRequest, CreateOrUpdateCertificationTypeRequest,
-        CreateSoloCertificationRequest,
+        ControllerLifecycleCleanupSummary, ControllerLifecycleRequest, ControllerLifecycleResponse,
+        CreateLoaRequest, CreateOrUpdateCertificationTypeRequest, CreateSoloCertificationRequest,
         CreateStaffingRequestRequest, CreateSuaRequest, DecideLoaRequest, JobDetailResponse,
         JobRunItem, JobRunResponse, JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery,
         ListStaffingRequestsQuery, ListSuaQuery, LoaItem, LoaListResponse, PaginationMeta,
         PaginationQuery, PublicSuaMissionItem, PurgeCandidateItem, PurgeCandidatesQuery,
         PurgeCandidatesResponse, RosterCertificationsResponse, SaveCertificationsRequest,
-        SoloCertificationItem,
-        SoloCertificationListResponse,
-        StaffingRequestItem, StaffingRequestListResponse, SuaBlockItem, SuaListResponse,
-        UpcomingSuaMissionsResponse, UpdateCertificationTypeOrderRequest, UpdateLoaRequest,
-        UpdateSoloCertificationRequest,
+        SoloCertificationItem, SoloCertificationListResponse, StaffingRequestItem,
+        StaffingRequestListResponse, SuaBlockItem, SuaListResponse, UpcomingSuaMissionsResponse,
+        UpdateCertificationTypeOrderRequest, UpdateLoaRequest, UpdateSoloCertificationRequest,
     },
     repos::{
         access as access_repo, audit as audit_repo,
@@ -45,8 +42,7 @@ use crate::{
             certifications, controller_lifecycle, jobs as jobs_repo, loas, roster_purge,
             solo_certs, staffing_requests, sua_requests,
         },
-        training_admin as training_admin_repo,
-        users as user_repo,
+        training_admin as training_admin_repo, users as user_repo,
     },
     state::{AppState, JobHealth},
     time::{ApiJson, ResponseTimeContext},
@@ -229,8 +225,7 @@ pub async fn admin_list_loas(
         .map(|value| value.trim().to_ascii_uppercase());
 
     let display_name = query.display_name.as_deref();
-    let total =
-        loas::count_admin_loas(pool, status.as_deref(), query.cid, display_name).await?;
+    let total = loas::count_admin_loas(pool, status.as_deref(), query.cid, display_name).await?;
     let items = loas::list_admin_loas(
         pool,
         status.as_deref(),
@@ -471,9 +466,12 @@ pub async fn create_or_update_certification_type(
     // Mirror the website's guard: block removing an option that a lesson still
     // grants via lesson_roster_changes (would orphan that roster change).
     if let Some(id) = payload.id.as_deref() {
-        let conflicts =
-            certifications::conflicting_lesson_identifiers(pool, id, &payload.certification_options)
-                .await?;
+        let conflicts = certifications::conflicting_lesson_identifiers(
+            pool,
+            id,
+            &payload.certification_options,
+        )
+        .await?;
         if !conflicts.is_empty() {
             return Err(ApiError::Conflict);
         }

@@ -105,9 +105,12 @@ pub fn start_faa_preferred_routes_worker(state: AppState) {
     );
 
     let job_health = state.job_health.clone();
-    crate::jobs::spawn(FaaPreferredRoutesJob { config }, state, job_health, |health| {
-        &mut health.faa_preferred_routes
-    });
+    crate::jobs::spawn(
+        FaaPreferredRoutesJob { config },
+        state,
+        job_health,
+        |health| &mut health.faa_preferred_routes,
+    );
 }
 
 /// Manual-trigger entry point for `POST /admin/jobs/faa_preferred_routes/run`.
@@ -275,7 +278,10 @@ fn parse_rmt_csv(text: &str) -> Result<Vec<PreferredRouteUpsert>, String> {
             continue;
         }
 
-        let origin = index.get(&record, Column::Origin).trim().to_ascii_uppercase();
+        let origin = index
+            .get(&record, Column::Origin)
+            .trim()
+            .to_ascii_uppercase();
         let destination = index
             .get(&record, Column::Destination)
             .trim()

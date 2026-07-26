@@ -512,8 +512,7 @@ impl PartialSchema for CreateTeamSpeakUidRequest {
 }
 
 pub const STAFF_POSITIONS: [&str; 14] = [
-    "ATM", "DATM", "TA", "EC", "WM", "FE", "AEC", "AWM", "AFE", "EP", "TMU",
-    "FC", "INS", "MTR",
+    "ATM", "DATM", "TA", "EC", "WM", "FE", "AEC", "AWM", "AFE", "EP", "TMU", "FC", "INS", "MTR",
 ];
 
 /// Subset of STAFF_POSITIONS that VATUSA's roster API actually reports.
