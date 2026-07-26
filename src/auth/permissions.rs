@@ -366,6 +366,7 @@ permission!(AuthImpersonateCreate, ["auth", "impersonate"], Create);
 // assignable catalog. Reveals login IPs/times and can force-logout a user.
 permission!(UsersSessionsRead, ["users", "sessions"], Read);
 permission!(UsersSessionsDelete, ["users", "sessions"], Delete);
+permission!(UsersDataExportRead, ["users", "data_export"], Read);
 
 // spec 010 — IP rate-limit bypass. `PermissionAction` has no `Bypass` variant, so
 // this uses `Update`. It is a SINGLE segment `["system_rate_limit"]`, NOT

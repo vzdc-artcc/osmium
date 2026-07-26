@@ -253,6 +253,10 @@ pub fn build_router(state: AppState) -> Router {
             "/users/{cid}/sessions/{session_id}",
             delete(admin::revoke_user_session),
         )
+        .route(
+            "/data-export/roster",
+            get(data_export::export_roster_data),
+        )
         .nest(
             "/publications",
             Router::new()

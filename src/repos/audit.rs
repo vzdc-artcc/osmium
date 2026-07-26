@@ -241,7 +241,14 @@ pub fn sanitized_snapshot<T: Serialize>(value: &T) -> Result<Value, ApiError> {
 /// shared with `logging.rs` and the rate limiter (spec 010).
 pub use crate::auth::ip::client_ip;
 
-async fn lookup_user_actor_id<'e, E>(executor: E, user_id: &str) -> Result<Option<String>, ApiError>
+/// Resolves the `access.actors` id for a user by their `user_id`, if provisioned.
+/// Public so the data-export assembler can attribute a *subject's own* activity
+/// log by uid (as opposed to `resolve_audit_actor`, which is impersonator-aware
+/// and keyed off the acting `CurrentUser`).
+pub async fn lookup_user_actor_id<'e, E>(
+    executor: E,
+    user_id: &str,
+) -> Result<Option<String>, ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {

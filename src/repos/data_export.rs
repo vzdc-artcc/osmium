@@ -22,6 +22,30 @@ use sqlx::PgPool;
 use crate::errors::ApiError;
 
 // ---------------------------------------------------------------------------
+// Roster subject enumeration (admin mass export)
+// ---------------------------------------------------------------------------
+
+/// Lists `(user_id, cid)` for every on-roster controller, ordered by CID.
+///
+/// Same roster predicate as `users::list_roster_users` (`controller_status` set
+/// and not `NONE`) against the same `org.v_user_roster_profile` view, so the mass
+/// export covers exactly the population the roster page shows — bounded, and never
+/// the full `identity.users` history of everyone who ever logged in.
+pub async fn list_roster_subject_ids(pool: &PgPool) -> Result<Vec<(String, i64)>, ApiError> {
+    sqlx::query_as::<_, (String, i64)>(
+        r#"
+        select v.id, v.cid
+        from org.v_user_roster_profile v
+        where v.controller_status is not null and v.controller_status <> 'NONE'
+        order by v.cid asc
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+// ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
 

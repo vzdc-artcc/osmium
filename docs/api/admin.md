@@ -84,6 +84,7 @@ Timestamped admin responses follow the shared response-timezone contract via `X-
 - `GET /api/v1/admin/users/{cid}/sessions`
 - `DELETE /api/v1/admin/users/{cid}/sessions/{session_id}`
 - `DELETE /api/v1/admin/users/{cid}/sessions`
+- `GET /api/v1/admin/data-export/roster`
 - `POST /api/v1/admin/users/{cid}/staff-positions/{position}`
 - `DELETE /api/v1/admin/users/{cid}/staff-positions/{position}`
 - `GET /api/v1/admin/publications`

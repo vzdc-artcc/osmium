@@ -73,6 +73,19 @@ pub fn build_data_export_limiter() -> Arc<IpRateLimiter> {
     Arc::new(DefaultKeyedRateLimiter::keyed(quota))
 }
 
+/// Builds the dedicated limiter for the admin mass (whole-roster) data export.
+/// Keyed by the admin's user id and capped tighter than the per-user export, since
+/// each call assembles the entire roster's cross-domain document set.
+pub fn build_mass_data_export_limiter() -> Arc<IpRateLimiter> {
+    let per_hour = NonZeroU32::new(crate::config::mass_data_export_rate_limit_per_hour())
+        .unwrap_or(NonZeroU32::new(1).expect("1 is non-zero"));
+    let burst = NonZeroU32::new(crate::config::mass_data_export_rate_limit_burst())
+        .unwrap_or(NonZeroU32::new(1).expect("1 is non-zero"));
+
+    let quota = Quota::per_hour(per_hour).allow_burst(burst);
+    Arc::new(DefaultKeyedRateLimiter::keyed(quota))
+}
+
 /// Middleware enforcing the per-IP limit. Registered innermost (closest to the
 /// handler) so `log_requests` still observes and logs any `429` — see
 /// `router.rs` for the exact layer ordering and its rationale.

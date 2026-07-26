@@ -30,6 +30,7 @@ Permission-gated routes:
 - `GET /api/v1/me` -> `auth.profile.read`
 - `PATCH /api/v1/me` -> `auth.profile.update`
 - `GET /api/v1/me/data-export` -> `auth.profile.read` (self-service GDPR Article 15 export; hard-scoped to the caller's own user id)
+- `GET /api/v1/admin/data-export/roster` -> `users.data_export.read` (admin bulk export of every on-roster controller's document; granted to no role = SERVER_ADMIN-only, kept out of the assignable catalog)
 - `GET /api/v1/routes/preferred` -> authenticated (any logged-in member; no specific permission — public FAA reference data, deliberately not exposed unauthenticated)
 - `GET /api/v1/me/discord` -> `auth.profile.read`
 - `POST /api/v1/me/discord/link/start` -> `auth.profile.read`

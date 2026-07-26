@@ -324,6 +324,7 @@ fn filter_assignable_permissions(permissions: Vec<String>) -> Vec<String> {
         "auth.impersonate.create",
         "users.sessions.read",
         "users.sessions.delete",
+        "users.data_export.read",
     ];
     permissions
         .into_iter()

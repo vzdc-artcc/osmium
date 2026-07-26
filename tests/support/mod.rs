@@ -126,6 +126,7 @@ impl TestApp {
             controller_events,
             rate_limiter: osmium::rate_limit::build_rate_limiter(),
             data_export_limiter: osmium::rate_limit::build_data_export_limiter(),
+            mass_data_export_limiter: osmium::rate_limit::build_mass_data_export_limiter(),
             rate_limit_enabled: osmium::config::rate_limit_enabled(),
             ip_log_tx,
             ip_log_rx: Arc::new(tokio::sync::Mutex::new(ip_log_rx)),

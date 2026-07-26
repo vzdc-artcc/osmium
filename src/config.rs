@@ -91,6 +91,20 @@ pub fn data_export_rate_limit_burst() -> u32 {
     env_u32_or("DATA_EXPORT_RATE_LIMIT_BURST", 3)
 }
 
+/// per-hour cap on the admin mass (whole-roster) data export. This assembles the
+/// full cross-domain document for every on-roster controller in one request — the
+/// single most expensive call in the API — so it is capped far tighter than the
+/// per-user export. Keyed by the admin's user id; only enforced when `RATE_LIMIT_ENABLED`.
+pub fn mass_data_export_rate_limit_per_hour() -> u32 {
+    env_u32_or("MASS_DATA_EXPORT_RATE_LIMIT_PER_HOUR", 5)
+}
+
+/// Burst for the admin mass data export — how many back-to-back roster exports
+/// before the hourly rate applies.
+pub fn mass_data_export_rate_limit_burst() -> u32 {
+    env_u32_or("MASS_DATA_EXPORT_RATE_LIMIT_BURST", 2)
+}
+
 // ---------------------------------------------------------------------------
 // spec 011 — durable IP request tracking
 // ---------------------------------------------------------------------------

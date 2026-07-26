@@ -280,7 +280,8 @@ pub fn build_docs_router() -> Router<AppState> {
         crate::handlers::training_admin::get_user_dossier,
         crate::handlers::training_admin::create_dossier_entry,
         crate::handlers::routes::search_preferred_routes,
-        crate::handlers::data_export::export_my_data
+        crate::handlers::data_export::export_my_data,
+        crate::handlers::data_export::export_roster_data
     ),
     components(
         schemas(
@@ -577,7 +578,8 @@ pub fn build_docs_router() -> Router<AppState> {
             crate::models::routes::PreferredRoutesResponse,
             crate::models::data_export::DataExportDocument,
             crate::models::data_export::DataExportMeta,
-            crate::models::data_export::GdprNotice
+            crate::models::data_export::GdprNotice,
+            crate::models::data_export::MassDataExportDocument
         )
     ),
     tags(

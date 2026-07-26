@@ -46,6 +46,21 @@ pub struct DataExportDocument {
     pub activity_log: Value,
 }
 
+/// Admin bulk export: every on-roster controller's `DataExportDocument` in one
+/// payload. SERVER_ADMIN-only (`users.data_export.read`) — this is the entire
+/// roster's personal data, so it is gated far more tightly than the self-service
+/// Article 15 export and is not something a data subject can reach.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MassDataExportDocument {
+    pub generated_at: DateTime<Utc>,
+    /// Number of subjects (on-roster controllers) included.
+    pub subject_count: i64,
+    /// The same transparency notice that accompanies each per-subject document.
+    pub gdpr_notice: GdprNotice,
+    /// One full export document per on-roster controller, ordered by CID.
+    pub subjects: Vec<DataExportDocument>,
+}
+
 /// Article 15(1)(a)–(h) transparency information that must accompany the records.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DataExportMeta {

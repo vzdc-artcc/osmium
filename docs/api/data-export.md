@@ -10,17 +10,36 @@ assembled across every domain that links to them. Because a JSON document is a
 
 ## Main Routes
 
-- `GET /api/v1/me/data-export`
+- `GET /api/v1/me/data-export` — self-service (one subject: the caller)
+- `GET /api/v1/admin/data-export/roster` — admin bulk (every on-roster controller)
 
 ## Access
 
-Self-service only — gated by `auth.profile.read` (the baseline self-read
-permission every authenticated member holds) and hard-scoped to the caller's own
-`user.id`. There is no path here to export another subject's data.
+**Self-service** (`GET /api/v1/me/data-export`) — gated by `auth.profile.read` (the
+baseline self-read permission every authenticated member holds) and hard-scoped to
+the caller's own `user.id`. There is no path here to export another subject's data.
 
 The request itself is logged to the audit trail as a `DATA_EXPORT` / `EXPORT`
 entry (Article 5(2) accountability — the org must be able to demonstrate it
 handled access requests).
+
+**Admin mass export** (`GET /api/v1/admin/data-export/roster`) — gated by
+`users.data_export.read`, which is granted to **no role** (SERVER_ADMIN-only, via
+the effective-permissions cross-join) and kept out of the assignable catalog
+(`acl.rs` NON_ASSIGNABLE) so facility admins cannot grant it onward. It returns the
+full `DataExportDocument` for **every on-roster controller** (the same population
+the roster page shows: `controller_status` set and not `NONE`) in one payload,
+reusing the exact same per-subject assembler — so each subject's document honours
+the same Article 15(4) third-party scoping as the self-service export. Each
+subject's `activity_log` is resolved by *their own* actor, not the requesting
+admin's. The bulk access is recorded as a single `DATA_EXPORT` / `EXPORT_ALL` audit
+entry whose `scope_key` is the subject count. It has its own dedicated rate limiter
+(`MASS_DATA_EXPORT_RATE_LIMIT_PER_HOUR`, default 5; burst 2), tighter than the
+per-user export, because it is the single most expensive request in the API.
+
+The mass-export response is a `MassDataExportDocument`: `generated_at`,
+`subject_count`, a `gdpr_notice`, and `subjects` — an array of per-controller
+`DataExportDocument`s ordered by CID.
 
 ## Response shape
 

@@ -7,9 +7,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{
-    auth::{context::CurrentUser, permissions::AuthProfileRead, require_permission::RequirePermission},
+    auth::{
+        context::CurrentUser,
+        permissions::{AuthProfileRead, UsersDataExportRead},
+        require_permission::RequirePermission,
+    },
     errors::ApiError,
-    models::data_export::{DataExportDocument, DataExportMeta, GdprNotice},
+    models::data_export::{DataExportDocument, DataExportMeta, GdprNotice, MassDataExportDocument},
     repos::{audit as audit_repo, data_export as export_repo, users as user_repo},
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
@@ -52,10 +56,113 @@ pub async fn export_my_data(
         return Err(ApiError::TooManyRequests);
     }
 
+    let document = assemble_export_document(pool, uid, user.cid).await?;
+
+    // Article 5(2): log that the access request happened, and record the request.
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id.clone(),
+            action: "EXPORT".to_string(),
+            resource_type: "DATA_EXPORT".to_string(),
+            resource_id: Some(user.id.clone()),
+            // Must be one of the audit_logs.scope_type CHECK values (0003_access.sql);
+            // "self" is not valid and made this insert (and the whole export) 500.
+            scope_type: "global".to_string(),
+            scope_key: Some(user.cid.to_string()),
+            before_state: None,
+            after_state: None,
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(ApiJson::new(document, time))
+}
+
+/// Admin bulk export of every on-roster controller's personal-data document.
+///
+/// SERVER_ADMIN-only (`users.data_export.read`, granted to no role and kept out of
+/// the assignable catalog): this is the entire roster's personal data in one
+/// payload. Reuses the exact same per-subject assembler as the self-service
+/// export, so each subject's document honours the same Article 15(4) third-party
+/// scoping. The bulk access is recorded as a single audit entry.
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/data-export/roster",
+    tag = "data-export",
+    responses(
+        (status = 200, description = "Every on-roster controller's export document", body = MassDataExportDocument),
+        (status = 401, description = "Not authenticated or missing permission"),
+        (status = 429, description = "Rate limited")
+    )
+)]
+pub async fn export_roster_data(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<UsersDataExportRead>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<MassDataExportDocument>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    // Even tighter dedicated limiter than the per-user export — this assembles the
+    // whole roster (N subjects x the full cross-domain query set), so it is the
+    // single most expensive request in the API. Keyed by the admin's user id.
+    if state.rate_limit_enabled && state.mass_data_export_limiter.check_key(&user.id).is_err() {
+        return Err(ApiError::TooManyRequests);
+    }
+
+    let subject_ids = export_repo::list_roster_subject_ids(pool).await?;
+
+    let mut subjects = Vec::with_capacity(subject_ids.len());
+    for (subject_uid, subject_cid) in &subject_ids {
+        subjects.push(assemble_export_document(pool, subject_uid, *subject_cid).await?);
+    }
+
+    // Record the bulk access as one audit entry, attributed to the acting admin
+    // (impersonator-aware). scope_key carries the subject count for the trail.
+    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id.clone(),
+            action: "EXPORT_ALL".to_string(),
+            resource_type: "DATA_EXPORT".to_string(),
+            resource_id: None,
+            scope_type: "global".to_string(),
+            scope_key: Some(subjects.len().to_string()),
+            before_state: None,
+            after_state: None,
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    let document = MassDataExportDocument {
+        generated_at: Utc::now(),
+        subject_count: subjects.len() as i64,
+        gdpr_notice: GdprNotice::vzdc(),
+        subjects,
+    };
+
+    Ok(ApiJson::new(document, time))
+}
+
+/// Assembles one subject's full GDPR export document from every domain that links
+/// to their `user_id`. Shared by the self-service export and the admin mass export
+/// — pure assembly, no rate-limiting or audit (those are the caller's concern).
+pub async fn assemble_export_document(
+    pool: &sqlx::PgPool,
+    uid: &str,
+    cid: i64,
+) -> Result<DataExportDocument, ApiError> {
     // ----- identity -----
     let identity_core = export_repo::fetch_identity_core(pool, uid).await?;
     let flags = user_repo::fetch_user_flags(pool, uid).await?;
-    let staff_positions = user_repo::list_held_staff_positions(pool, user.cid).await?;
+    let staff_positions = user_repo::list_held_staff_positions(pool, cid).await?;
     let roles = export_repo::fetch_roles(pool, uid).await?;
     let identity_links = export_repo::fetch_identity_links(pool, uid).await?;
 
@@ -128,33 +235,13 @@ pub async fn export_my_data(
     });
 
     // ----- activity log (own audit entries, metadata only) -----
-    let activity_log = fetch_activity_log(pool, user).await?;
+    let activity_log = fetch_activity_log(pool, uid).await?;
 
-    // Article 5(2): log that the access request happened, and record the request.
-    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
-    audit_repo::record_audit(
-        pool,
-        audit_repo::AuditEntryInput {
-            actor_id: actor.actor_id.clone(),
-            action: "EXPORT".to_string(),
-            resource_type: "DATA_EXPORT".to_string(),
-            resource_id: Some(user.id.clone()),
-            // Must be one of the audit_logs.scope_type CHECK values (0003_access.sql);
-            // "self" is not valid and made this insert (and the whole export) 500.
-            scope_type: "global".to_string(),
-            scope_key: Some(user.cid.to_string()),
-            before_state: None,
-            after_state: None,
-            ip_address: audit_repo::client_ip(&headers),
-        },
-    )
-    .await?;
-
-    let document = DataExportDocument {
+    Ok(DataExportDocument {
         meta: DataExportMeta {
             generated_at: Utc::now(),
-            subject_cid: user.cid,
-            subject_user_id: user.id.clone(),
+            subject_cid: cid,
+            subject_user_id: uid.to_string(),
             format: "json".to_string(),
             gdpr_notice: GdprNotice::vzdc(),
         },
@@ -168,20 +255,21 @@ pub async fn export_my_data(
         notifications,
         visitor_application,
         activity_log,
-    };
-
-    Ok(ApiJson::new(document, time))
+    })
 }
 
 /// The subject's own audit activity, reduced to metadata. `before_state` /
 /// `after_state` bodies are deliberately dropped: for a staff member they can
 /// contain other data subjects' data (e.g. a profile they edited), which is not
-/// the requester's personal data. If the caller has no actor row, there is no
+/// the subject's personal data. If the subject has no actor row, there is no
 /// activity — and, critically, we must NOT fall through to an unfiltered
 /// `fetch_audit_logs` (a `None` actor filter matches every row).
-async fn fetch_activity_log(pool: &sqlx::PgPool, user: &CurrentUser) -> Result<Value, ApiError> {
-    let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
-    let Some(actor_id) = actor.actor_id else {
+///
+/// Resolved directly by the subject's `uid` (not `resolve_audit_actor`, which is
+/// impersonator-aware): each subject's export must carry *their own* activity,
+/// whether this is a self-service export or an admin bulk export of many subjects.
+async fn fetch_activity_log(pool: &sqlx::PgPool, uid: &str) -> Result<Value, ApiError> {
+    let Some(actor_id) = audit_repo::lookup_user_actor_id(pool, uid).await? else {
         return Ok(json!([]));
     };
 

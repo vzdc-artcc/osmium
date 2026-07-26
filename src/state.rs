@@ -91,6 +91,9 @@ pub struct AppState {
     /// Dedicated tight limiter for the expensive GDPR data export, keyed per user.
     /// Only enforced when `rate_limit_enabled`.
     pub data_export_limiter: Arc<crate::rate_limit::IpRateLimiter>,
+    /// Even tighter limiter for the admin mass (whole-roster) data export — the
+    /// single most expensive request in the API. Keyed by the admin's user id.
+    pub mass_data_export_limiter: Arc<crate::rate_limit::IpRateLimiter>,
     /// Whether the limiter is enforced. Off in the test harness so unrelated
     /// tests don't trip it.
     pub rate_limit_enabled: bool,
@@ -110,6 +113,7 @@ impl AppState {
         let (controller_events, _) = broadcast::channel(1024);
         let rate_limiter = crate::rate_limit::build_rate_limiter();
         let data_export_limiter = crate::rate_limit::build_data_export_limiter();
+        let mass_data_export_limiter = crate::rate_limit::build_mass_data_export_limiter();
         let rate_limit_enabled = crate::config::rate_limit_enabled();
         let (ip_log_tx, ip_log_rx) = build_ip_log_channel();
         let ip_log_enabled = crate::config::ip_request_log_enabled();
@@ -126,6 +130,7 @@ impl AppState {
                 controller_events,
                 rate_limiter,
                 data_export_limiter,
+                mass_data_export_limiter,
                 rate_limit_enabled,
                 ip_log_tx,
                 ip_log_rx,
@@ -141,6 +146,7 @@ impl AppState {
             controller_events,
             rate_limiter,
             data_export_limiter,
+            mass_data_export_limiter,
             rate_limit_enabled,
             ip_log_tx,
             ip_log_rx,
@@ -160,6 +166,7 @@ impl AppState {
             controller_events,
             rate_limiter: crate::rate_limit::build_rate_limiter(),
             data_export_limiter: crate::rate_limit::build_data_export_limiter(),
+            mass_data_export_limiter: crate::rate_limit::build_mass_data_export_limiter(),
             // Off by default: this DB-less state is test-only, and rate limiting is
             // meaningless without a DB (the bypass check can't run). Keeps the
             // `without_db()`-based test suites from being throttled incidentally.
