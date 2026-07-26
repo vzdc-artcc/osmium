@@ -59,7 +59,11 @@ examples:
             "id": "",
             "status": "",
             "student_id": "",
-            "submitted_at": ""
+            "student_cid": 0,
+            "student_name": "",
+            "student_controller_status": "HOME",
+            "submitted_at": "",
+            "interested_trainers": []
           }
   - name: 400 Response
     description: Invalid request

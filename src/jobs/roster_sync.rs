@@ -10,7 +10,10 @@ use crate::{
     errors::ApiError,
     jobs::{Job, TickOutcome},
     models::RosterUserRow,
-    repos::users as user_repo,
+    repos::{
+        access as access_repo, org::certifications as certifications_repo,
+        training_admin as training_admin_repo, users as user_repo,
+    },
     state::AppState,
 };
 
@@ -183,6 +186,14 @@ struct VatusaUserDetail {
     facility: String,
     rating: i32,
     rating_short: Option<String>,
+    #[serde(default)]
+    roles: Vec<VatusaRoleEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct VatusaRoleEntry {
+    facility: String,
+    role: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -362,6 +373,7 @@ async fn run_roster_sync(
     let mut matched_updates = Vec::new();
     let mut off_roster_updates = Vec::new();
     let mut failed_detail_cids = Vec::new();
+    let mut staff_position_roles: Vec<(String, Vec<String>)> = Vec::new();
 
     for local_user in &local_users {
         let Some(desired) = desired_memberships.get(&local_user.cid) else {
@@ -372,7 +384,16 @@ async fn run_roster_sync(
         };
 
         match fetch_user_detail(&client, config, local_user.cid).await {
-            Ok(detail) => matched_updates.push(build_matched_update(local_user, desired, detail)),
+            Ok(detail) => {
+                let facility_roles = detail
+                    .roles
+                    .iter()
+                    .filter(|role| role.facility == config.facility_id)
+                    .map(|role| role.role.clone())
+                    .collect();
+                staff_position_roles.push((local_user.user_id.clone(), facility_roles));
+                matched_updates.push(build_matched_update(local_user, desired, detail))
+            }
             Err(UserDetailFetchError::Http(err)) => {
                 failed_detail_cids.push(local_user.cid);
                 tracing::warn!(
@@ -508,6 +529,52 @@ async fn run_roster_sync(
         RosterSyncError::Api(ApiError::Internal)
     })?;
 
+    // Best-effort, outside the membership transaction — a staff-position
+    // sync failure must never block or roll back the actual roster sync.
+    for (user_id, facility_roles) in &staff_position_roles {
+        if let Err(err) =
+            user_repo::sync_staff_positions_from_vatusa_roles(pool, user_id, facility_roles).await
+        {
+            tracing::warn!(
+                facility_id = config.facility_id.as_str(),
+                stage = "sync_staff_positions",
+                user_id = user_id.as_str(),
+                ?err,
+                "failed to sync staff positions from vatusa roles"
+            );
+        }
+        if let Err(err) =
+            access_repo::sync_user_roles_from_vatusa_roles(pool, user_id, facility_roles).await
+        {
+            tracing::warn!(
+                facility_id = config.facility_id.as_str(),
+                stage = "sync_user_roles",
+                user_id = user_id.as_str(),
+                ?err,
+                "failed to sync authorization roles from vatusa roles"
+            );
+        }
+    }
+
+    // Best-effort certification & progression automation (parity with the
+    // website's roster route): auto-grant UNRESTRICTED certs to rated
+    // controllers, hand new home OBS their starter progression once, and
+    // advance any progression whose steps are all complete. Outside the
+    // membership transaction — a failure here must never roll back the roster.
+    for update in &matched_updates {
+        if let Err(err) = apply_certification_and_progression_automation(&state, pool, update).await
+        {
+            tracing::warn!(
+                facility_id = config.facility_id.as_str(),
+                stage = "certification_progression_automation",
+                cid = update.cid,
+                user_id = update.user_id.as_str(),
+                ?err,
+                "failed to apply certification/progression automation"
+            );
+        }
+    }
+
     Ok(RosterSyncRunResult {
         processed,
         matched,
@@ -547,9 +614,41 @@ pub async fn refresh_single_user_from_vatusa(
             let detail = fetch_user_detail(&client, &config, cid)
                 .await
                 .map_err(map_user_detail_fetch_error)?;
+            let facility_roles: Vec<String> = detail
+                .roles
+                .iter()
+                .filter(|role| role.facility == config.facility_id)
+                .map(|role| role.role.clone())
+                .collect();
             let update = build_matched_update(&before, desired, detail);
             let change_summary = summarize_membership_change(&before, &update);
             apply_matched_update(&mut tx, &update, &config.facility_id).await?;
+            if let Err(err) = user_repo::sync_staff_positions_from_vatusa_roles(
+                pool,
+                &before.user_id,
+                &facility_roles,
+            )
+            .await
+            {
+                tracing::warn!(
+                    cid,
+                    ?err,
+                    "failed to sync staff positions during manual vatusa refresh"
+                );
+            }
+            if let Err(err) = access_repo::sync_user_roles_from_vatusa_roles(
+                pool,
+                &before.user_id,
+                &facility_roles,
+            )
+            .await
+            {
+                tracing::warn!(
+                    cid,
+                    ?err,
+                    "failed to sync authorization roles during manual vatusa refresh"
+                );
+            }
             let message = if resolution.found_in_home && resolution.found_in_visit {
                 Some("cid found in both home and visiting rosters; preferred HOME".to_string())
             } else {
@@ -1050,6 +1149,103 @@ fn build_full_name(first_name: &str, last_name: &str) -> String {
         .to_string()
 }
 
+/// A controller who holds an actual controlling rating (S1 and above), i.e. the
+/// website's `rating > 1` check. OBS (and non-controlling statuses) are not.
+fn rating_is_rated(rating_short: &str) -> bool {
+    !matches!(rating_short, "OBS" | "SUS" | "INA")
+}
+
+/// Certification & progression automation for a single synced controller,
+/// mirroring the website roster route's `autoAssignUnrestricted` certs,
+/// `updateProgressionAssignments`, and `updateProgressionCompletions`.
+async fn apply_certification_and_progression_automation(
+    state: &AppState,
+    pool: &PgPool,
+    update: &MatchedUserUpdate,
+) -> Result<(), ApiError> {
+    // (a) Rated controllers get UNRESTRICTED on every auto-assign cert type they
+    // don't already hold a non-NONE option for.
+    if rating_is_rated(&update.rating) {
+        let type_ids =
+            certifications_repo::list_auto_assign_unrestricted_type_ids(pool).await?;
+        for type_id in &type_ids {
+            let current =
+                certifications_repo::fetch_user_cert_option(pool, &update.user_id, type_id)
+                    .await?;
+            let already_certified = current.as_deref().map(|o| o != "NONE").unwrap_or(false);
+            if already_certified {
+                continue;
+            }
+            certifications_repo::upsert_user_certification(
+                pool,
+                &update.user_id,
+                type_id,
+                "UNRESTRICTED",
+                None,
+            )
+            .await?;
+        }
+    }
+
+    // (b) A new home OBS receives the starter progression exactly once (guarded
+    // by the one-time flag_auto_assign_single_pass flag).
+    if update.controller_status == "HOME" && update.rating == "OBS" {
+        let already_assigned =
+            training_admin_repo::get_auto_assign_single_pass(pool, &update.user_id).await?;
+        if !already_assigned {
+            if let Some((prog_id, prog_name, _next)) =
+                training_admin_repo::find_auto_assign_home_obs_progression(pool).await?
+            {
+                training_admin_repo::upsert_progression_assignment(
+                    pool,
+                    &update.user_id,
+                    &prog_id,
+                    None,
+                )
+                .await?;
+                training_admin_repo::set_auto_assign_single_pass(pool, &update.user_id).await?;
+
+                let email_actor = crate::email::service::EmailActor {
+                    actor_id: None,
+                    user_id: None,
+                    service_account_id: None,
+                    request_source: "system".to_string(),
+                };
+                let payload = serde_json::json!({
+                    "controller_name": update.display_name,
+                    "progression_name": prog_name,
+                });
+                let _ = state
+                    .email
+                    .enqueue_to_users(
+                        pool,
+                        email_actor,
+                        "progression.assigned".to_string(),
+                        payload,
+                        vec![update.user_id.clone()],
+                    )
+                    .await;
+            }
+        }
+    }
+
+    // (c) Advance any assigned progression whose steps are all complete. The
+    // periodic sweep uses the stricter all-steps gate (matches the website's
+    // `updateProgressionCompletions`, which only advances when every step —
+    // optional included — has passed).
+    crate::handlers::training_admin::advance_progression_if_complete(
+        state,
+        pool,
+        None,
+        &update.user_id,
+        true,
+        false,
+    )
+    .await?;
+
+    Ok(())
+}
+
 fn resolve_rating_code(rating_short: Option<&str>, rating: i32, cid: i64) -> String {
     if let Some(code) = normalize_rating_code(rating_short) {
         return code;
@@ -1115,6 +1311,7 @@ fn format_roster_sync_error(err: &ApiError) -> String {
         ApiError::Forbidden => "forbidden".to_string(),
         ApiError::NotFound => "not found".to_string(),
         ApiError::Conflict => "conflict".to_string(),
+        ApiError::TooManyRequests => "too many requests".to_string(),
         ApiError::ServiceUnavailable => "service unavailable".to_string(),
         ApiError::Internal => "internal error".to_string(),
     }
@@ -1196,6 +1393,7 @@ mod tests {
             facility: facility.to_string(),
             rating: 4,
             rating_short: Some("S3".to_string()),
+            roles: Vec::new(),
         }
     }
 
@@ -1311,6 +1509,7 @@ mod tests {
                 facility: "ZBW".to_string(),
                 rating: 8,
                 rating_short: Some("I1".to_string()),
+                roles: Vec::new(),
             },
         );
 
@@ -1366,6 +1565,7 @@ mod tests {
                 facility: "ZDC".to_string(),
                 rating: 4,
                 rating_short: Some("S3".to_string()),
+                roles: Vec::new(),
             },
         );
 

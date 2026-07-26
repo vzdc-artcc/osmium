@@ -1,7 +1,7 @@
 info:
   name: decide_feedback
   type: http
-  seq: 3
+  seq: 4
   tags:
     - feedback
 
@@ -67,7 +67,11 @@ examples:
             "status": "",
             "submitted_at": "",
             "submitter_user_id": "",
-            "target_user_id": ""
+            "submitter_cid": 0,
+            "submitter_name": "",
+            "target_user_id": "",
+            "target_cid": 0,
+            "target_name": ""
           }
   - name: 400 Response
     description: Invalid request

@@ -28,7 +28,8 @@ pub async fn list_my_staffing_requests(
             sr.created_at,
             sr.updated_at,
             u.cid,
-            u.display_name
+            u.display_name,
+            u.email::text as email
         from org.staffing_requests sr
         join identity.users u on u.id = sr.user_id
         where sr.user_id = $1
@@ -63,7 +64,8 @@ pub async fn insert_staffing_request(
             created_at,
             updated_at,
             null::bigint as cid,
-            null::text as display_name
+            null::text as display_name,
+            null::text as email
         "#,
     )
     .bind(id)
@@ -89,7 +91,8 @@ pub async fn fetch_staffing_request(
             sr.created_at,
             sr.updated_at,
             u.cid,
-            u.display_name
+            u.display_name,
+            u.email::text as email
         from org.staffing_requests sr
         join identity.users u on u.id = sr.user_id
         where sr.id = $1
@@ -104,6 +107,7 @@ pub async fn fetch_staffing_request(
 pub async fn count_admin_staffing_requests(
     pool: &PgPool,
     cid: Option<i64>,
+    display_name: Option<&str>,
 ) -> Result<i64, ApiError> {
     sqlx::query_scalar::<_, i64>(
         r#"
@@ -111,9 +115,11 @@ pub async fn count_admin_staffing_requests(
         from org.staffing_requests sr
         join identity.users u on u.id = sr.user_id
         where ($1::bigint is null or u.cid = $1)
+          and ($2::text is null or u.display_name ilike '%' || $2 || '%')
         "#,
     )
     .bind(cid)
+    .bind(display_name)
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -122,6 +128,7 @@ pub async fn count_admin_staffing_requests(
 pub async fn list_admin_staffing_requests(
     pool: &PgPool,
     cid: Option<i64>,
+    display_name: Option<&str>,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<StaffingRequestItem>, ApiError> {
@@ -135,15 +142,18 @@ pub async fn list_admin_staffing_requests(
             sr.created_at,
             sr.updated_at,
             u.cid,
-            u.display_name
+            u.display_name,
+            u.email::text as email
         from org.staffing_requests sr
         join identity.users u on u.id = sr.user_id
         where ($1::bigint is null or u.cid = $1)
+          and ($2::text is null or u.display_name ilike '%' || $2 || '%')
         order by sr.created_at desc, sr.id asc
-        limit $2 offset $3
+        limit $3 offset $4
         "#,
     )
     .bind(cid)
+    .bind(display_name)
     .bind(page_size)
     .bind(offset)
     .fetch_all(pool)

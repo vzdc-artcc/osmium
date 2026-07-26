@@ -19,6 +19,16 @@ http:
       type: query
       description: Pagination offset
       disabled: true
+    - name: controllers_only
+      value: ""
+      type: query
+      description: Only include users with an active controller status (HOME or VISITOR)
+      disabled: true
+    - name: role
+      value: ""
+      type: query
+      description: Only include users holding this role (e.g. INS for instructor, MTR for mentor)
+      disabled: true
   auth: inherit
 
 settings:
@@ -43,6 +53,16 @@ examples:
           value: ""
           type: query
           description: Pagination offset
+          disabled: true
+        - name: controllers_only
+          value: ""
+          type: query
+          description: Only include users with an active controller status (HOME or VISITOR)
+          disabled: true
+        - name: role
+          value: ""
+          type: query
+          description: Only include users holding this role (e.g. INS for instructor, MTR for mentor)
           disabled: true
     response:
       status: 200
@@ -78,6 +98,16 @@ examples:
           value: ""
           type: query
           description: Pagination offset
+          disabled: true
+        - name: controllers_only
+          value: ""
+          type: query
+          description: Only include users with an active controller status (HOME or VISITOR)
+          disabled: true
+        - name: role
+          value: ""
+          type: query
+          description: Only include users holding this role (e.g. INS for instructor, MTR for mentor)
           disabled: true
     response:
       status: 401

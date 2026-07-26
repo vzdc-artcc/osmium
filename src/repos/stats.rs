@@ -2,7 +2,10 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::PgPool;
 
-use crate::{errors::ApiError, models::StatisticsPrefixes};
+use crate::{
+    errors::ApiError,
+    models::{ControllerPositionItem, StatisticsPrefixes},
+};
 
 const STATISTICS_PREFIXES_ID: &str = "default";
 
@@ -254,6 +257,108 @@ pub async fn list_monthly_buckets(
     .map_err(|_| ApiError::Internal)
 }
 
+pub async fn count_controller_positions(
+    pool: &PgPool,
+    environment: &str,
+    cid: i64,
+    range: Option<(DateTime<Utc>, DateTime<Utc>)>,
+) -> Result<i64, ApiError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from stats.controller_activations
+        where environment = $1 and cid = $2
+          and ($3::timestamptz is null or started_at >= $3)
+          and ($4::timestamptz is null or started_at < $4)
+        "#,
+    )
+    .bind(environment)
+    .bind(cid)
+    .bind(range.map(|(start, _)| start))
+    .bind(range.map(|(_, end)| end))
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn list_controller_positions(
+    pool: &PgPool,
+    environment: &str,
+    cid: i64,
+    range: Option<(DateTime<Utc>, DateTime<Utc>)>,
+    page_size: i64,
+    offset: i64,
+) -> Result<Vec<ControllerPositionItem>, ApiError> {
+    sqlx::query_as::<_, ControllerPositionItem>(
+        r#"
+        select
+            position_name,
+            facility_name,
+            is_primary,
+            started_at,
+            ended_at,
+            active_seconds
+        from stats.controller_activations
+        where environment = $1 and cid = $2
+          and ($5::timestamptz is null or started_at >= $5)
+          and ($6::timestamptz is null or started_at < $6)
+        order by started_at desc
+        limit $3 offset $4
+        "#,
+    )
+    .bind(environment)
+    .bind(cid)
+    .bind(page_size)
+    .bind(offset)
+    .bind(range.map(|(start, _)| start))
+    .bind(range.map(|(_, end)| end))
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn list_artcc_monthly_buckets(
+    pool: &PgPool,
+    environment: &str,
+    year: i32,
+) -> Result<Vec<MonthlyBucketRow>, ApiError> {
+    sqlx::query_as::<_, MonthlyBucketRow>(
+        r#"
+        select
+            month,
+            coalesce(sum(online_seconds), 0)::float8 / 3600.0 as online_hours,
+            coalesce(sum(delivery_seconds), 0)::float8 / 3600.0 as delivery_hours,
+            coalesce(sum(ground_seconds), 0)::float8 / 3600.0 as ground_hours,
+            coalesce(sum(tower_seconds), 0)::float8 / 3600.0 as tower_hours,
+            coalesce(sum(tracon_seconds), 0)::float8 / 3600.0 as tracon_hours,
+            coalesce(sum(center_seconds), 0)::float8 / 3600.0 as center_hours,
+            (
+                coalesce(sum(delivery_seconds), 0) +
+                coalesce(sum(ground_seconds), 0) +
+                coalesce(sum(tower_seconds), 0) +
+                coalesce(sum(tracon_seconds), 0) +
+                coalesce(sum(center_seconds), 0)
+            )::float8 / 3600.0 as active_hours,
+            (
+                coalesce(sum(delivery_seconds), 0) +
+                coalesce(sum(ground_seconds), 0) +
+                coalesce(sum(tower_seconds), 0) +
+                coalesce(sum(tracon_seconds), 0) +
+                coalesce(sum(center_seconds), 0)
+            )::float8 / 3600.0 as total_hours
+        from stats.controller_monthly_rollups
+        where environment = $1 and year = $2
+        group by month
+        order by month asc
+        "#,
+    )
+    .bind(environment)
+    .bind(year)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn fetch_controller_totals_aggregate(
     pool: &PgPool,
     environment: &str,
@@ -288,6 +393,45 @@ pub async fn fetch_controller_totals_aggregate(
     )
     .bind(environment)
     .bind(cid)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Date-ranged controller totals, summed from individual activations (filtered
+/// by `started_at`) rather than the all-time monthly rollups. Facility buckets
+/// mirror `stats_sync::map_position_type` so the numbers stay consistent with
+/// the rollup-based totals. `online_hours` counts all activations (incl.
+/// uncategorized), while the facility hours and `active/total_hours` count only
+/// the DEL/GND/TWR/TRACON/CTR positions.
+pub async fn fetch_controller_totals_aggregate_ranged(
+    pool: &PgPool,
+    environment: &str,
+    cid: i64,
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+) -> Result<ControllerTotalsAggregateRow, ApiError> {
+    sqlx::query_as::<_, ControllerTotalsAggregateRow>(
+        r#"
+        select
+            coalesce(sum(active_seconds), 0)::float8 / 3600.0 as online_hours,
+            coalesce(sum(active_seconds) filter (where position_type in ('Delivery', 'ClearanceDelivery')), 0)::float8 / 3600.0 as delivery_hours,
+            coalesce(sum(active_seconds) filter (where position_type = 'Ground'), 0)::float8 / 3600.0 as ground_hours,
+            coalesce(sum(active_seconds) filter (where position_type = 'Tower'), 0)::float8 / 3600.0 as tower_hours,
+            coalesce(sum(active_seconds) filter (where position_type in ('Tracon', 'ApproachDeparture')), 0)::float8 / 3600.0 as tracon_hours,
+            coalesce(sum(active_seconds) filter (where position_type in ('Artcc', 'Center')), 0)::float8 / 3600.0 as center_hours,
+            coalesce(sum(active_seconds) filter (where position_type in ('Delivery', 'ClearanceDelivery', 'Ground', 'Tower', 'Tracon', 'ApproachDeparture', 'Artcc', 'Center')), 0)::float8 / 3600.0 as active_hours,
+            coalesce(sum(active_seconds) filter (where position_type in ('Delivery', 'ClearanceDelivery', 'Ground', 'Tower', 'Tracon', 'ApproachDeparture', 'Artcc', 'Center')), 0)::float8 / 3600.0 as total_hours
+        from stats.controller_activations
+        where environment = $1 and cid = $2
+          and ($3::timestamptz is null or started_at >= $3)
+          and ($4::timestamptz is null or started_at < $4)
+        "#,
+    )
+    .bind(environment)
+    .bind(cid)
+    .bind(since)
+    .bind(until)
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -392,6 +536,30 @@ pub async fn last_feed_updated_at(
     .await
     .map_err(|_| ApiError::Internal)
     .map(|value| value.flatten())
+}
+
+pub async fn list_online_controllers(
+    pool: &PgPool,
+) -> Result<Vec<crate::models::OnlineControllerItem>, ApiError> {
+    sqlx::query_as::<_, crate::models::OnlineControllerItem>(
+        r#"
+        select
+            u.cid,
+            u.display_name,
+            m.rating,
+            cp.position,
+            cp.start
+        from stats.controller_positions cp
+        join stats.controller_logs cl on cl.id = cp.log_id
+        join identity.users u on u.id = cl.user_id
+        left join org.memberships m on m.user_id = u.id
+        where cp.active
+        order by cp.start asc
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
 }
 
 pub async fn fetch_statistics_prefixes<'e, E>(

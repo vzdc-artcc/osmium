@@ -3,6 +3,65 @@ use sqlx::{Executor, PgPool, Postgres};
 
 use crate::{errors::ApiError, models::TrainingAssignmentRequest};
 
+const ASSIGNMENT_REQUEST_SELECT: &str = r#"
+    select
+        r.id,
+        r.student_id,
+        s.cid as student_cid,
+        s.display_name as student_name,
+        coalesce(sm.controller_status, 'NONE') as student_controller_status,
+        r.submitted_at,
+        r.status,
+        r.decided_at,
+        r.decided_by,
+        coalesce(
+            (
+                select json_agg(json_build_object('id', iu.id, 'cid', iu.cid, 'name', iu.display_name))
+                from training.training_assignment_request_interested_trainers it
+                join identity.users iu on iu.id = it.trainer_id
+                where it.assignment_request_id = r.id
+            ),
+            '[]'::json
+        ) as interested_trainers
+    from training.training_assignment_requests r
+    join identity.users s on s.id = r.student_id
+    left join org.memberships sm on sm.user_id = s.id
+"#;
+
+#[derive(Debug, sqlx::FromRow)]
+struct AssignmentRequestRow {
+    id: String,
+    student_id: String,
+    student_cid: i64,
+    student_name: String,
+    student_controller_status: String,
+    submitted_at: DateTime<Utc>,
+    status: String,
+    decided_at: Option<DateTime<Utc>>,
+    decided_by: Option<String>,
+    interested_trainers: serde_json::Value,
+}
+
+impl AssignmentRequestRow {
+    fn into_model(self) -> Result<TrainingAssignmentRequest, ApiError> {
+        let interested_trainers =
+            serde_json::from_value(self.interested_trainers).map_err(|_| ApiError::Internal)?;
+
+        Ok(TrainingAssignmentRequest {
+            id: self.id,
+            student_id: self.student_id,
+            student_cid: self.student_cid,
+            student_name: self.student_name,
+            student_controller_status: self.student_controller_status,
+            submitted_at: self.submitted_at,
+            status: self.status,
+            decided_at: self.decided_at,
+            decided_by: self.decided_by,
+            interested_trainers,
+        })
+    }
+}
+
 pub async fn count_assignment_requests(pool: &PgPool) -> Result<i64, ApiError> {
     sqlx::query_scalar::<_, i64>(
         "select count(*)::bigint from training.training_assignment_requests",
@@ -17,14 +76,17 @@ pub async fn list_assignment_requests(
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<TrainingAssignmentRequest>, ApiError> {
-    sqlx::query_as::<_, TrainingAssignmentRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.training_assignment_requests order by submitted_at desc, id asc limit $1 offset $2",
-    )
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
+    let sql =
+        format!("{ASSIGNMENT_REQUEST_SELECT} order by r.submitted_at desc, r.id asc limit $1 offset $2");
+    sqlx::query_as::<_, AssignmentRequestRow>(&sql)
+        .bind(page_size)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+        .into_iter()
+        .map(AssignmentRequestRow::into_model)
+        .collect()
 }
 
 pub async fn insert_assignment_request(
@@ -33,32 +95,36 @@ pub async fn insert_assignment_request(
     student_id: &str,
     now: DateTime<Utc>,
 ) -> Result<TrainingAssignmentRequest, ApiError> {
-    sqlx::query_as::<_, TrainingAssignmentRequest>(
+    sqlx::query(
         r#"
         insert into training.training_assignment_requests (id, student_id, submitted_at, status)
         values ($1, $2, $3, 'PENDING')
-        returning id, student_id, submitted_at, status, decided_at, decided_by
         "#,
     )
     .bind(id)
     .bind(student_id)
     .bind(now)
-    .fetch_one(pool)
+    .execute(pool)
     .await
-    .map_err(|_| ApiError::BadRequest)
+    .map_err(|_| ApiError::BadRequest)?;
+
+    fetch_assignment_request(pool, id)
+        .await?
+        .ok_or(ApiError::Internal)
 }
 
 pub async fn fetch_assignment_request(
     pool: &PgPool,
     request_id: &str,
 ) -> Result<Option<TrainingAssignmentRequest>, ApiError> {
-    sqlx::query_as::<_, TrainingAssignmentRequest>(
-        "select id, student_id, submitted_at, status, decided_at, decided_by from training.training_assignment_requests where id = $1",
-    )
-    .bind(request_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
+    let sql = format!("{ASSIGNMENT_REQUEST_SELECT} where r.id = $1");
+    sqlx::query_as::<_, AssignmentRequestRow>(&sql)
+        .bind(request_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+        .map(AssignmentRequestRow::into_model)
+        .transpose()
 }
 
 pub async fn decide_assignment_request_row(
@@ -68,21 +134,35 @@ pub async fn decide_assignment_request_row(
     now: DateTime<Utc>,
     decided_by: &str,
 ) -> Result<Option<TrainingAssignmentRequest>, ApiError> {
-    sqlx::query_as::<_, TrainingAssignmentRequest>(
+    sqlx::query(
         r#"
         update training.training_assignment_requests
         set status = $1, decided_at = $2, decided_by = $3
         where id = $4
-        returning id, student_id, submitted_at, status, decided_at, decided_by
         "#,
     )
     .bind(status)
     .bind(now)
     .bind(decided_by)
     .bind(request_id)
-    .fetch_optional(pool)
+    .execute(pool)
     .await
-    .map_err(|_| ApiError::Internal)
+    .map_err(|_| ApiError::Internal)?;
+
+    fetch_assignment_request(pool, request_id).await
+}
+
+pub async fn delete_assignment_request_row(
+    pool: &PgPool,
+    request_id: &str,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query("delete from training.training_assignment_requests where id = $1")
+        .bind(request_id)
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn assignment_request_exists(pool: &PgPool, request_id: &str) -> Result<bool, ApiError> {

@@ -175,6 +175,154 @@ pub async fn fetch_sua_block(
     }))
 }
 
+pub async fn fetch_sua_block_by_lookup(
+    pool: &PgPool,
+    lookup: &str,
+) -> Result<Option<SuaBlockItem>, ApiError> {
+    let row = sqlx::query_as::<_, SuaBlockRow>(
+        r#"
+        select
+            b.id,
+            b.user_id,
+            b.start_at,
+            b.end_at,
+            b.afiliation,
+            b.details,
+            b.mission_number,
+            b.created_at,
+            b.updated_at,
+            u.cid,
+            u.display_name
+        from org.sua_blocks b
+        join identity.users u on u.id = b.user_id
+        where b.id = $1 or b.mission_number = $1
+        "#,
+    )
+    .bind(lookup)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let airspace = sqlx::query_as::<_, SuaAirspaceItem>(
+        r#"
+        select id, sua_block_id, identifier, bottom_altitude, top_altitude
+        from org.sua_block_airspace
+        where sua_block_id = $1
+        order by identifier asc
+        "#,
+    )
+    .bind(&row.id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(Some(SuaBlockItem {
+        id: row.id,
+        user_id: row.user_id,
+        start_at: row.start_at,
+        end_at: row.end_at,
+        afiliation: row.afiliation,
+        details: row.details,
+        mission_number: row.mission_number,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        cid: row.cid,
+        display_name: row.display_name,
+        airspace,
+    }))
+}
+
+pub async fn delete_expired_sua_blocks(pool: &PgPool) -> Result<u64, ApiError> {
+    let result = sqlx::query("delete from org.sua_blocks where end_at < now() - interval '1 hour'")
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    Ok(result.rows_affected())
+}
+
+pub async fn list_upcoming_sua_blocks(
+    pool: &PgPool,
+    window_hours: i64,
+    limit: i64,
+) -> Result<Vec<SuaBlockItem>, ApiError> {
+    let rows = sqlx::query_as::<_, SuaBlockRow>(
+        r#"
+        select
+            b.id,
+            b.user_id,
+            b.start_at,
+            b.end_at,
+            b.afiliation,
+            b.details,
+            b.mission_number,
+            b.created_at,
+            b.updated_at,
+            u.cid,
+            u.display_name
+        from org.sua_blocks b
+        join identity.users u on u.id = b.user_id
+        where b.start_at >= now()
+          and b.start_at <= now() + make_interval(hours => $1::int)
+        order by b.start_at desc
+        limit $2
+        "#,
+    )
+    .bind(window_hours)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    let block_ids = rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>();
+    let airspace_rows = if block_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as::<_, SuaAirspaceItem>(
+            r#"
+            select id, sua_block_id, identifier, bottom_altitude, top_altitude
+            from org.sua_block_airspace
+            where sua_block_id = any($1)
+            order by identifier asc
+            "#,
+        )
+        .bind(&block_ids)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?
+    };
+
+    let mut airspace_by_block = std::collections::HashMap::<String, Vec<SuaAirspaceItem>>::new();
+    for row in airspace_rows {
+        airspace_by_block
+            .entry(row.sua_block_id.clone())
+            .or_default()
+            .push(row);
+    }
+
+    Ok(rows
+        .into_iter()
+        .map(|row| SuaBlockItem {
+            id: row.id.clone(),
+            user_id: row.user_id,
+            start_at: row.start_at,
+            end_at: row.end_at,
+            afiliation: row.afiliation,
+            details: row.details,
+            mission_number: row.mission_number,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            cid: row.cid,
+            display_name: row.display_name,
+            airspace: airspace_by_block.remove(&row.id).unwrap_or_default(),
+        })
+        .collect())
+}
+
 pub async fn delete_sua_block_owned(
     pool: &PgPool,
     mission_id: &str,

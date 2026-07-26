@@ -52,6 +52,65 @@ pub async fn count_appointments(
     .map_err(|_| ApiError::Internal)
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct AppointmentListRow {
+    id: String,
+    student_id: String,
+    trainer_id: String,
+    start: DateTime<Utc>,
+    environment: Option<String>,
+    double_booking: bool,
+    preparation_completed: bool,
+    warning_email_sent: bool,
+    atc_booking_id: Option<String>,
+    notes: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    student_cid: i64,
+    student_name: String,
+    trainer_cid: i64,
+    trainer_name: String,
+    lesson_count: i64,
+    lessons_json: serde_json::Value,
+    additional_trainer_count: i64,
+    additional_trainers_json: serde_json::Value,
+    estimated_duration_minutes: Option<i64>,
+    estimated_end: Option<DateTime<Utc>>,
+}
+
+impl AppointmentListRow {
+    fn into_model(self) -> Result<TrainingAppointmentListItem, ApiError> {
+        let lessons = serde_json::from_value(self.lessons_json).map_err(|_| ApiError::Internal)?;
+        let additional_trainers =
+            serde_json::from_value(self.additional_trainers_json).map_err(|_| ApiError::Internal)?;
+
+        Ok(TrainingAppointmentListItem {
+            id: self.id,
+            student_id: self.student_id,
+            trainer_id: self.trainer_id,
+            start: self.start,
+            environment: self.environment,
+            double_booking: self.double_booking,
+            preparation_completed: self.preparation_completed,
+            warning_email_sent: self.warning_email_sent,
+            atc_booking_id: self.atc_booking_id,
+            notes: self.notes,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            student_cid: self.student_cid,
+            student_name: self.student_name,
+            trainer_cid: self.trainer_cid,
+            trainer_name: self.trainer_name,
+            lesson_count: self.lesson_count,
+            lessons,
+            additional_trainer_count: self.additional_trainer_count,
+            additional_trainers,
+            estimated_duration_minutes: self.estimated_duration_minutes,
+            estimated_end: self.estimated_end,
+        })
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn list_appointments(
     pool: &PgPool,
@@ -83,11 +142,40 @@ pub async fn list_appointments(
             tu.cid as trainer_cid,
             tu.full_name as trainer_name,
             count(tal.lesson_id)::bigint as lesson_count,
+            coalesce(
+                (
+                    select json_agg(json_build_object(
+                        'id', l2.id,
+                        'identifier', l2.identifier,
+                        'name', l2.name,
+                        'location', l2.location,
+                        'duration', l2.duration
+                    ) order by l2.location asc, l2.identifier asc, l2.name asc, l2.id asc)
+                    from training.training_appointment_lessons tal2
+                    join training.lessons l2 on l2.id = tal2.lesson_id
+                    where tal2.appointment_id = ta.id
+                ),
+                '[]'::json
+            ) as lessons_json,
             (
                 select count(*)::bigint
                 from training.training_appointment_additional_trainers aat
                 where aat.appointment_id = ta.id
             ) as additional_trainer_count,
+            coalesce(
+                (
+                    select json_agg(json_build_object(
+                        'trainer_id', aat2.trainer_id,
+                        'trainer_cid', atu.cid,
+                        'trainer_name', atu.full_name,
+                        'description', aat2.description
+                    ) order by atu.full_name asc, aat2.trainer_id asc)
+                    from training.training_appointment_additional_trainers aat2
+                    join identity.users atu on atu.id = aat2.trainer_id
+                    where aat2.appointment_id = ta.id
+                ),
+                '[]'::json
+            ) as additional_trainers_json,
             case
                 when count(tal.lesson_id) = 0 then null
                 else sum(l.duration)::bigint
@@ -111,7 +199,7 @@ pub async fn list_appointments(
         "#
     );
 
-    sqlx::query_as::<_, TrainingAppointmentListItem>(&sql)
+    sqlx::query_as::<_, AppointmentListRow>(&sql)
         .bind(trainer_id)
         .bind(student_id)
         .bind(user_id)
@@ -119,7 +207,10 @@ pub async fn list_appointments(
         .bind(offset)
         .fetch_all(pool)
         .await
-        .map_err(|_| ApiError::Internal)
+        .map_err(|_| ApiError::Internal)?
+        .into_iter()
+        .map(AppointmentListRow::into_model)
+        .collect()
 }
 
 fn estimate_appointment_end(
@@ -527,4 +618,143 @@ where
     .fetch_optional(executor)
     .await
     .map_err(|_| ApiError::Internal)
+}
+
+/// A single appointment's shape as needed by the environment-assignment
+/// sweep — bounded to what the round-robin algorithm actually reads, not
+/// the full appointment record. `all_live`/`all_classroom` are computed in
+/// SQL (`bool_and` over each lesson's `location`) rather than by shipping
+/// the full lesson list to Rust and checking there, matching the same
+/// "compute in SQL" style already used for `estimated_duration_minutes` in
+/// `list_appointments`. An appointment with no lessons at all has
+/// `all_live`/`all_classroom` both `false` (aggregate over zero rows), so
+/// it falls through to round-robin assignment like the original site did.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AppointmentSyncRow {
+    pub id: String,
+    pub start: DateTime<Utc>,
+    pub duration_minutes: i64,
+    pub all_live: bool,
+    pub all_classroom: bool,
+}
+
+/// Appointments starting from `now` onward, ordered by start ascending —
+/// the exact set the environment round-robin needs to walk in order.
+/// Unlike the legacy website cron (which fetched from 24h in the past
+/// onward and then skipped past appointments inside the loop), this only
+/// fetches what the algorithm actually uses: past appointments never
+/// affected the round-robin state there either, since the skip happened
+/// before any `previousAssignments` bookkeeping.
+pub async fn list_future_appointments_for_sync(
+    pool: &PgPool,
+    now: DateTime<Utc>,
+) -> Result<Vec<AppointmentSyncRow>, ApiError> {
+    sqlx::query_as::<_, AppointmentSyncRow>(
+        r#"
+        select
+            ta.id,
+            ta.start,
+            coalesce(sum(l.duration), 0)::bigint as duration_minutes,
+            coalesce(bool_and(l.location = 1), false) as all_live,
+            coalesce(bool_and(l.location = 0), false) as all_classroom
+        from training.training_appointments ta
+        left join training.training_appointment_lessons tal on tal.appointment_id = ta.id
+        left join training.lessons l on l.id = tal.lesson_id
+        where ta.start >= $1
+        group by ta.id, ta.start
+        order by ta.start asc
+        "#,
+    )
+    .bind(now)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Targeted update for the sync sweep — only touches `environment` and
+/// `double_booking`, unlike `update_appointment_row`'s full-replace
+/// semantics (which would require resending every other field).
+pub async fn update_appointment_environment(
+    pool: &PgPool,
+    appointment_id: &str,
+    environment: &str,
+    double_booking: bool,
+    now: DateTime<Utc>,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        update training.training_appointments
+        set environment = $2,
+            double_booking = $3,
+            updated_at = $4
+        where id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .bind(environment)
+    .bind(double_booking)
+    .bind(now)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AppointmentWarningRow {
+    pub id: String,
+    pub start: DateTime<Utc>,
+    pub student_id: String,
+    pub student_cid: i64,
+    pub student_name: String,
+    pub trainer_id: String,
+    pub trainer_cid: i64,
+    pub trainer_name: String,
+}
+
+/// Appointments starting within the next `until` window that haven't had
+/// their advance warning email sent yet.
+pub async fn list_appointments_needing_warning_email(
+    pool: &PgPool,
+    now: DateTime<Utc>,
+    until: DateTime<Utc>,
+) -> Result<Vec<AppointmentWarningRow>, ApiError> {
+    sqlx::query_as::<_, AppointmentWarningRow>(
+        r#"
+        select
+            ta.id,
+            ta.start,
+            ta.student_id,
+            su.cid as student_cid,
+            su.full_name as student_name,
+            ta.trainer_id,
+            tu.cid as trainer_cid,
+            tu.full_name as trainer_name
+        from training.training_appointments ta
+        join identity.users su on su.id = ta.student_id
+        join identity.users tu on tu.id = ta.trainer_id
+        where ta.start >= $1
+          and ta.start <= $2
+          and ta.warning_email_sent = false
+        order by ta.start asc
+        "#,
+    )
+    .bind(now)
+    .bind(until)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn mark_warning_email_sent(pool: &PgPool, appointment_id: &str) -> Result<(), ApiError> {
+    sqlx::query(
+        "update training.training_appointments set warning_email_sent = true, updated_at = now() where id = $1",
+    )
+    .bind(appointment_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
 }

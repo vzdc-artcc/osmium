@@ -8,6 +8,7 @@ pub mod handlers;
 pub mod jobs;
 pub mod logging;
 pub mod models;
+pub mod rate_limit;
 pub mod repos;
 pub mod router;
 pub mod state;
@@ -26,6 +27,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     jobs::email_delivery::start_email_delivery_worker(state.clone());
     jobs::stats_sync::start_stats_sync_worker(state.clone());
     jobs::roster_sync::start_roster_sync_worker(state.clone());
+    jobs::event_lifecycle::start_event_lifecycle_worker(state.clone());
+    jobs::loa_expiration::start_loa_expiration_worker(state.clone());
+    jobs::solo_expiration::start_solo_expiration_worker(state.clone());
+    jobs::appointments_sync::start_appointments_sync_worker(state.clone());
+    jobs::faa_preferred_routes::start_faa_preferred_routes_worker(state.clone());
+    jobs::ip_log_writer::start_ip_log_writer_worker(state.clone());
+    jobs::ip_log_cleanup::start_ip_log_cleanup_worker(state.clone());
 
     let app = router::build_router(state);
 

@@ -201,6 +201,16 @@ pub async fn update_discord_config_row(
     .map_err(|_| ApiError::Internal)
 }
 
+pub async fn delete_discord_config_row(pool: &PgPool, config_id: &str) -> Result<(), ApiError> {
+    sqlx::query("delete from integration.discord_configs where id = $1")
+        .bind(config_id)
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
+}
+
 pub async fn insert_discord_channel(
     pool: &PgPool,
     id: &str,

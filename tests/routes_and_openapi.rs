@@ -390,28 +390,24 @@ async fn swagger_ui_route_renders() {
 }
 
 #[tokio::test]
-async fn dev_login_route_is_gated_by_dev_mode_env() {
-    let _env_lock = lock_env();
+async fn retired_dev_login_as_route_is_gone() {
+    // The dev `login/as/{cid}` shortcut + DEV_LOGIN_AS_CID_ENABLED flag were removed
+    // when authenticated impersonation shipped (spec 012). The route no longer exists
+    // under any env.
+    let state = osmium::state::AppState::without_db();
+    let app = osmium::router::build_router(state);
 
-    {
-        let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
-        let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "false");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login/as/10000010")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
-        let state = osmium::state::AppState::without_db();
-        let app = osmium::router::build_router(state);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/v1/auth/login/as/10000010")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -447,50 +443,6 @@ async fn logout_requires_post_method() {
         .unwrap();
 
     assert_eq!(post_response.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn dev_login_route_is_enabled_with_only_vatsim_dev_mode() {
-    let _env_lock = lock_env();
-    let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "true");
-    let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "false");
-
-    let state = osmium::state::AppState::without_db();
-    let app = osmium::router::build_router(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/auth/login/as/10000010")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn dev_login_route_is_enabled_with_explicit_flag() {
-    let _env_lock = lock_env();
-    let _vatsim_dev = EnvVarGuard::set("VATSIM_DEV_MODE", "false");
-    let _dev_login = EnvVarGuard::set("DEV_LOGIN_AS_CID_ENABLED", "true");
-
-    let state = osmium::state::AppState::without_db();
-    let app = osmium::router::build_router(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/auth/login/as/10000010")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[tokio::test]

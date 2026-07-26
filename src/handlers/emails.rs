@@ -8,9 +8,12 @@ use chrono::Utc;
 
 use crate::{
     auth::{
-        acl::{PermissionAction, PermissionPath},
         context::{CurrentServiceAccount, CurrentUser},
-        middleware::ensure_permission,
+        permissions::{
+            EmailsBrandingRead, EmailsBrandingUpdate, EmailsOutboxRead, EmailsPreviewCreate,
+            EmailsSendCreate, EmailsSuppressionsUpdate, EmailsTemplatesRead,
+        },
+        require_permission::RequirePermission,
     },
     email::{branding::validate_branding_input, service::actor_from_context},
     errors::ApiError,
@@ -38,17 +41,8 @@ use crate::{
 )]
 pub async fn list_templates(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<EmailsTemplatesRead>,
 ) -> Result<Json<Vec<EmailTemplateDefinitionResponse>>, ApiError> {
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "templates"], PermissionAction::Read),
-    )
-    .await?;
-
     Ok(Json(state.email.templates()))
 }
 
@@ -65,18 +59,9 @@ pub async fn list_templates(
 )]
 pub async fn preview_email(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<EmailsPreviewCreate>,
     Json(request): Json<EmailPreviewRequest>,
 ) -> Result<Json<EmailPreviewResponse>, ApiError> {
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "preview"], PermissionAction::Create),
-    )
-    .await?;
-
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let branding = match request.branding_override.as_ref() {
@@ -129,6 +114,7 @@ pub async fn preview_email(
 )]
 pub async fn send_email(
     State(state): State<AppState>,
+    _permission: RequirePermission<EmailsSendCreate>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     headers: HeaderMap,
@@ -136,13 +122,6 @@ pub async fn send_email(
     Json(request): Json<EmailSendRequest>,
 ) -> Result<ApiJson<EmailSendResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "send"], PermissionAction::Create),
-    )
-    .await?;
 
     let resolved_actor = audit::resolve_audit_actor(
         pool,
@@ -170,11 +149,7 @@ pub async fn send_email(
     get,
     path = "/api/v1/emails/outbox",
     tag = "emails",
-    params(
-        PaginationQuery,
-        ("status" = Option<String>, Query, description = "Optional outbox status filter"),
-        ("template_id" = Option<String>, Query, description = "Optional template filter")
-    ),
+    params(ListEmailOutboxQuery),
     responses(
         (status = 200, description = "Email outbox", body = EmailOutboxListResponse),
         (status = 401, description = "Not authorized")
@@ -182,36 +157,16 @@ pub async fn send_email(
 )]
 pub async fn list_outbox(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<EmailsOutboxRead>,
     Query(query): Query<ListEmailOutboxQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EmailOutboxListResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "outbox"], PermissionAction::Read),
-    )
-    .await?;
 
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(50, 200);
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from email.outbox o
-        where ($1::text is null or o.status = $1)
-          and ($2::text is null or o.template_id = $2)
-        "#,
-    )
-    .bind(query.status.as_deref())
-    .bind(query.template_id.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    let total = state.email.count_outbox(pool, &query).await?;
     let items = state.email.list_outbox(pool, &query).await?;
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
@@ -236,19 +191,11 @@ pub async fn list_outbox(
 )]
 pub async fn get_outbox_detail(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<EmailsOutboxRead>,
     Path(id): Path<String>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<crate::models::EmailOutboxDetailResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "outbox"], PermissionAction::Read),
-    )
-    .await?;
 
     Ok(ApiJson::new(
         state.email.get_outbox_detail(pool, &id).await?,
@@ -304,18 +251,10 @@ pub async fn update_preferences(
 )]
 pub async fn resubscribe(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<EmailsSuppressionsUpdate>,
     Json(request): Json<EmailResubscribeRequest>,
 ) -> Result<Json<EmailSuppressionRecordResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "suppressions"], PermissionAction::Update),
-    )
-    .await?;
     Ok(Json(state.email.resubscribe(pool, &request).await?))
 }
 
@@ -330,18 +269,9 @@ pub async fn resubscribe(
 )]
 pub async fn get_email_branding(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<EmailsBrandingRead>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<EmailBranding>, ApiError> {
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "branding"], PermissionAction::Read),
-    )
-    .await?;
-
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let branding = email_branding::fetch_branding(pool)
         .await?
@@ -363,20 +293,13 @@ pub async fn get_email_branding(
 )]
 pub async fn update_email_branding(
     State(state): State<AppState>,
+    _permission: RequirePermission<EmailsBrandingUpdate>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     headers: HeaderMap,
     time: ResponseTimeContext,
     Json(payload): Json<crate::models::UpdateEmailBrandingRequest>,
 ) -> Result<ApiJson<EmailBranding>, ApiError> {
-    ensure_permission(
-        &state,
-        current_user.as_ref(),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["emails", "branding"], PermissionAction::Update),
-    )
-    .await?;
-
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     validate_branding_input(&payload)?;
 

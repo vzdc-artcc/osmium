@@ -1,8 +1,10 @@
 pub mod admin;
 pub mod api_keys;
 pub mod auth;
+pub mod bookings;
 pub mod broadcasts;
 pub mod captcha;
+pub mod data_export;
 pub mod dev;
 pub mod docs;
 pub mod emails;
@@ -15,6 +17,7 @@ pub mod incidents;
 pub mod integrations;
 pub mod org;
 pub mod publications;
+pub mod routes;
 pub mod stats;
 pub mod training;
 pub mod training_admin;

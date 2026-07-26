@@ -10,7 +10,11 @@ http:
   url: "{{baseUrl}}/api/v1/training/assignment-requests"
   body:
     type: json
-    data: "{}"
+    data: |-
+      {
+        "student_id": null,
+        "submitted_at": null
+      }
   auth: inherit
 
 settings:
@@ -43,7 +47,11 @@ examples:
             "id": "",
             "status": "",
             "student_id": "",
-            "submitted_at": ""
+            "student_cid": 0,
+            "student_name": "",
+            "student_controller_status": "HOME",
+            "submitted_at": "",
+            "interested_trainers": []
           }
   - name: 401 Response
     description: Not authenticated

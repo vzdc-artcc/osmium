@@ -261,6 +261,17 @@ pub fn registry() -> &'static [TemplateDefinition] {
             respect_user_event_pref: false,
             payload_schema: progression_removed_schema,
         },
+        // Roster template
+        TemplateDefinition {
+            id: "roster.removed",
+            name: "Roster Removed",
+            category: "org",
+            description: "Controller purged/removed from the roster notification",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: roster_removed_schema,
+        },
     ]
 }
 
@@ -553,6 +564,17 @@ fn progression_removed_schema() -> Value {
     })
 }
 
+fn roster_removed_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["controller_name", "reason"],
+        "properties": {
+            "controller_name": { "type": "string" },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
 pub fn unsubscribe_link(
     base_url: Option<&str>,
     secret: Option<&str>,
@@ -593,6 +615,7 @@ mod tests {
             "broadcast.posted",
             "progression.assigned",
             "progression.removed",
+            "roster.removed",
         ];
 
         for id in expected {

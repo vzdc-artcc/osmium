@@ -17,8 +17,11 @@ http:
     type: json
     data: |-
       {
-        "callsign": "",
-        "requested_slot": ""
+        "requested_position": "PCT_TRACON_APP",
+        "requested_secondary_position": "PCT_APP",
+        "notes": "",
+        "requested_start_time": "2026-05-20T15:00:00Z",
+        "requested_end_time": "2026-05-20T18:00:00Z"
       }
   auth: inherit
 
@@ -43,8 +46,11 @@ examples:
         type: json
         data: |-
           {
-            "callsign": "",
-            "requested_slot": ""
+            "requested_position": "PCT_TRACON_APP",
+            "requested_secondary_position": "PCT_APP",
+            "notes": "",
+            "requested_start_time": "2026-05-20T15:00:00Z",
+            "requested_end_time": "2026-05-20T18:00:00Z"
           }
     response:
       status: 201
@@ -56,16 +62,34 @@ examples:
         type: json
         data: |-
           {
-            "assigned_slot": "",
-            "callsign": "",
-            "created_at": "",
-            "event_id": "",
             "id": "",
+            "event_id": "",
+            "callsign": "",
+            "user_id": "",
+            "user_cid": null,
+            "user_name": null,
+            "requested_slot": null,
+            "assigned_slot": null,
+            "requested_position": "",
+            "requested_secondary_position": "",
+            "notes": "",
+            "requested_start_time": "",
+            "requested_end_time": "",
+            "final_start_time": null,
+            "final_end_time": null,
+            "final_position": null,
+            "final_notes": null,
+            "controlling_category": null,
+            "is_instructor": false,
+            "is_solo": false,
+            "is_ots": false,
+            "is_tmu": false,
+            "is_cic": false,
             "published": false,
-            "requested_slot": "",
-            "status": "",
-            "updated_at": "",
-            "user_id": ""
+            "status": "REQUESTED",
+            "submitted_at": "",
+            "created_at": "",
+            "updated_at": ""
           }
   - name: 400 Response
     description: Invalid request
@@ -81,8 +105,11 @@ examples:
         type: json
         data: |-
           {
-            "callsign": "",
-            "requested_slot": ""
+            "requested_position": "PCT_TRACON_APP",
+            "requested_secondary_position": "PCT_APP",
+            "notes": "",
+            "requested_start_time": "2026-05-20T15:00:00Z",
+            "requested_end_time": "2026-05-20T18:00:00Z"
           }
     response:
       status: 400
@@ -104,8 +131,11 @@ examples:
         type: json
         data: |-
           {
-            "callsign": "",
-            "requested_slot": ""
+            "requested_position": "PCT_TRACON_APP",
+            "requested_secondary_position": "PCT_APP",
+            "notes": "",
+            "requested_start_time": "2026-05-20T15:00:00Z",
+            "requested_end_time": "2026-05-20T18:00:00Z"
           }
     response:
       status: 401

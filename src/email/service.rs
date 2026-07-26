@@ -450,6 +450,30 @@ impl EmailService {
         .map_err(|_| ApiError::Internal)
     }
 
+    /// Count companion for [`list_outbox`](Self::list_outbox) — same `status`/
+    /// `template_id` filter, for the paginated response's total. Colocated with the
+    /// list query per spec 009 (moved verbatim out of `handlers/emails.rs::list_outbox`).
+    pub async fn count_outbox(
+        &self,
+        pool: &PgPool,
+        query: &ListEmailOutboxQuery,
+    ) -> Result<i64, ApiError> {
+        self.ensure_available()?;
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)::bigint
+            from email.outbox o
+            where ($1::text is null or o.status = $1)
+              and ($2::text is null or o.template_id = $2)
+            "#,
+        )
+        .bind(query.status.as_deref())
+        .bind(query.template_id.as_deref())
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)
+    }
+
     pub async fn get_outbox_detail(
         &self,
         pool: &PgPool,

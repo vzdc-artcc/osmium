@@ -24,12 +24,16 @@ pub async fn find_current_user_by_session_token(
             u.display_name,
             coalesce(p.timezone, $2) as timezone,
             m.rating,
-            pr.primary_role
+            pr.primary_role,
+            s.impersonator_user_id,
+            imp.cid as impersonator_cid,
+            imp.display_name as impersonator_display_name
         from identity.sessions s
         join identity.users u on u.id = s.user_id
         left join identity.user_profiles p on p.user_id = u.id
         left join org.memberships m on m.user_id = u.id
         left join access.v_user_primary_role pr on pr.user_id = u.id
+        left join identity.users imp on imp.id = s.impersonator_user_id
         where s.session_token = $1
           and s.revoked_at is null
           and s.expires_at > now()
@@ -137,6 +141,32 @@ pub async fn fetch_user_permission_names(
         select permission_name
         from access.v_effective_user_permissions
         where user_id = $1
+        order by permission_name
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Direct grants only (`access.user_permissions`), unmerged with role
+/// permissions — unlike `fetch_user_permission_names`, which reads the
+/// effective view. Needed to diff a permission-editor save against what
+/// actually changed as a *direct* grant, rather than the effective set
+/// (which also includes role-derived permissions that were never a row
+/// here and shouldn't count as "added" just because a save re-submitted
+/// them unchanged).
+pub async fn fetch_user_direct_permission_names(
+    pool: &PgPool,
+    user_id: &str,
+) -> Result<Vec<String>, ApiError> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        select permission_name
+        from access.user_permissions
+        where user_id = $1
+          and granted = true
         order by permission_name
         "#,
     )
@@ -276,6 +306,122 @@ pub async fn assign_server_admin(
     Ok(())
 }
 
+/// VATUSA facility roles that auto-sync into `access.user_roles`, folded
+/// into the same coarse buckets the website's NextAuth session used to
+/// compute directly (`auth/vatsimProvider.ts::getRolesAndStaffPositions`).
+pub const VATUSA_SYNCED_USER_ROLES: &[(&str, &str)] = &[
+    ("ATM", "STAFF"),
+    ("DATM", "STAFF"),
+    ("TA", "STAFF"),
+    ("EC", "STAFF"),
+    ("FE", "STAFF"),
+    ("WM", "STAFF"),
+    ("INS", "INS"),
+    ("MTR", "MTR"),
+];
+
+/// Sets a role from roster sync. Silently declines to overwrite a row a
+/// human has manually touched (`source = 'manual'`) — mirrors
+/// `crate::repos::users::set_staff_position_auto` exactly.
+pub async fn set_user_role_auto(
+    pool: &PgPool,
+    user_id: &str,
+    role_name: &str,
+    held: bool,
+) -> Result<(), ApiError> {
+    if held {
+        sqlx::query(
+            r#"
+            insert into access.user_roles (user_id, role_name, source, updated_at)
+            values ($1, $2, 'auto', now())
+            on conflict (user_id, role_name) do update
+            set source = 'auto', updated_at = now()
+            where access.user_roles.source = 'auto'
+            "#,
+        )
+        .bind(user_id)
+        .bind(role_name)
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    } else {
+        sqlx::query(
+            r#"
+            delete from access.user_roles
+            where user_id = $1 and role_name = $2 and source = 'auto'
+            "#,
+        )
+        .bind(user_id)
+        .bind(role_name)
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    }
+    Ok(())
+}
+
+/// Reconciles the VATUSA-synced subset of `access.user_roles`
+/// (`VATUSA_SYNCED_USER_ROLES`) against the facility roles observed for
+/// this user during roster sync. `EVENT_STAFF` has no VATUSA facility-role
+/// equivalent and is never touched here — manual-grant only.
+pub async fn sync_user_roles_from_vatusa_roles(
+    pool: &PgPool,
+    user_id: &str,
+    facility_roles: &[String],
+) -> Result<(), ApiError> {
+    for target_role in ["STAFF", "INS", "MTR"] {
+        let held = VATUSA_SYNCED_USER_ROLES
+            .iter()
+            .any(|(vatusa, osmium)| *osmium == target_role && facility_roles.iter().any(|r| r == vatusa));
+        set_user_role_auto(pool, user_id, target_role, held).await?;
+    }
+    Ok(())
+}
+
+/// The only coarse authorization roles assignable through the manual-grant
+/// endpoint (`POST /api/v1/admin/users/{cid}/access`). `SERVER_ADMIN` is
+/// exclusively claimed via the `OSMIUM_SERVER_ADMIN_CID` login path.
+pub const ASSIGNABLE_USER_ROLES: &[&str] = &["STAFF", "INS", "MTR", "EVENT_STAFF"];
+
+/// Sets a role from a manual admin action — always wins, marks the row
+/// `source = 'manual'` so roster sync leaves it alone afterward. Mirrors
+/// `crate::repos::users::set_staff_position_manual`. Runs in the caller's
+/// transaction (unlike `set_user_role_auto`, which is pool-based/best-effort
+/// for the background roster-sync job) so it commits atomically alongside
+/// the permission changes on the same admin request.
+pub async fn set_user_role_manual(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    role_name: &str,
+    held: bool,
+    updated_by: &str,
+) -> Result<(), ApiError> {
+    if held {
+        sqlx::query(
+            r#"
+            insert into access.user_roles (user_id, role_name, source, updated_by, updated_at)
+            values ($1, $2, 'manual', $3, now())
+            on conflict (user_id, role_name) do update
+            set source = 'manual', updated_by = excluded.updated_by, updated_at = now()
+            "#,
+        )
+        .bind(user_id)
+        .bind(role_name)
+        .bind(updated_by)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    } else {
+        sqlx::query("delete from access.user_roles where user_id = $1 and role_name = $2")
+            .bind(user_id)
+            .bind(role_name)
+            .execute(&mut **tx)
+            .await
+            .map_err(|_| ApiError::Internal)?;
+    }
+    Ok(())
+}
+
 pub fn permission_names_to_permissions(
     permission_names: Vec<String>,
 ) -> Result<Vec<PermissionPath>, ApiError> {
@@ -290,6 +436,103 @@ pub fn permission_names_to_permissions(
     }
 
     Ok(permissions)
+}
+
+/// Atomically flips `session_token`'s row into an impersonation of
+/// `target_user_id` by `admin_user_id`, with a shortened TTL. The `where` clause
+/// enforces the guards in one statement (no TOCTOU): the session must currently
+/// belong to the admin and must not already be impersonating (refuses nesting).
+/// Returns `true` when the row was updated, `false` when a guard rejected it.
+pub async fn start_impersonation(
+    pool: &PgPool,
+    session_token: &str,
+    target_user_id: &str,
+    admin_user_id: &str,
+    reason: Option<&str>,
+    ttl_secs: i64,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query(
+        r#"
+        update identity.sessions
+        set user_id = $2,
+            impersonator_user_id = $3,
+            impersonation_started_at = now(),
+            impersonation_reason = $4,
+            expires_at = now() + make_interval(secs => $5)
+        where session_token = $1
+          and user_id = $3
+          and impersonator_user_id is null
+          and revoked_at is null
+          and expires_at > now()
+        "#,
+    )
+    .bind(session_token)
+    .bind(target_user_id)
+    .bind(admin_user_id)
+    .bind(reason)
+    .bind(ttl_secs as f64)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(result.rows_affected() == 1)
+}
+
+/// Atomically restores an impersonation session back to the admin, clearing the
+/// impersonation columns and restoring a normal TTL. Returns the restored admin
+/// user id, or `None` if the session wasn't impersonating.
+pub async fn stop_impersonation(
+    pool: &PgPool,
+    session_token: &str,
+    restore_ttl_secs: i64,
+) -> Result<Option<String>, ApiError> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        update identity.sessions
+        set user_id = impersonator_user_id,
+            impersonator_user_id = null,
+            impersonation_started_at = null,
+            impersonation_reason = null,
+            expires_at = now() + make_interval(secs => $2)
+        where session_token = $1
+          and impersonator_user_id is not null
+        returning user_id
+        "#,
+    )
+    .bind(session_token)
+    .bind(restore_ttl_secs as f64)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Records a dossier entry on a user's log as a side effect of a permission
+/// change. Moved verbatim out of `handlers/admin.rs::record_access_dossier_entry`
+/// per spec 009 (kept in the access repo since it's an access-change side effect,
+/// not a training action). Generates the id/timestamp internally, matching the
+/// prior handler-level behavior.
+pub async fn insert_access_dossier_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    target_user_id: &str,
+    writer_user_id: &str,
+    message: &str,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        insert into feedback.dossier_entries (id, user_id, writer_id, message, timestamp, created_at)
+        values ($1, $2, $3, $4, $5, $5)
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(target_user_id)
+    .bind(writer_user_id)
+    .bind(message)
+    .bind(chrono::Utc::now())
+    .execute(&mut **tx)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(())
 }
 
 pub fn sha256_hex(input: &str) -> String {

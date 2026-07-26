@@ -4,7 +4,10 @@ use sqlx::{Executor, PgPool, Postgres};
 
 use crate::{
     errors::ApiError,
-    models::{ChangeBroadcastListItem, MyChangeBroadcastItem},
+    models::{
+        BroadcastRecipientItem, ChangeBroadcastDetail, ChangeBroadcastListItem,
+        MyChangeBroadcastItem,
+    },
 };
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -243,6 +246,186 @@ where
     Ok(())
 }
 
+/// Resolves the fixed set of named recipient groups the website's broadcast
+/// picker offers (mirroring the live site's precomputed "MailGroup" cohorts)
+/// into a concrete, deduplicated set of internal user ids. Every group is
+/// implicitly scoped to users who currently hold an active controller status
+/// (HOME or VISITOR) and have email notifications enabled — same base pool
+/// the live site's own group computation started from. Returns
+/// `ApiError::BadRequest` for any key outside the fixed set below, since
+/// these come from a closed client-side dropdown, not free-form user input.
+pub async fn resolve_recipient_group_user_ids(
+    pool: &PgPool,
+    groups: &[String],
+) -> Result<Vec<String>, ApiError> {
+    if groups.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut all_rostered = false;
+    let mut visiting = false;
+    let mut home_ratings: Vec<&str> = Vec::new();
+    let mut role_names: Vec<&str> = Vec::new();
+
+    for group in groups {
+        match group.as_str() {
+            "ALL" => all_rostered = true,
+            "HOME_OBS" => home_ratings.push("OBS"),
+            "HOME_S1" => home_ratings.push("S1"),
+            "HOME_S2" => home_ratings.push("S2"),
+            "HOME_S3" => home_ratings.push("S3"),
+            "HOME_C1_C3" => home_ratings.extend(["C1", "C2", "C3"]),
+            "VISITING" => visiting = true,
+            "INSTRUCTORS" => role_names.push("INS"),
+            "MENTORS" => role_names.push("MTR"),
+            "ALL_TRAINING_STAFF" => role_names.extend(["INS", "MTR"]),
+            _ => return Err(ApiError::BadRequest),
+        }
+    }
+
+    let home_ratings: Option<Vec<&str>> = (!home_ratings.is_empty()).then_some(home_ratings);
+    let role_names: Option<Vec<&str>> = (!role_names.is_empty()).then_some(role_names);
+
+    sqlx::query_scalar::<_, String>(
+        r#"
+        select distinct u.id
+        from identity.users u
+        left join org.memberships m on m.user_id = u.id
+        left join identity.user_profiles p on p.user_id = u.id
+        left join access.user_roles ur on ur.user_id = u.id
+        where coalesce(m.controller_status, 'NONE') <> 'NONE'
+          and coalesce(p.receive_email, true) = true
+          and (
+            $1::bool
+            or ($2::text[] is not null and m.controller_status = 'HOME' and m.rating = any($2))
+            or ($3::bool and m.controller_status = 'VISITOR')
+            or ($4::text[] is not null and ur.role_name = any($4))
+          )
+        "#,
+    )
+    .bind(all_rostered)
+    .bind(home_ratings)
+    .bind(visiting)
+    .bind(role_names)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn insert_recipients<'e, E>(
+    executor: E,
+    broadcast_id: &str,
+    user_ids: &[String],
+) -> Result<(), ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    if user_ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        r#"
+        insert into web.change_broadcast_recipients (broadcast_id, user_id)
+        select $1, unnest($2::text[])
+        on conflict (broadcast_id, user_id) do nothing
+        "#,
+    )
+    .bind(broadcast_id)
+    .bind(user_ids)
+    .execute(executor)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    Ok(())
+}
+
+/// Also adds STAFF-role users as recipients (in addition to whatever
+/// explicit list was chosen) so an exempt-staff broadcast still shows up,
+/// pre-agreed, in their own broadcast history — "exempt" means exempt from
+/// having to act, not invisible.
+pub async fn insert_staff_recipients<'e, E>(
+    executor: E,
+    broadcast_id: &str,
+) -> Result<(), ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query(
+        r#"
+        insert into web.change_broadcast_recipients (broadcast_id, user_id)
+        select $1, ur.user_id
+        from access.user_roles ur
+        where ur.role_name = 'STAFF'
+        on conflict (broadcast_id, user_id) do nothing
+        "#,
+    )
+    .bind(broadcast_id)
+    .execute(executor)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    Ok(())
+}
+
+pub async fn is_recipient(
+    pool: &PgPool,
+    broadcast_id: &str,
+    user_id: &str,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, bool>(
+        r#"
+        select exists(
+            select 1 from web.change_broadcast_recipients
+            where broadcast_id = $1 and user_id = $2
+        )
+        "#,
+    )
+    .bind(broadcast_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn fetch_broadcast_detail(
+    pool: &PgPool,
+    broadcast_id: &str,
+) -> Result<Option<ChangeBroadcastDetail>, ApiError> {
+    let Some(item) = fetch_broadcast_list_item(pool, broadcast_id).await? else {
+        return Ok(None);
+    };
+
+    let recipients = sqlx::query_as::<_, BroadcastRecipientItem>(
+        r#"
+        select
+            u.cid,
+            u.display_name as name,
+            s.seen_at,
+            s.agreed_at
+        from web.change_broadcast_recipients r
+        join identity.users u on u.id = r.user_id
+        left join web.change_broadcast_user_state s
+            on s.broadcast_id = r.broadcast_id and s.user_id = r.user_id
+        where r.broadcast_id = $1
+        order by u.display_name asc
+        "#,
+    )
+    .bind(broadcast_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(Some(ChangeBroadcastDetail {
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        file_id: item.file_id,
+        file_filename: item.file_filename,
+        exempt_staff: item.exempt_staff,
+        timestamp: item.timestamp,
+        updated_at: item.updated_at,
+        recipients,
+    }))
+}
+
 pub async fn fetch_my_broadcasts(
     pool: &PgPool,
     user_id: &str,
@@ -259,6 +442,7 @@ pub async fn fetch_my_broadcasts(
             s.seen_at,
             s.agreed_at
         from web.change_broadcasts cb
+        join web.change_broadcast_recipients r on r.broadcast_id = cb.id and r.user_id = $1
         left join media.file_assets fa on fa.id = cb.file_id
         left join web.change_broadcast_user_state s
             on s.broadcast_id = cb.id and s.user_id = $1

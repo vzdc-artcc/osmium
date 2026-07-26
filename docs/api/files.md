@@ -12,6 +12,7 @@ Timestamped file and file-audit responses follow the shared response-timezone co
 
 - `GET /api/v1/files`
 - `POST /api/v1/files`
+- `POST /api/v1/files/import`
 - `GET /api/v1/files/{file_id}`
 - `PATCH /api/v1/files/{file_id}`
 - `DELETE /api/v1/files/{file_id}`
@@ -25,6 +26,9 @@ Timestamped file and file-audit responses follow the shared response-timezone co
 
 - `GET /api/v1/files` and `GET /api/v1/admin/files/audit` now use the shared pagination envelope
 - upload uses raw request bytes
+- `POST /api/v1/files/import` fetches an image from a caller-supplied URL server-side and stores it as a normal file asset (same response shape and query params as `POST /api/v1/files`); it requires the same `files.assets.create` + `files.content.create` permissions
+- import rejects non-`http(s)` URLs, hosts that resolve to a private/loopback/link-local/multicast address (SSRF guard), responses whose `Content-Type` isn't `image/*`, and payloads over `FILE_MAX_UPLOAD_BYTES`
+- import does not follow redirects
 - signed URLs depend on `FILE_SIGNING_SECRET`
 - the CDN route can be used for public files or signed-token access
 - publications reuse file assets by storing a linked `file_id` and exposing public CDN URLs instead of duplicating blob storage

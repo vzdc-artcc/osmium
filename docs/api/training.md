@@ -8,6 +8,18 @@ Manage training assignments, appointments, assignment requests, trainer-release 
 
 Timestamped training and training-admin responses follow the shared response-timezone contract via `X-Response-Timezone`.
 
+Assignment routes now cover:
+
+- assignment create, read (list + single detail), update, and delete
+- a `primary_trainer_id` plus a full-replace `other_trainer_ids` list (delete-then-reinsert on every update, same pattern as appointment/session additional trainers)
+- update validates `other_trainer_ids` don't duplicate each other or the primary trainer, and that every referenced trainer id exists
+- approving a trainer-release request (`PATCH .../trainer-release-requests/{id}` with `status: APPROVED`) deletes the assignment for that request's student as part of the same decision — there would be nothing left for the request to have accomplished otherwise; a missing assignment (already removed some other way) is not an error
+- `TrainingAssignment` is denormalized for list/detail UIs: `student_cid`/`student_name`/`student_controller_status`, `primary_trainer_cid`/`primary_trainer_name`, and a structured `other_trainers: [{id, cid, name}]` alongside the original `other_trainer_ids` (kept for compatibility/validation use)
+- `TrainingAssignmentRequest` and `TrainerReleaseRequest` are similarly denormalized with `student_cid`/`student_name`/`student_controller_status`
+- `TrainingAssignmentRequest` also carries `interested_trainers: [{id, cid, name}]` (joined from the interested-trainers table) — there's no separate endpoint to list interest, it's always inlined on the request
+- assignment-request creation (`POST /training/assignment-requests`) accepts an optional `student_id` + `submitted_at`: omit both for the common self-request case (needs only `.self.request`), or set `student_id` to log a manual/backdated request on another student's behalf (needs `.create`, the broader permission — see below)
+- release-request creation (`POST /training/trainer-release-requests`) accepts an optional `student_id`, same pattern as assignment-request creation: omit it for the common self-request case (needs only `training.release_requests.self.request`), or set it to submit a release request on another student's behalf — e.g. a trainer releasing their own assigned student (needs `training.release_requests.create`, the broader permission)
+
 OTS recommendation routes now cover:
 
 - recommendation list, create, assign or unassign, and delete
@@ -32,6 +44,7 @@ Lesson routes now cover:
 - progression-step CRUD
 - performance-indicator template/category/criteria CRUD
 - manual progression assignment and removal
+- per-controller progression status and force-completion
 - dossier reads by CID
 
 All training list routes that can grow large now use the shared pagination envelope. Canonical query params are `page` and `page_size`, with `limit` and `offset` still accepted for compatibility.
@@ -44,10 +57,12 @@ Training appointment routes now cover:
 - estimated duration and estimated end time computed from linked lesson durations
 - a free-text `notes` field (uppercased, 50-char cap)
 - additional trainers (secondary trainer + free-text description, uppercased, replace-on-update)
+- list items now include a denormalized `lessons: [{id, identifier, name, location, duration}]` alongside `lesson_count`, and `additional_trainers: [{trainer_id, trainer_cid, trainer_name, description}]` alongside `additional_trainer_count` (both correlated `json_agg`s, same pattern used for `TrainingAssignment.other_trainers`) — added so the appointments admin table/calendar can show lesson-identifier chips and additional-trainer info per row without an extra request per appointment
 
 ## Main Routes
 
 - `/api/v1/training/assignments`
+- `/api/v1/training/assignments/{assignment_id}`
 - `/api/v1/training/ots-recommendations`
 - `/api/v1/training/ots-recommendations/{recommendation_id}`
 - `/api/v1/training/lessons`
@@ -72,18 +87,24 @@ Training appointment routes now cover:
 - `/api/v1/admin/training/performance-indicators/categories`
 - `/api/v1/admin/training/performance-indicators/criteria`
 - `/api/v1/admin/training/progression-assignments`
+- `/api/v1/users/{cid}/progression` (GET status)
+- `/api/v1/users/{cid}/progression/complete` (POST force-complete)
 - `/api/v1/users/{cid}/dossier`
 
 ## Permissions
 
-- read routes require `training.read`
-- lesson, assignment, training-appointment, and training-session creation routes require `training.create`
-- lesson, training-appointment, and training-session update routes require `training.update`
-- OTS recommendation create, assign or unassign, and delete routes require `training.manage`
-- moderation and destructive routes require `training.manage`
-- `training.manage` is the umbrella training permission and also satisfies the read/create/update checks above
-- a normal authenticated user can create their own assignment or release requests and mark interest where allowed
-- lesson rubric routes reuse the lesson permissions (`training.lessons.read` for the `GET .../rubric` read, `training.lessons.update` for criteria/cell create and update, `training.lessons.delete` for criteria/cell delete) rather than a separate rubric-specific permission — a rubric is part of a lesson's curriculum, not an independent resource
+Permissions are granular and per-resource (`training.<resource>.<action>`), not a single umbrella grant — `training.manage`/`training.read`/`training.create`/`training.update` existed as coarse permission names historically but were fully replaced by the fine-grained set below in a one-time data migration; they no longer exist in the permission catalog. Whichever role held `training.manage` at that time (currently just `STAFF`) was expanded into direct grants of every leaf permission listed here.
+
+- `training.assignments.read` / `.create` / `.update` / `.delete` — assignment CRUD
+- `training.ots_recommendations.read` / `.create` / `.update` / `.delete`
+- `training.lessons.read` / `.create` / `.update` / `.delete` — also covers lesson rubric routes (`training.lessons.read` for the `GET .../rubric` read, `training.lessons.update` for criteria/cell create and update, `training.lessons.delete` for criteria/cell delete), progression/progression-step/performance-indicator/progression-assignment CRUD, and dossier reads of another user (`training.lessons.read`) — none of these have a dedicated permission namespace of their own
+- `training.appointments.read` / `.create` / `.update` / `.delete`
+- `training.sessions.read` / `.create` / `.update` / `.delete` — note `GET /training/sessions/{session_id}` is data-dependent: the session's own **student** may read it with just `auth.profile.read` (backs the controller's `/profile/training/[id]` self-view); anyone else needs `training.sessions.read`
+- `training.assignment_requests.read`, `.self.request` (self-submit), `.create` (submit a manual/backdated request on another student's behalf), `.decide` (approve/deny), `.delete` (admin cancel/remove any request), `.interest.request` / `.interest.delete`
+- `training.release_requests.read`, `.self.request`, `.decide`, `.delete` (admin cancel/remove any request)
+- `training.dossier.create`, `training.dossier_confidential.read` (confidential dossier entries)
+- a normal authenticated user can create their own assignment or release requests and mark trainer interest without any of the permissions above
+- **self-cancel is a data-dependent exception, not a separate permission**: the student who submitted an assignment-request or release-request can `DELETE` it themselves while it's still `PENDING` with no permission check at all; deleting anyone else's request, or a request that's already been decided, requires the corresponding `.delete` permission
 
 ## Training Admin Notes
 
@@ -91,7 +112,10 @@ Training appointment routes now cover:
 - progression step routes manage lesson ordering within a progression
 - performance-indicator template, category, and criteria routes are the backend-owned config surface for scoring policy
 - progression assignment routes bind users to progressions using `user_id` and `progression_id`
-- dossier reads are exposed through `GET /api/v1/users/{cid}/dossier`
+- `GET /api/v1/users/{cid}/progression` returns the controller's assigned progression and, per step, whether the most recent training ticket for that step's lesson passed (self needs `auth.profile.read`; viewing another controller needs `training.lessons.read`)
+- `POST /api/v1/users/{cid}/progression/complete` force-advances the controller to their progression's `next_progression_id` (or unassigns them when there is none) once every non-optional step has passed, emailing `progression.assigned` / `progression.removed`. Self-completion needs `auth.profile.update` and honors the `no_force_progression_finish` opt-out flag; staff completing another controller's progression need `training.lessons.update`
+- progressions also advance automatically: right after a training session is saved (non-optional gate) and during the periodic roster sync (stricter all-steps gate, matching the legacy `updateProgressionCompletions`). Roster sync additionally hands new home OBS the `auto_assign_new_home_obs` starter progression once (guarded by `flag_auto_assign_single_pass`)
+- dossier reads are exposed through `GET /api/v1/users/{cid}/dossier`; `POST /api/v1/users/{cid}/dossier` requires `training.dossier.create` and accepts an optional `confidential` flag (default `false`) — confidential entries are hidden from reads unless the caller holds `training.dossier_confidential.read`, a permission separate from the base read gate above and granted to `ATM`/`DATM`/`TA` by default
 
 Example progression create body:
 
@@ -176,11 +200,13 @@ Example progression-assignment create body:
 - Lesson IDs are generated by the backend when lessons are created; session creation does not generate new lessons or new lesson IDs.
 - Lesson create requests do not include an `id`; the backend generates it automatically.
 - Session list supports pagination, sorting, and training-grid style filtering by student, instructor, or lesson.
+- Session list items also include a denormalized `tickets: [{id, lesson_id, lesson_identifier, passed}]` alongside `ticket_count` (a correlated `json_agg`, same pattern used elsewhere) — added so the sessions admin table can show pass/fail lesson chips per row without an extra request per session.
 - Session detail returns nested tickets, rubric scores, and performance-indicator snapshots when present.
-- Session create and update accept nested training tickets.
+- Session create and update accept nested training tickets. **Tickets, additional trainers, and the performance-indicator snapshot are all full-replace on every create/update, not merge-patch** — the caller must resend everything it wants to keep, not just what changed. This applies to performance indicators too: if the first ticket's lesson has a `performance_indicator_template_id`, an update that omits `performance_indicator` entirely is a validation error (`"You must fill out all performance indicators to submit this ticket."`), not a silent no-op — a client that wants to leave PI unchanged on an otherwise-unrelated edit (e.g. fixing a typo in comments) must resend the session's current PI snapshot as-is, fetched from the prior `GET`/mutation response.
 - Ticket payloads include lesson id, pass/fail state, and rubric scores.
 - Common mistakes are intentionally not accepted by Osmium even though the legacy site supported them.
-- Performance-indicator payloads are only allowed when the first submitted lesson requires them.
+- Performance-indicator payloads are only allowed when the first submitted lesson requires them (`(None, Some(_))` — a PI snapshot submitted for a lesson with no template — is also a validation error).
+- `PATCH /api/v1/training/sessions/{session_id}` returns the same `{session: null, release: null, roster_updates: [], ots_recommendation: null, errors: [...]}` body shape with a `400` on validation failure as `POST` does (both delegate to the same internal upsert) — the client-facing error contract is identical for create and update.
 - Passing lessons can create release requests, update certifications, remove solo certifications, write dossier entries, and create or remove OTS recommendations.
 - Manual OTS recommendation creation requires `student_id` and non-empty `notes`.
 - A student can only have one active OTS recommendation at a time.

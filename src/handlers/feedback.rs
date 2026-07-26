@@ -59,6 +59,10 @@ pub async fn create_feedback(
         .await?
         .ok_or(ApiError::NotFound)?;
 
+    if target_user_id == user.id {
+        return Err(ApiError::BadRequest);
+    }
+
     let feedback_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
 
@@ -99,10 +103,7 @@ pub async fn create_feedback(
     get,
     path = "/api/v1/feedback",
     tag = "feedback",
-    params(
-        PaginationQuery,
-        ("status" = Option<String>, Query, description = "Optional feedback status")
-    ),
+    params(FeedbackListQuery),
     responses(
         (status = 200, description = "Feedback list", body = FeedbackListResponse),
         (status = 401, description = "Not authenticated")
@@ -151,25 +152,45 @@ pub async fn list_feedback(
             }
         })?;
 
+    let submitter_name = query
+        .submitter_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let target_name = query
+        .target_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let controller_position = query
+        .controller_position
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let filters = feedback_repo::FeedbackFilters {
+        status: normalized_status.as_deref(),
+        submitter_cid: query.submitter_cid,
+        submitter_name,
+        target_cid: query.target_cid,
+        target_name,
+        controller_position,
+        min_rating: query.min_rating,
+        max_rating: query.max_rating,
+    };
+
     let total = if can_read_all {
-        feedback_repo::count_all(pool, normalized_status.as_deref()).await?
+        feedback_repo::count_all(pool, filters).await?
     } else {
-        feedback_repo::count_by_submitter(pool, &user.id, normalized_status.as_deref()).await?
+        feedback_repo::count_by_submitter(pool, &user.id, filters).await?
     };
 
     let items = if can_read_all {
-        feedback_repo::list_all(
-            pool,
-            normalized_status.as_deref(),
-            pagination.page_size,
-            pagination.offset,
-        )
-        .await?
+        feedback_repo::list_all(pool, filters, pagination.page_size, pagination.offset).await?
     } else {
         feedback_repo::list_by_submitter(
             pool,
             &user.id,
-            normalized_status.as_deref(),
+            filters,
             pagination.page_size,
             pagination.offset,
         )
@@ -185,6 +206,49 @@ pub async fn list_feedback(
         },
         time,
     ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/feedback/{feedback_id}",
+    tag = "feedback",
+    params(
+        ("feedback_id" = String, Path, description = "Feedback record ID")
+    ),
+    responses(
+        (status = 200, description = "Feedback record", body = FeedbackItem),
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "Feedback record not found")
+    )
+)]
+pub async fn get_feedback(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(feedback_id): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<FeedbackItem>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let item = feedback_repo::find_by_id(pool, &feedback_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    // Data-dependent visibility check (staff, the submitter, or the target),
+    // same scoping rule as list_feedback — not a RequirePermission<P> case.
+    let (_, permissions) = crate::auth::acl::fetch_user_access(state.db.as_ref(), &user.id).await?;
+    let can_read_all = permissions.contains(&PermissionPath::from_segments(
+        ["feedback", "items"],
+        PermissionAction::Read,
+    ));
+    let is_submitter = item.submitter_user_id == user.id;
+    let is_target = item.target_user_id == user.id;
+
+    if !can_read_all && !is_submitter && !is_target {
+        return Err(ApiError::NotFound);
+    }
+
+    Ok(ApiJson::new(item, time))
 }
 
 #[utoipa::path(

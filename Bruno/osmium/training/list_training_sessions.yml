@@ -116,6 +116,7 @@ examples:
           [
             {
               "additional_comments": "",
+              "additional_trainer_count": 0,
               "created_at": "",
               "enable_markdown": false,
               "end": "",
@@ -128,6 +129,7 @@ examples:
               "student_id": "",
               "student_name": "",
               "ticket_count": 0,
+              "tickets": [{"id": "", "lesson_id": "", "lesson_identifier": "", "passed": false}],
               "trainer_comments": "",
               "updated_at": "",
               "vatusa_id": ""

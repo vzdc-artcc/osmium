@@ -28,6 +28,13 @@ pub struct UploadFileQuery {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImportFileFromUrlRequest {
+    pub url: String,
+    pub filename: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateFileMetadataRequest {
     pub filename: Option<String>,
     pub content_type: Option<String>,

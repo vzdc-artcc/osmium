@@ -5,6 +5,7 @@ mod feedback;
 mod incident;
 mod loa;
 mod progression;
+mod roster;
 mod solo;
 mod system;
 mod training;
@@ -61,6 +62,8 @@ static RSX_TEMPLATES: &[&dyn RsxTemplate] = &[
     // Progression
     &progression::ProgressionAssignedTemplate,
     &progression::ProgressionRemovedTemplate,
+    // Roster
+    &roster::RosterRemovedTemplate,
 ];
 
 pub fn find_rsx_template(id: &str) -> Option<&'static dyn RsxTemplate> {
@@ -128,6 +131,7 @@ mod tests {
             "broadcast.posted",
             "progression.assigned",
             "progression.removed",
+            "roster.removed",
         ];
 
         for id in expected {

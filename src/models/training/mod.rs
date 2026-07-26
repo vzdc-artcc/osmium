@@ -2,32 +2,121 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct AssignmentTrainerSummary {
+    pub id: String,
+    pub cid: i64,
+    pub name: String,
+}
+
+/// Query for the training-statistics bundle. `month` is 0-based (0 = January),
+/// matching the website's selector; omit it for a full-year view. `cid` scopes
+/// every metric to that instructor; omit it for facility-wide stats.
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+pub struct TrainingStatsQuery {
+    pub year: i32,
+    pub month: Option<i32>,
+    pub cid: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingStatsMostRunLesson {
+    pub identifier: Option<String>,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct TrainingStatsTopTrainer {
+    pub id: String,
+    pub cid: Option<i64>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub preferred_name: Option<String>,
+    pub hours: f64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingStatsMonthlyBucket {
+    /// Short month name, e.g. `"Jan"`.
+    pub month: String,
+    pub sessions: i64,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct TrainingStatsLessonDistribution {
+    pub lesson: String,
+    pub passed: i64,
+    pub failed: i64,
+}
+
+/// Aggregated training-session metrics for one scope (facility or trainer,
+/// month or year). `top_trainers` is populated only for facility scope;
+/// `monthly_sessions` only for a full-year scope. Pass rate is derived
+/// client-side from `passed`/`failed`.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingStatsBundle {
+    pub sessions: i64,
+    pub total_hours: f64,
+    pub passed: i64,
+    pub failed: i64,
+    pub most_run_lesson: TrainingStatsMostRunLesson,
+    pub top_trainers: Vec<TrainingStatsTopTrainer>,
+    pub monthly_sessions: Vec<TrainingStatsMonthlyBucket>,
+    pub lesson_distribution: Vec<TrainingStatsLessonDistribution>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TrainingStatsAllTimeHours {
+    pub hours: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingAssignment {
     pub id: String,
     pub student_id: String,
+    pub student_cid: i64,
+    pub student_name: String,
+    pub student_controller_status: String,
     pub primary_trainer_id: String,
+    pub primary_trainer_cid: i64,
+    pub primary_trainer_name: String,
+    pub other_trainer_ids: Vec<String>,
+    pub other_trainers: Vec<AssignmentTrainerSummary>,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateTrainingAssignmentRequest {
+    pub primary_trainer_id: Option<String>,
+    pub other_trainer_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingAssignmentRequest {
     pub id: String,
     pub student_id: String,
+    pub student_cid: i64,
+    pub student_name: String,
+    pub student_controller_status: String,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: chrono::DateTime<chrono::Utc>,
     pub status: String,
     #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub decided_at: Option<chrono::DateTime<chrono::Utc>>,
     pub decided_by: Option<String>,
+    pub interested_trainers: Vec<AssignmentTrainerSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainerReleaseRequest {
     pub id: String,
     pub student_id: String,
+    pub student_cid: i64,
+    pub student_name: String,
+    pub student_controller_status: String,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: chrono::DateTime<chrono::Utc>,
     pub status: String,
@@ -79,7 +168,15 @@ pub struct CreateTrainingAssignmentRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CreateTrainingAssignmentRequestRequest {}
+pub struct CreateTrainingAssignmentRequestRequest {
+    /// Omit to submit for the current user (the common self-request case). Set to submit a
+    /// manual/backdated request on another student's behalf — requires
+    /// `training.assignment_requests.create`, not just the self-request permission.
+    pub student_id: Option<String>,
+    /// Omit to use the current time. Set to backdate a request that was actually made through
+    /// another channel (e.g. Discord) before it was logged here.
+    pub submitted_at: Option<chrono::DateTime<chrono::Utc>>,
+}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DecideTrainingAssignmentRequestRequest {
@@ -87,7 +184,13 @@ pub struct DecideTrainingAssignmentRequestRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CreateTrainerReleaseRequestRequest {}
+pub struct CreateTrainerReleaseRequestRequest {
+    /// Omit to submit for the current user (the common self-request case). Set to submit a
+    /// release request on another student's behalf (e.g. a trainer releasing their own
+    /// assigned student) — requires `training.release_requests.create`, not just the
+    /// self-request permission.
+    pub student_id: Option<String>,
+}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DecideTrainerReleaseRequestRequest {
@@ -171,6 +274,7 @@ pub struct CreateLessonRubricCriteriaRequest {
     pub description: String,
     pub max_points: i32,
     pub passing: i32,
+    pub sort_order: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -179,6 +283,7 @@ pub struct UpdateLessonRubricCriteriaRequest {
     pub description: String,
     pub max_points: i32,
     pub passing: i32,
+    pub sort_order: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -209,6 +314,7 @@ pub struct LessonRubricCriteriaDetail {
     pub description: String,
     pub passing: i32,
     pub max_points: i32,
+    pub sort_order: i32,
     pub cells: Vec<LessonRubricCellDetail>,
 }
 
@@ -370,7 +476,16 @@ pub struct TrainingSessionListItem {
     pub instructor_cid: i64,
     pub instructor_name: String,
     pub ticket_count: i64,
+    pub tickets: Vec<TrainingSessionTicketSummary>,
     pub additional_trainer_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct TrainingSessionTicketSummary {
+    pub id: String,
+    pub lesson_id: String,
+    pub lesson_identifier: String,
+    pub passed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -444,7 +559,9 @@ pub struct TrainingAppointmentListItem {
     pub trainer_cid: i64,
     pub trainer_name: String,
     pub lesson_count: i64,
+    pub lessons: Vec<TrainingAppointmentLessonSummary>,
     pub additional_trainer_count: i64,
+    pub additional_trainers: Vec<AdditionalTrainerDetail>,
     pub estimated_duration_minutes: Option<i64>,
     #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
     pub estimated_end: Option<chrono::DateTime<chrono::Utc>>,
@@ -533,7 +650,11 @@ pub struct LessonRosterChangeSummary {
 pub struct OtsRecommendationSummary {
     pub id: String,
     pub student_id: String,
+    pub student_cid: i64,
+    pub student_name: String,
     pub assigned_instructor_id: Option<String>,
+    pub assigned_instructor_cid: Option<i64>,
+    pub assigned_instructor_name: Option<String>,
     pub notes: String,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub created_at: chrono::DateTime<chrono::Utc>,

@@ -35,8 +35,15 @@ examples:
             {
               "created_at": "",
               "id": "",
+              "other_trainer_ids": [],
+              "other_trainers": [{"id": "", "cid": 0, "name": ""}],
               "primary_trainer_id": "",
+              "primary_trainer_cid": 0,
+              "primary_trainer_name": "",
               "student_id": "",
+              "student_cid": 0,
+              "student_name": "",
+              "student_controller_status": "HOME",
               "updated_at": ""
             }
           ]

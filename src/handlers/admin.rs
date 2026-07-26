@@ -1,32 +1,43 @@
+use std::collections::BTreeSet;
+
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
     http::HeaderMap,
 };
-
 use crate::{
     auth::{
         acl::{
-            PermissionAction, PermissionPath, fetch_access_catalog, fetch_user_access,
-            is_server_admin, normalize_permission_tree, permission_tree_from_names,
-            permission_tree_from_paths,
+            PermissionPath, fetch_access_catalog, fetch_user_access, is_server_admin,
+            normalize_permission_tree, permission_tree_from_names, permission_tree_from_paths,
         },
         context::{CurrentServiceAccount, CurrentUser},
-        middleware::ensure_permission,
+        permissions::{
+            AccessCatalogRead, AccessSelfRead, AccessUsersRead, AccessUsersUpdate, AuditLogsRead,
+            UsersControllerStatusUpdate, UsersDirectoryPrivateRead, UsersFlagsRead, UsersFlagsUpdate,
+            UsersOperatingInitialsUpdate, UsersStaffPositionsUpdate, UsersVatusaRefreshRequest,
+            UsersVisitorApplicationsDecide, UsersVisitorApplicationsRead,
+        },
+        require_permission::RequirePermission,
     },
     errors::ApiError,
     jobs::roster_sync,
     models::{
-        AccessCatalogBody, AclDebugBody, AdminUserListResponse, AuditLogListResponse,
+        AccessCatalogBody, AclDebugBody, AdminUpdateProfileRequest, AdminUserListResponse,
+        AuditLogListResponse,
         DecideVisitorApplicationRequest, ListAuditLogsQuery,
         ListVisitorApplicationsQuery,
         ManualVatusaRefreshResponse as ManualVatusaRefreshResponseBody,
-        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, PaginationMeta,
+        ManualVatusaRefreshResult as ManualVatusaRefreshResultBody, MeProfileBody, PaginationMeta,
         PaginationQuery, SetControllerStatusBody, SetControllerStatusRequest,
-        UpdateUserAccessRequest, UserAccessBody, UserOverviewBody, VisitorApplicationItem,
-        VisitorApplicationListResponse,
+        StaffPositionsResponse, UpdateOperatingInitialsRequest, UpdateOperatingInitialsResponse,
+        UpdateUserAccessRequest, UpdateUserFlagsRequest, UserAccessBody, UserFlagsBody,
+        UserOverviewBody, VisitorApplicationItem, VisitorApplicationListResponse,
     },
-    repos::{access as access_repo, audit as audit_repo, users as user_repo},
+    repos::{
+        access as access_repo, audit as audit_repo, ip_request_log as ip_log_repo,
+        users as user_repo,
+    },
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
@@ -44,17 +55,10 @@ const DEFAULT_VATUSA_FACILITY_ID: &str = "ZDC";
 )]
 pub async fn acl_debug(
     State(state): State<AppState>,
+    _permission: RequirePermission<AccessSelfRead>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
 ) -> Result<Json<AclDebugBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["access", "self"], PermissionAction::Read),
-    )
-    .await?;
 
     let (roles, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
 
@@ -80,19 +84,9 @@ pub async fn acl_debug(
 )]
 pub async fn get_user_access(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<AccessUsersRead>,
     Path(cid): Path<i64>,
 ) -> Result<Json<UserAccessBody>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["access", "users"], PermissionAction::Read),
-    )
-    .await?;
-
     let Some(pool) = state.db.as_ref() else {
         return Err(ApiError::ServiceUnavailable);
     };
@@ -116,18 +110,8 @@ pub async fn get_user_access(
 )]
 pub async fn get_access_catalog(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<AccessCatalogRead>,
 ) -> Result<Json<AccessCatalogBody>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["access", "catalog"], PermissionAction::Read),
-    )
-    .await?;
-
     let (roles, permissions) = fetch_access_catalog(state.db.as_ref()).await?;
     Ok(Json(AccessCatalogBody {
         service_account_roles: roles,
@@ -139,16 +123,7 @@ pub async fn get_access_catalog(
     get,
     path = "/api/v1/admin/audit",
     tag = "admin",
-    params(
-        PaginationQuery,
-        ("resource_type" = Option<String>, Query, description = "Filter by resource type"),
-        ("resource_id" = Option<String>, Query, description = "Filter by resource id"),
-        ("actor_id" = Option<String>, Query, description = "Filter by actor id"),
-        ("actor_type" = Option<String>, Query, description = "Filter by actor type"),
-        ("scope_type" = Option<String>, Query, description = "Filter by scope type"),
-        ("scope_key" = Option<String>, Query, description = "Filter by scope key"),
-        ("action" = Option<String>, Query, description = "Filter by action")
-    ),
+    params(ListAuditLogsQuery),
     responses(
         (status = 200, description = "Audit log rows", body = AuditLogListResponse),
         (status = 401, description = "Not authorized")
@@ -156,21 +131,20 @@ pub async fn get_access_catalog(
 )]
 pub async fn list_audit_logs(
     State(state): State<AppState>,
+    _permission: RequirePermission<AuditLogsRead>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Query(query): Query<ListAuditLogsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<AuditLogListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["audit", "logs"], PermissionAction::Read),
-    )
-    .await?;
-
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    // Only SERVER_ADMIN readers may see server-level impersonation audit rows.
+    // Facility admins hold `audit.logs.read` (via the old `audit.read` remap) but
+    // must never see `AUTH_IMPERSONATION` activity (security checklist #2).
+    let (roles, _) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+    let include_server_sensitive = is_server_admin(&roles);
+
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(50, 250);
@@ -180,46 +154,22 @@ pub async fn list_audit_logs(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_ascii_uppercase());
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from access.audit_logs l
-        left join access.actors a on a.id = l.actor_id
-        where ($1::text is null or l.resource_type = $1)
-          and ($2::text is null or l.resource_id = $2)
-          and ($3::text is null or l.actor_id = $3)
-          and ($4::text is null or a.actor_type = $4)
-          and ($5::text is null or l.scope_type = $5)
-          and ($6::text is null or l.scope_key = $6)
-          and ($7::text is null or l.action = $7)
-        "#,
-    )
-    .bind(query.resource_type.as_deref())
-    .bind(query.resource_id.as_deref())
-    .bind(query.actor_id.as_deref())
-    .bind(query.actor_type.as_deref())
-    .bind(query.scope_type.as_deref())
-    .bind(query.scope_key.as_deref())
-    .bind(normalized_action.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
 
-    let rows = audit_repo::fetch_audit_logs(
-        pool,
-        &audit_repo::AuditLogFilters {
-            resource_type: query.resource_type,
-            resource_id: query.resource_id,
-            actor_id: query.actor_id,
-            actor_type: query.actor_type,
-            scope_type: query.scope_type,
-            scope_key: query.scope_key,
-            action: normalized_action,
-            limit: pagination.page_size,
-            offset: pagination.offset,
-        },
-    )
-    .await?;
+    let filters = audit_repo::AuditLogFilters {
+        resource_type: query.resource_type,
+        resource_id: query.resource_id,
+        actor_id: query.actor_id,
+        actor_type: query.actor_type,
+        scope_type: query.scope_type,
+        scope_key: query.scope_key,
+        action: normalized_action,
+        limit: pagination.page_size,
+        offset: pagination.offset,
+        include_server_sensitive,
+    };
+
+    let total = audit_repo::count_audit_logs(pool, &filters).await?;
+    let rows = audit_repo::fetch_audit_logs(pool, &filters).await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
@@ -249,6 +199,7 @@ pub async fn list_audit_logs(
 )]
 pub async fn set_user_controller_status(
     State(state): State<AppState>,
+    _permission: RequirePermission<UsersControllerStatusUpdate>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(cid): Path<i64>,
@@ -256,13 +207,6 @@ pub async fn set_user_controller_status(
     Json(payload): Json<SetControllerStatusRequest>,
 ) -> Result<Json<SetControllerStatusBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["users", "controller_status"], PermissionAction::Update),
-    )
-    .await?;
 
     let Some(pool) = state.db.as_ref() else {
         return Err(ApiError::ServiceUnavailable);
@@ -328,6 +272,355 @@ pub async fn set_user_controller_status(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/v1/admin/users/{cid}/flags",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID")
+    ),
+    responses(
+        (status = 200, description = "User's self-service opt-out flags", body = UserFlagsBody),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn get_user_flags(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersFlagsRead>,
+    Path(cid): Path<i64>,
+) -> Result<Json<UserFlagsBody>, ApiError> {
+    let Some(pool) = state.db.as_ref() else {
+        return Err(ApiError::ServiceUnavailable);
+    };
+
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    Ok(Json(user_repo::fetch_user_flags(pool, &target_id).await?))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/users/{cid}/flags",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID")
+    ),
+    request_body = UpdateUserFlagsRequest,
+    responses(
+        (status = 200, description = "Updated opt-out flags", body = UserFlagsBody),
+        (status = 400, description = "Invalid request (empty reason)"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn update_user_flags(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersFlagsUpdate>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path(cid): Path<i64>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateUserFlagsRequest>,
+) -> Result<Json<UserFlagsBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+
+    let Some(pool) = state.db.as_ref() else {
+        return Err(ApiError::ServiceUnavailable);
+    };
+
+    let reason = payload.reason.trim();
+    if reason.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let before = user_repo::fetch_user_flags(pool, &target_id).await?;
+
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+    user_repo::upsert_user_flags(pool, &target_id, &payload).await?;
+    access_repo::insert_access_dossier_entry(&mut tx, &target_id, &user.id, reason).await?;
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    let after = user_repo::fetch_user_flags(pool, &target_id).await?;
+
+    let actor =
+        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "USER_FLAGS".to_string(),
+            resource_id: Some(target_id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(cid.to_string()),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&after)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(after))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/users/{cid}/profile",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID")
+    ),
+    request_body = AdminUpdateProfileRequest,
+    responses(
+        (status = 200, description = "Updated profile", body = MeProfileBody),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "User not found")
+    )
+)]
+// Reuses the admin user-management gate (users.flags.update, granted to STAFF
+// in migration 0052) — same capability class as the flags + OI-reassignment
+// admin surfaces this sits next to. Operating initials keep their dedicated
+// endpoint; flags keep theirs.
+pub async fn admin_update_user_profile(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersFlagsUpdate>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path(cid): Path<i64>,
+    headers: HeaderMap,
+    Json(payload): Json<AdminUpdateProfileRequest>,
+) -> Result<Json<MeProfileBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+
+    let Some(pool) = state.db.as_ref() else {
+        return Err(ApiError::ServiceUnavailable);
+    };
+
+    if payload.timezone.trim().is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let profile = user_repo::admin_update_user_profile(
+        pool,
+        &target_id,
+        payload.preferred_name.as_deref(),
+        payload.bio.as_deref(),
+        payload.timezone.trim(),
+    )
+    .await?;
+
+    let actor =
+        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "USER_PROFILE".to_string(),
+            resource_id: Some(target_id.clone()),
+            scope_type: "global".to_string(),
+            scope_key: Some(cid.to_string()),
+            before_state: None,
+            after_state: Some(audit_repo::sanitized_snapshot(&profile)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(profile))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/admin/users/{cid}/operating-initials",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID")
+    ),
+    request_body = UpdateOperatingInitialsRequest,
+    responses(
+        (status = 200, description = "Reassigned operating initials", body = UpdateOperatingInitialsResponse),
+        (status = 400, description = "Invalid request, or initials already in use"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn reassign_user_operating_initials(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersOperatingInitialsUpdate>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path(cid): Path<i64>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateOperatingInitialsRequest>,
+) -> Result<Json<UpdateOperatingInitialsResponse>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+
+    let Some(pool) = state.db.as_ref() else {
+        return Err(ApiError::ServiceUnavailable);
+    };
+
+    let initials = payload.operating_initials.trim().to_ascii_uppercase();
+    if initials.len() != 2 || !initials.chars().all(|c| c.is_ascii_alphabetic()) {
+        return Err(ApiError::BadRequest);
+    }
+
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let assigned = user_repo::reassign_operating_initials(pool, &target_id, &initials).await?;
+    if !assigned {
+        return Err(ApiError::Conflict);
+    }
+
+    let response = UpdateOperatingInitialsResponse {
+        cid,
+        operating_initials: initials,
+    };
+
+    let actor =
+        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "UPDATE".to_string(),
+            resource_type: "USER_OPERATING_INITIALS".to_string(),
+            resource_id: Some(target_id),
+            scope_type: "global".to_string(),
+            scope_key: Some(cid.to_string()),
+            before_state: None,
+            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/users/{cid}/staff-positions/{position}",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID"),
+        ("position" = String, Path, description = "Staff position code, e.g. ATM, INS, AWM")
+    ),
+    responses(
+        (status = 200, description = "Staff positions after the change", body = StaffPositionsResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn assign_staff_position(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersStaffPositionsUpdate>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path((cid, position)): Path<(i64, String)>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StaffPositionsResponse>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+
+    set_staff_position_for_cid(&state, user, current_service_account.as_ref(), cid, &position, true, &headers, time).await
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/users/{cid}/staff-positions/{position}",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID"),
+        ("position" = String, Path, description = "Staff position code, e.g. ATM, INS, AWM")
+    ),
+    responses(
+        (status = 200, description = "Staff positions after the change", body = StaffPositionsResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn revoke_staff_position(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersStaffPositionsUpdate>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    Path((cid, position)): Path<(i64, String)>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StaffPositionsResponse>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+
+    set_staff_position_for_cid(&state, user, current_service_account.as_ref(), cid, &position, false, &headers, time).await
+}
+
+async fn set_staff_position_for_cid(
+    state: &AppState,
+    user: &CurrentUser,
+    current_service_account: Option<&CurrentServiceAccount>,
+    cid: i64,
+    position: &str,
+    held: bool,
+    headers: &HeaderMap,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<StaffPositionsResponse>, ApiError> {
+    let position = position.trim().to_ascii_uppercase();
+    if !crate::models::STAFF_POSITIONS.contains(&position.as_str()) {
+        return Err(ApiError::BadRequest);
+    }
+
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let (target_user_id, _) = user_repo::find_user_identity_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let before = user_repo::list_held_staff_positions(pool, cid).await?;
+    user_repo::set_staff_position_manual(pool, &target_user_id, &position, held, &user.id).await?;
+    let after = user_repo::list_held_staff_positions(pool, cid).await?;
+    let response = StaffPositionsResponse {
+        cid,
+        positions: after,
+    };
+
+    let actor =
+        audit_repo::resolve_audit_actor(pool, Some(user), current_service_account).await?;
+    audit_repo::record_audit(
+        pool,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: if held { "ASSIGN" } else { "REVOKE" }.to_string(),
+            resource_type: "USER_STAFF_POSITION".to_string(),
+            resource_id: Some(target_user_id),
+            scope_type: "global".to_string(),
+            scope_key: Some(format!("{cid}:{position}")),
+            before_state: Some(audit_repo::sanitized_snapshot(&StaffPositionsResponse {
+                cid,
+                positions: before,
+            })?),
+            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            ip_address: audit_repo::client_ip(headers),
+        },
+    )
+    .await?;
+
+    Ok(ApiJson::new(response, time))
+}
+
+#[utoipa::path(
     post,
     path = "/api/v1/admin/users/{cid}/refresh-vatusa",
     tag = "admin",
@@ -343,6 +636,7 @@ pub async fn set_user_controller_status(
 )]
 pub async fn refresh_user_vatusa(
     State(state): State<AppState>,
+    _permission: RequirePermission<UsersVatusaRefreshRequest>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(cid): Path<i64>,
@@ -350,13 +644,6 @@ pub async fn refresh_user_vatusa(
     time: ResponseTimeContext,
 ) -> Result<ApiJson<ManualVatusaRefreshResponseBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["users", "vatusa_refresh"], PermissionAction::Request),
-    )
-    .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let before = user_repo::find_roster_user_by_cid(pool, cid).await?;
@@ -364,7 +651,7 @@ pub async fn refresh_user_vatusa(
     let response = ManualVatusaRefreshResponseBody {
         user: crate::handlers::users::build_user_details_response(
             &state,
-            user,
+            Some(user),
             refreshed.user.clone(),
         )
         .await?,
@@ -415,10 +702,7 @@ pub async fn refresh_user_vatusa(
     get,
     path = "/api/v1/admin/visitor-applications",
     tag = "admin",
-    params(
-        PaginationQuery,
-        ("status" = Option<String>, Query, description = "Filter by application status")
-    ),
+    params(ListVisitorApplicationsQuery),
     responses(
         (status = 200, description = "Visitor applications", body = VisitorApplicationListResponse),
         (status = 400, description = "Invalid request"),
@@ -427,39 +711,31 @@ pub async fn refresh_user_vatusa(
 )]
 pub async fn list_visitor_applications(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<UsersVisitorApplicationsRead>,
     Query(query): Query<ListVisitorApplicationsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<VisitorApplicationListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["users", "visitor_applications"], PermissionAction::Read),
-    )
-    .await?;
-
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
     let normalized_status = normalize_visitor_application_status_filter(query.status.as_deref())?;
-    let total = sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from training.visitor_applications
-        where ($1::text is null or status = $1)
-        "#,
+    let display_name = query.display_name.as_deref();
+    let home_facility = query.home_facility.as_deref();
+    let total = user_repo::count_visitor_applications(
+        pool,
+        normalized_status.as_deref(),
+        query.cid,
+        display_name,
+        home_facility,
     )
-    .bind(normalized_status.as_deref())
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    .await?;
     let items = user_repo::list_visitor_applications(
         pool,
         normalized_status.as_deref(),
+        query.cid,
+        display_name,
+        home_facility,
         pagination.page_size,
         pagination.offset,
     )
@@ -493,6 +769,7 @@ pub async fn list_visitor_applications(
 )]
 pub async fn decide_visitor_application(
     State(state): State<AppState>,
+    _permission: RequirePermission<UsersVisitorApplicationsDecide>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(application_id): Path<String>,
@@ -501,13 +778,6 @@ pub async fn decide_visitor_application(
     Json(payload): Json<DecideVisitorApplicationRequest>,
 ) -> Result<ApiJson<VisitorApplicationItem>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["users", "visitor_applications"], PermissionAction::Decide),
-    )
-    .await?;
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let normalized_status = normalize_visitor_application_decision_status(&payload.status)?;
@@ -571,19 +841,9 @@ pub async fn decide_visitor_application(
 
 pub async fn list_users(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<UsersDirectoryPrivateRead>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<AdminUserListResponse>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["users", "directory_private"], PermissionAction::Read),
-    )
-    .await?;
-
     let Some(pool) = state.db.as_ref() else {
         return Err(ApiError::ServiceUnavailable);
     };
@@ -591,11 +851,7 @@ pub async fn list_users(
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
-    let total =
-        sqlx::query_scalar::<_, i64>("select count(*)::bigint from org.v_user_roster_profile")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| ApiError::Internal)?;
+    let total = user_repo::count_admin_users(pool).await?;
     let users = user_repo::list_admin_users(pool, pagination.page_size, pagination.offset).await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
@@ -608,19 +864,9 @@ pub async fn list_users(
 
 pub async fn get_user_overview(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
+    _permission: RequirePermission<UsersDirectoryPrivateRead>,
     Path(cid): Path<i64>,
 ) -> Result<Json<UserOverviewBody>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["users", "directory_private"], PermissionAction::Read),
-    )
-    .await?;
-
     let Some(pool) = state.db.as_ref() else {
         return Err(ApiError::ServiceUnavailable);
     };
@@ -637,6 +883,52 @@ pub async fn get_user_overview(
         permissions: permission_tree_from_paths(&permissions),
         stats,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/users/{cid}/ip-history",
+    tag = "admin",
+    params(
+        ("cid" = i64, Path, description = "VATSIM CID"),
+        PaginationQuery
+    ),
+    responses(
+        (status = 200, description = "A user's durable request IP history (spec 011)", body = crate::repos::ip_request_log::IpRequestLogListResponse),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "User not found")
+    )
+)]
+pub async fn get_user_ip_history(
+    State(state): State<AppState>,
+    _permission: RequirePermission<UsersDirectoryPrivateRead>,
+    Path(cid): Path<i64>,
+    Query(query): Query<PaginationQuery>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ip_log_repo::IpRequestLogListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let target_id = access_repo::find_user_id_by_cid(pool, cid)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(50, 200);
+
+    let total = ip_log_repo::count_for_user(pool, &target_id).await?;
+    let items =
+        ip_log_repo::list_for_user(pool, &target_id, pagination.page_size, pagination.offset)
+            .await?;
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+
+    Ok(ApiJson::new(
+        ip_log_repo::IpRequestLogListResponse {
+            items,
+            pagination: meta,
+        },
+        time,
+    ))
 }
 
 fn normalize_visitor_application_status_filter(
@@ -728,6 +1020,7 @@ async fn sync_approved_visitor_to_vatusa(cid: i64) -> Result<(), ApiError> {
 )]
 pub async fn update_user_access(
     State(state): State<AppState>,
+    _permission: RequirePermission<AccessUsersUpdate>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Extension(current_service_account): Extension<Option<CurrentServiceAccount>>,
     Path(cid): Path<i64>,
@@ -735,19 +1028,27 @@ pub async fn update_user_access(
     Json(payload): Json<UpdateUserAccessRequest>,
 ) -> Result<Json<UserAccessBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    ensure_permission(
-        &state,
-        Some(user),
-        current_service_account.as_ref(),
-        PermissionPath::from_segments(["access", "users"], PermissionAction::Update),
-    )
-    .await?;
 
     let Some(pool) = state.db.as_ref() else {
         return Err(ApiError::ServiceUnavailable);
     };
 
+    let reason = payload.reason.trim();
+    if reason.is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+
     let parsed_permissions = parse_permissions(&payload.permissions)?;
+    let requested_permissions =
+        access_repo::permission_names_to_permissions(parsed_permissions.clone())?;
+
+    if let Some(role_names) = payload.role_names.as_ref() {
+        for role_name in role_names {
+            if !access_repo::ASSIGNABLE_USER_ROLES.contains(&role_name.as_str()) {
+                return Err(ApiError::BadRequest);
+            }
+        }
+    }
 
     let target_user_id = access_repo::find_user_id_by_cid(pool, cid)
         .await?
@@ -758,8 +1059,44 @@ pub async fn update_user_access(
     let (before_roles, before_permissions) =
         fetch_user_access(state.db.as_ref(), &target_before.id).await?;
 
+    let existing_direct_names =
+        access_repo::fetch_user_direct_permission_names(pool, &target_user_id).await?;
+    let existing_direct_permissions =
+        access_repo::permission_names_to_permissions(existing_direct_names)?;
+
+    validate_permission_changes_are_within_actor_scope(
+        &state,
+        user,
+        &existing_direct_permissions,
+        &requested_permissions,
+    )
+    .await?;
+
+    // A non-SERVER_ADMIN actor may only grant/revoke a coarse role they
+    // themselves effectively hold — same self-scope principle
+    // validate_permission_changes_are_within_actor_scope already applies to
+    // fine-grained permission changes, extended to roles.
+    if let Some(role_names) = payload.role_names.as_ref() {
+        let (actor_roles, _) = fetch_user_access(state.db.as_ref(), &user.id).await?;
+        if !is_server_admin(&actor_roles) {
+            for role_name in role_names {
+                if !actor_roles.contains(role_name) {
+                    return Err(ApiError::Forbidden);
+                }
+            }
+        }
+    }
+
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     access_repo::replace_user_permissions(&mut tx, &target_user_id, &parsed_permissions).await?;
+    if let Some(role_names) = payload.role_names.as_ref() {
+        for role_name in access_repo::ASSIGNABLE_USER_ROLES {
+            let held = role_names.iter().any(|r| r == role_name);
+            access_repo::set_user_role_manual(&mut tx, &target_user_id, role_name, held, &user.id)
+                .await?;
+        }
+    }
+    access_repo::insert_access_dossier_entry(&mut tx, &target_user_id, &user.id, reason).await?;
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     let updated = access_repo::find_current_user_by_cid(pool, cid)
@@ -796,6 +1133,40 @@ fn parse_permissions(raw_permissions: &serde_json::Value) -> Result<Vec<String>,
     normalize_permission_tree(raw_permissions)
 }
 
+/// Restricts a permission-editor save to the acting user's own sphere: only
+/// permissions the actor holds effectively may be added to or removed from
+/// the target's *direct* grants. Permissions the target already has that lie
+/// outside the actor's own set (e.g. role-derived, or granted earlier by
+/// someone else) are untouched by this check as long as the save doesn't
+/// actually change them — this is a diff against `existing_direct`, not a
+/// "whole submitted set must be a subset" check like API keys use, since a
+/// human target's permissions can legitimately come from sources other than
+/// the acting staffer. `SERVER_ADMIN` actors are unrestricted.
+async fn validate_permission_changes_are_within_actor_scope(
+    state: &AppState,
+    actor: &CurrentUser,
+    existing_direct: &[PermissionPath],
+    requested: &[PermissionPath],
+) -> Result<(), ApiError> {
+    let (actor_roles, actor_permissions) = fetch_user_access(state.db.as_ref(), &actor.id).await?;
+
+    if is_server_admin(&actor_roles) {
+        return Ok(());
+    }
+
+    let existing_set: BTreeSet<&PermissionPath> = existing_direct.iter().collect();
+    let requested_set: BTreeSet<&PermissionPath> = requested.iter().collect();
+    let actor_set: BTreeSet<&PermissionPath> = actor_permissions.iter().collect();
+
+    for changed in requested_set.symmetric_difference(&existing_set) {
+        if !actor_set.contains(changed) {
+            return Err(ApiError::Unauthorized);
+        }
+    }
+
+    Ok(())
+}
+
 fn build_user_access_body(
     user: &CurrentUser,
     roles: &[String],
@@ -805,6 +1176,7 @@ fn build_user_access_body(
         id: user.id.clone(),
         cid: user.cid,
         server_admin: is_server_admin(roles),
+        role_names: roles.to_vec(),
         permissions: permission_tree_from_paths(&permissions),
     }
 }

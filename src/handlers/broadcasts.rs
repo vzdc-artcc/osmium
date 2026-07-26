@@ -17,9 +17,9 @@ use crate::{
     },
     errors::ApiError,
     models::{
-        ChangeBroadcastListItem, ChangeBroadcastListResponse, CreateChangeBroadcastRequest,
-        ListChangeBroadcastsQuery, MyChangeBroadcastListResponse, PaginationMeta, PaginationQuery,
-        UpdateChangeBroadcastRequest,
+        ChangeBroadcastDetail, ChangeBroadcastListItem, ChangeBroadcastListResponse,
+        CreateChangeBroadcastRequest, ListChangeBroadcastsQuery, MyChangeBroadcastListResponse,
+        PaginationMeta, PaginationQuery, UpdateChangeBroadcastRequest,
     },
     repos::{audit as audit_repo, broadcasts as broadcasts_repo},
     state::AppState,
@@ -30,11 +30,7 @@ use crate::{
     get,
     path = "/api/v1/admin/broadcasts",
     tag = "broadcasts",
-    params(
-        PaginationQuery,
-        ("title" = Option<String>, Query, description = "Filter by title substring"),
-        ("exempt_staff" = Option<bool>, Query, description = "Filter by exempt-staff flag")
-    ),
+    params(ListChangeBroadcastsQuery),
     responses(
         (status = 200, description = "List change broadcasts", body = ChangeBroadcastListResponse),
         (status = 401, description = "Not authorized")
@@ -82,6 +78,34 @@ pub async fn list_broadcasts(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/v1/admin/broadcasts/{broadcast_id}",
+    tag = "broadcasts",
+    params(
+        ("broadcast_id" = String, Path, description = "Broadcast ID")
+    ),
+    responses(
+        (status = 200, description = "Change broadcast detail with recipient state", body = ChangeBroadcastDetail),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Broadcast not found")
+    )
+)]
+pub async fn admin_get_broadcast(
+    State(state): State<AppState>,
+    _permission: RequirePermission<WebBroadcastsRead>,
+    Path(broadcast_id): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<ChangeBroadcastDetail>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let detail = broadcasts_repo::fetch_broadcast_detail(pool, &broadcast_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    Ok(ApiJson::new(detail, time))
+}
+
+#[utoipa::path(
     post,
     path = "/api/v1/admin/broadcasts",
     tag = "broadcasts",
@@ -106,6 +130,8 @@ pub async fn create_broadcast(
     let title = normalize_required(&payload.title)?;
     let description = normalize_required(&payload.description)?;
     let file_id = normalize_optional(payload.file_id.as_deref());
+    let recipient_ids =
+        broadcasts_repo::resolve_recipient_group_user_ids(pool, &payload.recipient_groups).await?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
     let now = Utc::now();
@@ -122,7 +148,10 @@ pub async fn create_broadcast(
     )
     .await?;
 
+    broadcasts_repo::insert_recipients(&mut *tx, &id, &recipient_ids).await?;
+
     if payload.exempt_staff {
+        broadcasts_repo::insert_staff_recipients(&mut *tx, &id).await?;
         broadcasts_repo::insert_staff_agreed_state(&mut *tx, &id, now).await?;
     }
 
@@ -290,7 +319,8 @@ pub async fn list_my_broadcasts(
     ),
     responses(
         (status = 204, description = "Broadcast marked as seen"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Broadcast not found or not addressed to this user")
     )
 )]
 pub async fn mark_broadcast_seen(
@@ -301,6 +331,10 @@ pub async fn mark_broadcast_seen(
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    if !broadcasts_repo::is_recipient(pool, &broadcast_id, &user.id).await? {
+        return Err(ApiError::NotFound);
+    }
 
     broadcasts_repo::upsert_seen_state(pool, &broadcast_id, &user.id, Utc::now()).await?;
 
@@ -316,7 +350,8 @@ pub async fn mark_broadcast_seen(
     ),
     responses(
         (status = 204, description = "Broadcast marked as agreed"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Broadcast not found or not addressed to this user")
     )
 )]
 pub async fn mark_broadcast_agreed(
@@ -327,6 +362,10 @@ pub async fn mark_broadcast_agreed(
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    if !broadcasts_repo::is_recipient(pool, &broadcast_id, &user.id).await? {
+        return Err(ApiError::NotFound);
+    }
 
     broadcasts_repo::upsert_agreed_state(pool, &broadcast_id, &user.id, Utc::now()).await?;
 

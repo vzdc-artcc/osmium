@@ -272,6 +272,21 @@ pub async fn update_discord_config(
     Ok(ApiJson::new(item, time))
 }
 
+#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), responses((status = 200, description = "Deleted Discord config", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+pub async fn delete_discord_config(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(config_id): Path<String>,
+) -> Result<Json<ApiMessageBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_integrations_manage(&state, user).await?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    integrations_repo::delete_discord_config_row(pool, &config_id).await?;
+    Ok(Json(ApiMessageBody {
+        message: "discord config deleted".to_string(),
+    }))
+}
+
 #[utoipa::path(post, path = "/api/v1/admin/integrations/discord/channels", tag = "integrations", request_body = CreateDiscordChannelRequest, responses((status = 201, description = "Discord channel created", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
 pub async fn create_discord_channel(
     State(state): State<AppState>,
@@ -577,7 +592,7 @@ pub async fn queue_event_publish_discord(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/integrations/outbound-jobs", tag = "integrations", params(PaginationQuery, ("status" = Option<String>, Query, description = "Optional outbound job status")), responses((status = 200, description = "Outbound integration jobs", body = OutboundJobListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/integrations/outbound-jobs", tag = "integrations", params(OutboundJobsQuery), responses((status = 200, description = "Outbound integration jobs", body = OutboundJobListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn list_outbound_jobs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,

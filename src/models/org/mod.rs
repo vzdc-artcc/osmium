@@ -47,6 +47,14 @@ pub struct DecideLoaRequest {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+pub struct PurgeCandidatesQuery {
+    /// Zero-indexed, matching `stats.controller_monthly_rollups.month`.
+    pub year: i32,
+    pub start_month: i32,
+    pub end_month: i32,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct ListLoasQuery {
     pub page: Option<i64>,
     pub page_size: Option<i64>,
@@ -54,6 +62,8 @@ pub struct ListLoasQuery {
     pub offset: Option<i64>,
     pub status: Option<String>,
     pub cid: Option<i64>,
+    /// Contains-match against the LOA owner's display name.
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -74,6 +84,88 @@ pub struct CertificationItem {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct CertificationListResponse {
     pub items: Vec<CertificationItem>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CertificationTypeItem {
+    pub id: String,
+    pub name: String,
+    pub sort_order: i32,
+    pub can_solo_cert: bool,
+    pub auto_assign_unrestricted: bool,
+    /// Allowed `CertificationOption` keys for this type, e.g. `["NONE","DEL","GND"]`.
+    pub certification_options: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CertificationTypeListResponse {
+    pub items: Vec<CertificationTypeItem>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RosterCertOption {
+    pub certification_type_id: String,
+    pub certification_option: String,
+}
+
+/// A controller's active solo endorsement for one certification type — carries
+/// the position and expiry the roster table shows in the solo-icon tooltip.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RosterSolo {
+    pub certification_type_id: String,
+    pub position: String,
+    pub expires: DateTime<Utc>,
+}
+
+/// One controller's roster cert summary: granted (non-`NONE`) certifications,
+/// active solo endorsements, and whether they have an approved LOA. Backs the
+/// website roster table's cert columns without N+1 per-cid calls.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RosterCertificationItem {
+    pub cid: i64,
+    pub certifications: Vec<RosterCertOption>,
+    pub solos: Vec<RosterSolo>,
+    pub has_approved_loa: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RosterCertificationsResponse {
+    pub items: Vec<RosterCertificationItem>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateOrUpdateCertificationTypeRequest {
+    /// Present = update that type; absent = create a new type.
+    pub id: Option<String>,
+    pub name: String,
+    pub can_solo_cert: bool,
+    pub auto_assign_unrestricted: bool,
+    /// The full set of allowed `CertificationOption` keys for this type.
+    pub certification_options: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CertificationTypeOrderItem {
+    pub id: String,
+    pub order: i32,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateCertificationTypeOrderRequest {
+    pub items: Vec<CertificationTypeOrderItem>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SaveCertificationEntry {
+    pub certification_type_id: String,
+    pub certification_option: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SaveCertificationsRequest {
+    pub certifications: Vec<SaveCertificationEntry>,
+    /// Free-text dossier note recorded against the controller (required, like the website).
+    pub dossier_message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -135,6 +227,7 @@ pub struct StaffingRequestItem {
     pub updated_at: DateTime<Utc>,
     pub cid: Option<i64>,
     pub display_name: Option<String>,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -150,6 +243,8 @@ pub struct ListStaffingRequestsQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub cid: Option<i64>,
+    /// Contains-match against the submitting user's display name.
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -220,6 +315,51 @@ pub struct SuaListResponse {
     pub pagination: crate::models::PaginationMeta,
 }
 
+/// Public, unauthenticated shape of a SUA mission — same fields as
+/// [`SuaBlockItem`] minus `user_id`, since this is exposed with no auth at
+/// all (external clients such as controller plugins poll it).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PublicSuaMissionItem {
+    pub id: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub start_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub end_at: DateTime<Utc>,
+    pub afiliation: String,
+    pub details: String,
+    pub mission_number: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub created_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub updated_at: DateTime<Utc>,
+    pub cid: Option<i64>,
+    pub display_name: Option<String>,
+    pub airspace: Vec<SuaAirspaceItem>,
+}
+
+impl From<SuaBlockItem> for PublicSuaMissionItem {
+    fn from(item: SuaBlockItem) -> Self {
+        Self {
+            id: item.id,
+            start_at: item.start_at,
+            end_at: item.end_at,
+            afiliation: item.afiliation,
+            details: item.details,
+            mission_number: item.mission_number,
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+            cid: item.cid,
+            display_name: item.display_name,
+            airspace: item.airspace,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UpcomingSuaMissionsResponse {
+    pub items: Vec<PublicSuaMissionItem>,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ControllerLifecycleRequest {
     pub controller_status: String,
@@ -243,6 +383,48 @@ pub struct ControllerLifecycleResponse {
     pub controller_status: String,
     pub artcc: Option<String>,
     pub cleanup: ControllerLifecycleCleanupSummary,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PurgeCandidateItem {
+    pub cid: i64,
+    pub display_name: String,
+    pub email: String,
+    pub rating: Option<String>,
+    pub controller_status: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub join_date: DateTime<Utc>,
+    pub controlling_hours: f64,
+    pub trainer_hours_given: f64,
+    pub trainer_hours_received: f64,
+    pub total_hours: f64,
+    pub open_broadcasts: i64,
+    pub has_active_approved_loa: bool,
+}
+
+impl From<crate::repos::org::roster_purge::PurgeCandidateRow> for PurgeCandidateItem {
+    fn from(row: crate::repos::org::roster_purge::PurgeCandidateRow) -> Self {
+        let total_hours = row.controlling_hours + row.trainer_hours_given + row.trainer_hours_received;
+        Self {
+            cid: row.cid,
+            display_name: row.display_name,
+            email: row.email,
+            rating: row.rating,
+            controller_status: row.controller_status,
+            join_date: row.join_date,
+            controlling_hours: row.controlling_hours,
+            trainer_hours_given: row.trainer_hours_given,
+            trainer_hours_received: row.trainer_hours_received,
+            total_hours,
+            open_broadcasts: row.open_broadcasts,
+            has_active_approved_loa: row.has_active_approved_loa,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PurgeCandidatesResponse {
+    pub items: Vec<PurgeCandidateItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]

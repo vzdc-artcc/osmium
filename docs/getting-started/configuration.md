@@ -37,8 +37,8 @@ This page documents the main environment variables used by Osmium.
 
 | Variable | Required | Default | Notes |
 | --- | --- | --- | --- |
-| `DEV_LOGIN_AS_CID_ENABLED` | No | `false` | Explicitly enables `GET /api/v1/auth/login/as/{cid}` for local impersonation. |
 | `DEV_SEED_ENABLED` | No | `false` | Explicitly enables `POST /api/v1/dev/seed` for local seeding. |
+| `IMPERSONATION_TTL_SECS` | No | `3600` | TTL for an impersonation session (spec 012); shorter than a normal login, restored on stop. |
 | `VATSIM_DEV_MODE` | No | `false` | Switches only the VATSIM OAuth defaults to the VATSIM dev hosts and client-auth behavior. |
 
 ### Local OAuth Recommendation

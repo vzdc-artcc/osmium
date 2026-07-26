@@ -9,12 +9,19 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
-        context::CurrentUser, permissions::EventsItemsUpdate, require_permission::RequirePermission,
+        context::CurrentUser,
+        permissions::{
+            EventsItemsUpdate, EventsOpsPlanFilesCreate, EventsOpsPlanFilesDelete,
+            EventsPresetsCreate, EventsPresetsDelete, EventsPresetsRead, EventsPresetsUpdate,
+        },
+        require_permission::RequirePermission,
     },
     errors::ApiError,
     models::{
-        CreateEventTmiRequest, EventOpsPlanItem, EventTmiItem, EventTmiListResponse,
-        PaginationMeta, PaginationQuery, UpdateEventOpsPlanRequest,
+        CreateEventPositionPresetRequest, CreateEventTmiRequest, CreateOpsPlanFileRequest,
+        EventOpsPlanItem, EventPositionPreset, EventPositionPresetListResponse, EventTmiItem,
+        EventTmiListResponse, OpsPlanFile, OpsPlanFileListResponse, PaginationMeta,
+        PaginationQuery, UpdateEventOpsPlanRequest, UpdateEventPositionPresetRequest,
         UpdateEventTmiRequest, UpdatePresetPositionsRequest,
     },
     repos::{audit as audit_repo, events as events_repo},
@@ -443,6 +450,330 @@ pub async fn unlock_event_positions(
     Ok(Json(ApiMessageBody {
         message: "event positions unlocked".to_string(),
     }))
+}
+
+// --- Named event-position-preset bundles ---
+// Admin tool, not the public event/position surface — listing itself is gated
+// too (unlike list_events/list_event_positions), matching the live site's
+// admin-only preset management pages.
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/event-position-presets",
+    tag = "events",
+    params(PaginationQuery),
+    responses(
+        (status = 200, description = "List event position presets", body = EventPositionPresetListResponse),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn list_event_position_presets(
+    State(state): State<AppState>,
+    _permission: RequirePermission<EventsPresetsRead>,
+    Query(query): Query<PaginationQuery>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EventPositionPresetListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = events_repo::count_event_position_presets(pool).await?;
+    let items = events_repo::list_event_position_presets(
+        pool,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(ApiJson::new(
+        EventPositionPresetListResponse {
+            items,
+            pagination: meta,
+        },
+        time,
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/event-position-presets/{preset_id}",
+    tag = "events",
+    params(("preset_id" = String, Path, description = "Preset ID")),
+    responses(
+        (status = 200, description = "Event position preset", body = EventPositionPreset),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Preset not found")
+    )
+)]
+pub async fn get_event_position_preset(
+    State(state): State<AppState>,
+    _permission: RequirePermission<EventsPresetsRead>,
+    Path(preset_id): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EventPositionPreset>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let preset = events_repo::fetch_event_position_preset(pool, &preset_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(ApiJson::new(preset, time))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/event-position-presets",
+    tag = "events",
+    request_body = CreateEventPositionPresetRequest,
+    responses(
+        (status = 201, description = "Event position preset created", body = EventPositionPreset),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn create_event_position_preset(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsPresetsCreate>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<CreateEventPositionPresetRequest>,
+) -> Result<(StatusCode, ApiJson<EventPositionPreset>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    if payload.name.trim().is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let preset = events_repo::insert_event_position_preset(
+        pool,
+        &Uuid::new_v4().to_string(),
+        payload.name.trim(),
+        &payload.positions,
+    )
+    .await?;
+    record_audit(
+        pool,
+        user,
+        &headers,
+        "CREATE",
+        "EVENT_PRESET",
+        Some(preset.id.clone()),
+        None,
+        Some(audit_repo::sanitized_snapshot(&preset)?),
+    )
+    .await?;
+    Ok((StatusCode::CREATED, ApiJson::new(preset, time)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/event-position-presets/{preset_id}",
+    tag = "events",
+    params(("preset_id" = String, Path, description = "Preset ID")),
+    request_body = UpdateEventPositionPresetRequest,
+    responses(
+        (status = 200, description = "Event position preset updated", body = EventPositionPreset),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Preset not found")
+    )
+)]
+pub async fn update_event_position_preset(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsPresetsUpdate>,
+    Path(preset_id): Path<String>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<UpdateEventPositionPresetRequest>,
+) -> Result<ApiJson<EventPositionPreset>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let before = events_repo::fetch_event_position_preset(pool, &preset_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let name = payload
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let preset = events_repo::update_event_position_preset_row(
+        pool,
+        &preset_id,
+        name,
+        payload.positions.as_deref(),
+    )
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    record_audit(
+        pool,
+        user,
+        &headers,
+        "UPDATE",
+        "EVENT_PRESET",
+        Some(preset_id),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&preset)?),
+    )
+    .await?;
+    Ok(ApiJson::new(preset, time))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/event-position-presets/{preset_id}",
+    tag = "events",
+    params(("preset_id" = String, Path, description = "Preset ID")),
+    responses(
+        (status = 204, description = "Event position preset deleted"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Preset not found")
+    )
+)]
+pub async fn delete_event_position_preset(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsPresetsDelete>,
+    Path(preset_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let before = events_repo::fetch_event_position_preset(pool, &preset_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let rows_affected = events_repo::delete_event_position_preset_row(pool, &preset_id).await?;
+    if rows_affected == 0 {
+        return Err(ApiError::BadRequest);
+    }
+    record_audit(
+        pool,
+        user,
+        &headers,
+        "DELETE",
+        "EVENT_PRESET",
+        Some(before.id.clone()),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        None,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// --- Ops plan file attachments ---
+// Listing is public (the published ops-plan page on the public site shows
+// attached files); create/delete are staff-only.
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/events/{event_id}/ops-plan/files",
+    tag = "events",
+    params(("event_id" = String, Path, description = "Event ID")),
+    responses(
+        (status = 200, description = "Ops plan files", body = OpsPlanFileListResponse)
+    )
+)]
+pub async fn list_ops_plan_files(
+    State(state): State<AppState>,
+    Path(event_id): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<OpsPlanFileListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let items = events_repo::list_ops_plan_files(pool, &event_id).await?;
+    Ok(ApiJson::new(OpsPlanFileListResponse { items }, time))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/events/{event_id}/ops-plan/files",
+    tag = "events",
+    params(("event_id" = String, Path, description = "Event ID")),
+    request_body = CreateOpsPlanFileRequest,
+    responses(
+        (status = 201, description = "Ops plan file attached", body = OpsPlanFile),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn create_ops_plan_file(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsOpsPlanFilesCreate>,
+    Path(event_id): Path<String>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<CreateOpsPlanFileRequest>,
+) -> Result<(StatusCode, ApiJson<OpsPlanFile>), ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    if payload.filename.trim().is_empty() {
+        return Err(ApiError::BadRequest);
+    }
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let file = events_repo::insert_ops_plan_file(
+        pool,
+        &Uuid::new_v4().to_string(),
+        &event_id,
+        payload.asset_id.as_deref(),
+        payload.filename.trim(),
+        payload.url.as_deref(),
+        payload.file_type.as_deref(),
+        &user.id,
+    )
+    .await?;
+    record_audit(
+        pool,
+        user,
+        &headers,
+        "CREATE",
+        "OPS_PLAN_FILE",
+        Some(file.id.clone()),
+        None,
+        Some(audit_repo::sanitized_snapshot(&file)?),
+    )
+    .await?;
+    Ok((StatusCode::CREATED, ApiJson::new(file, time)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/events/{event_id}/ops-plan/files/{file_id}",
+    tag = "events",
+    params(
+        ("event_id" = String, Path, description = "Event ID"),
+        ("file_id" = String, Path, description = "Ops plan file ID")
+    ),
+    responses(
+        (status = 204, description = "Ops plan file removed"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Event or file not found")
+    )
+)]
+pub async fn delete_ops_plan_file(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<EventsOpsPlanFilesDelete>,
+    Path((event_id, file_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let before = events_repo::fetch_ops_plan_file(pool, &event_id, &file_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let rows_affected = events_repo::delete_ops_plan_file_row(pool, &event_id, &file_id).await?;
+    if rows_affected == 0 {
+        return Err(ApiError::BadRequest);
+    }
+    record_audit(
+        pool,
+        user,
+        &headers,
+        "DELETE",
+        "OPS_PLAN_FILE",
+        Some(before.id.clone()),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        None,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn record_audit(

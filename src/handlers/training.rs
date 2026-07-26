@@ -11,19 +11,22 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
+        acl::{PermissionAction, PermissionPath},
         context::CurrentUser,
+        middleware::ensure_permission,
         permissions::{
             TrainingAppointmentsCreate, TrainingAppointmentsDelete, TrainingAppointmentsRead,
             TrainingAppointmentsUpdate, TrainingAssignmentRequestsDecide,
             TrainingAssignmentRequestsInterestDelete, TrainingAssignmentRequestsInterestRequest,
-            TrainingAssignmentRequestsRead, TrainingAssignmentRequestsSelfRequest,
-            TrainingAssignmentsCreate, TrainingAssignmentsRead, TrainingLessonsCreate,
-            TrainingLessonsDelete, TrainingLessonsRead, TrainingLessonsUpdate,
-            TrainingOtsRecommendationsCreate, TrainingOtsRecommendationsDelete,
-            TrainingOtsRecommendationsRead, TrainingOtsRecommendationsUpdate,
-            TrainingReleaseRequestsDecide, TrainingReleaseRequestsRead,
-            TrainingReleaseRequestsSelfRequest, TrainingSessionsCreate, TrainingSessionsDelete,
-            TrainingSessionsRead, TrainingSessionsUpdate,
+            TrainingAssignmentRequestsRead,
+            TrainingAssignmentsCreate, TrainingAssignmentsDelete, TrainingAssignmentsRead,
+            TrainingAssignmentsUpdate, TrainingLessonsCreate, TrainingLessonsDelete,
+            TrainingLessonsRead, TrainingLessonsUpdate, TrainingOtsRecommendationsCreate,
+            TrainingOtsRecommendationsDelete, TrainingOtsRecommendationsRead,
+            TrainingOtsRecommendationsUpdate, TrainingReleaseRequestsDecide,
+            TrainingReleaseRequestsRead,
+            TrainingSessionsCreate, TrainingSessionsDelete, TrainingSessionsRead,
+            TrainingSessionsUpdate,
         },
         require_permission::RequirePermission,
     },
@@ -42,10 +45,11 @@ use crate::{
         TrainingAppointmentDetail, TrainingAppointmentListResponse, TrainingAssignment,
         TrainingAssignmentListResponse, TrainingAssignmentRequest,
         TrainingAssignmentRequestListResponse, TrainingLesson, TrainingLessonListResponse,
-        TrainingSessionDetail, TrainingSessionListResponse, UpdateLessonRubricCellRequest,
+        TrainingSessionDetail, TrainingSessionListResponse, TrainingStatsAllTimeHours,
+        TrainingStatsBundle, TrainingStatsQuery, UpdateLessonRubricCellRequest,
         UpdateLessonRubricCriteriaRequest, UpdateOtsRecommendationRequest,
-        UpdateTrainingAppointmentRequest, UpdateTrainingLessonRequest,
-        UpdateTrainingSessionRequest,
+        UpdateTrainingAppointmentRequest, UpdateTrainingAssignmentRequest,
+        UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
     },
     repos::{
         audit as audit_repo,
@@ -56,6 +60,7 @@ use crate::{
             ots as training_ots_repo, release_requests as training_release_requests_repo,
             rubrics as training_rubrics_repo, sessions as training_sessions_repo,
             sessions::{LessonRow, RubricMembershipRow},
+            stats as training_stats_repo,
         },
     },
     state::AppState,
@@ -133,15 +138,24 @@ pub async fn create_assignment(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    if !training_assignments_repo::user_exists(db, &payload.student_id).await?
+        || !training_assignments_repo::user_exists(db, &payload.primary_trainer_id).await?
+    {
+        return Err(ApiError::NotFound);
+    }
+
     let id = Uuid::new_v4().to_string();
     let now = Utc::now();
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
 
-    let row = training_assignments_repo::insert_assignment(
+    let actor = audit_repo::resolve_audit_actor(&mut *tx, Some(user), None).await?;
+
+    training_assignments_repo::insert_assignment(
         &mut *tx,
         &id,
         &payload.student_id,
         &payload.primary_trainer_id,
+        actor.actor_id.as_deref(),
         now,
     )
     .await?;
@@ -156,7 +170,10 @@ pub async fn create_assignment(
         }
     }
 
-    let actor = audit_repo::resolve_audit_actor(&mut *tx, Some(user), None).await?;
+    let row = training_assignments_repo::fetch_assignment(&mut *tx, &id)
+        .await?
+        .ok_or(ApiError::Internal)?;
+
     record_audit(
         &mut tx,
         actor.actor_id.as_deref(),
@@ -174,6 +191,191 @@ pub async fn create_assignment(
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/training/assignments/{assignment_id}",
+    tag = "training",
+    params(
+        ("assignment_id" = String, Path, description = "Assignment ID")
+    ),
+    responses(
+        (status = 200, description = "Assignment detail", body = TrainingAssignment),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Assignment not found")
+    )
+)]
+pub async fn get_assignment(
+    State(state): State<AppState>,
+    _permission: RequirePermission<TrainingAssignmentsRead>,
+    Path(assignment_id): Path<String>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingAssignment>, ApiError> {
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let row = training_assignments_repo::fetch_assignment(db, &assignment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    Ok(ApiJson::new(row, time))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/training/assignments/{assignment_id}",
+    tag = "training",
+    params(
+        ("assignment_id" = String, Path, description = "Assignment ID")
+    ),
+    request_body = UpdateTrainingAssignmentRequest,
+    responses(
+        (status = 200, description = "Assignment updated", body = TrainingAssignment),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Assignment not found")
+    )
+)]
+pub async fn update_assignment(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentsUpdate>,
+    Path(assignment_id): Path<String>,
+    headers: HeaderMap,
+    time: ResponseTimeContext,
+    Json(payload): Json<UpdateTrainingAssignmentRequest>,
+) -> Result<ApiJson<TrainingAssignment>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let before = training_assignments_repo::fetch_assignment(db, &assignment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let primary_trainer_id = payload
+        .primary_trainer_id
+        .as_deref()
+        .unwrap_or(before.primary_trainer_id.as_str());
+
+    if let Some(other_trainer_ids) = payload.other_trainer_ids.as_ref() {
+        let mut seen = HashSet::new();
+        for trainer_id in other_trainer_ids {
+            if trainer_id == primary_trainer_id || !seen.insert(trainer_id.as_str()) {
+                return Err(ApiError::BadRequest);
+            }
+        }
+        let existing_ids =
+            training_assignments_repo::fetch_user_identities_by_ids(db, other_trainer_ids).await?;
+        if existing_ids.len() != other_trainer_ids.len() {
+            return Err(ApiError::NotFound);
+        }
+    }
+
+    if let Some(primary_trainer_id) = payload.primary_trainer_id.as_deref()
+        && !training_assignments_repo::user_exists(db, primary_trainer_id).await?
+    {
+        return Err(ApiError::NotFound);
+    }
+
+    let now = Utc::now();
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+
+    if let Some(primary_trainer_id) = payload.primary_trainer_id.as_deref() {
+        training_assignments_repo::update_assignment_primary_trainer(
+            &mut *tx,
+            &assignment_id,
+            primary_trainer_id,
+            now,
+        )
+        .await?;
+    }
+
+    if let Some(other_trainer_ids) = payload.other_trainer_ids.as_ref() {
+        training_assignments_repo::replace_other_trainers(
+            &mut tx,
+            &assignment_id,
+            other_trainer_ids,
+        )
+        .await?;
+    }
+
+    let row = training_assignments_repo::fetch_assignment(&mut *tx, &assignment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let actor = audit_repo::resolve_audit_actor(&mut *tx, Some(user), None).await?;
+    record_audit(
+        &mut tx,
+        actor.actor_id.as_deref(),
+        "UPDATE",
+        "TRAINING_ASSIGNMENT",
+        Some(&row.id),
+        "training_session",
+        Some(&row.id),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&row)?),
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(ApiJson::new(row, time))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/training/assignments/{assignment_id}",
+    tag = "training",
+    params(
+        ("assignment_id" = String, Path, description = "Assignment ID")
+    ),
+    responses(
+        (status = 204, description = "Assignment deleted"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Assignment not found")
+    )
+)]
+pub async fn delete_assignment(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    _permission: RequirePermission<TrainingAssignmentsDelete>,
+    Path(assignment_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let before = training_assignments_repo::fetch_assignment(db, &assignment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+
+    let deleted = training_assignments_repo::delete_assignment_row(&mut *tx, &assignment_id)
+        .await?;
+    if !deleted {
+        return Err(ApiError::NotFound);
+    }
+
+    let actor = audit_repo::resolve_audit_actor(&mut *tx, Some(user), None).await?;
+    record_audit(
+        &mut tx,
+        actor.actor_id.as_deref(),
+        "DELETE",
+        "TRAINING_ASSIGNMENT",
+        Some(&before.id),
+        "training_session",
+        Some(&before.id),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        None,
+        audit_repo::client_ip(&headers),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -249,14 +451,18 @@ pub async fn create_ots_recommendation(
         return Err(ApiError::BadRequest);
     }
 
-    let row = training_ots_repo::insert_ots_recommendation(
+    let recommendation_id = Uuid::new_v4().to_string();
+    training_ots_repo::insert_ots_recommendation(
         &mut *tx,
-        &Uuid::new_v4().to_string(),
+        &recommendation_id,
         &payload.student_id,
         notes,
         Utc::now(),
     )
     .await?;
+    let row = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
 
     record_audit(
         &mut tx,
@@ -317,13 +523,18 @@ pub async fn update_ots_recommendation(
         }
     }
 
-    let row = training_ots_repo::update_ots_recommendation_row(
+    let updated = training_ots_repo::update_ots_recommendation_row(
         &mut *tx,
         &recommendation_id,
         payload.assigned_instructor_id.as_deref(),
     )
-    .await?
-    .ok_or(ApiError::NotFound)?;
+    .await?;
+    if !updated {
+        return Err(ApiError::NotFound);
+    }
+    let row = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     record_audit(
         &mut tx,
@@ -370,9 +581,14 @@ pub async fn delete_ots_recommendation(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let deleted = training_ots_repo::delete_ots_recommendation_row(&mut *tx, &recommendation_id)
+    let deleted = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
         .await?
         .ok_or(ApiError::NotFound)?;
+    let did_delete =
+        training_ots_repo::delete_ots_recommendation_row(&mut *tx, &recommendation_id).await?;
+    if !did_delete {
+        return Err(ApiError::NotFound);
+    }
 
     record_audit(
         &mut tx,
@@ -702,6 +918,10 @@ pub async fn create_lesson_rubric_criteria(
     let criteria_id = Uuid::new_v4().to_string();
     let criteria = payload.criteria.trim().to_string();
     let description = payload.description.trim().to_string();
+    let sort_order = match payload.sort_order {
+        Some(value) => value,
+        None => training_rubrics_repo::next_criteria_sort_order(&mut *tx, &rubric_id).await?,
+    };
 
     training_rubrics_repo::insert_criteria(
         &mut *tx,
@@ -711,6 +931,7 @@ pub async fn create_lesson_rubric_criteria(
         &description,
         payload.passing,
         payload.max_points,
+        sort_order,
         now,
     )
     .await?;
@@ -732,6 +953,7 @@ pub async fn create_lesson_rubric_criteria(
             "description": description,
             "passing": payload.passing,
             "max_points": payload.max_points,
+            "sort_order": sort_order,
         })),
         audit_repo::client_ip(&headers),
     )
@@ -749,6 +971,7 @@ pub async fn create_lesson_rubric_criteria(
                 description,
                 passing: payload.passing,
                 max_points: payload.max_points,
+                sort_order,
                 cells: Vec::new(),
             },
             time,
@@ -801,6 +1024,7 @@ pub async fn update_lesson_rubric_criteria(
 
     let criteria = payload.criteria.trim().to_string();
     let description = payload.description.trim().to_string();
+    let sort_order = payload.sort_order.unwrap_or(before.sort_order);
 
     training_rubrics_repo::update_criteria_row(
         &mut *tx,
@@ -809,6 +1033,7 @@ pub async fn update_lesson_rubric_criteria(
         &description,
         payload.passing,
         payload.max_points,
+        sort_order,
         Utc::now(),
     )
     .await?;
@@ -830,6 +1055,7 @@ pub async fn update_lesson_rubric_criteria(
             "description": before.description,
             "passing": before.passing,
             "max_points": before.max_points,
+            "sort_order": before.sort_order,
         })),
         Some(serde_json::json!({
             "id": criteria_id,
@@ -838,6 +1064,7 @@ pub async fn update_lesson_rubric_criteria(
             "description": description,
             "passing": payload.passing,
             "max_points": payload.max_points,
+            "sort_order": sort_order,
         })),
         audit_repo::client_ip(&headers),
     )
@@ -853,6 +1080,7 @@ pub async fn update_lesson_rubric_criteria(
             description,
             passing: payload.passing,
             max_points: payload.max_points,
+            sort_order,
             cells,
         },
         time,
@@ -1225,19 +1453,61 @@ pub async fn list_assignment_requests(
 pub async fn create_assignment_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-    _permission: RequirePermission<TrainingAssignmentRequestsSelfRequest>,
     headers: HeaderMap,
     time: ResponseTimeContext,
-    Json(_payload): Json<CreateTrainingAssignmentRequestRequest>,
+    Json(payload): Json<CreateTrainingAssignmentRequestRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainingAssignmentRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    // Self-request (the common case, e.g. the student's own "request a trainer" button) only
+    // needs the self permission. Submitting a manual/backdated request on someone else's behalf
+    // (staff logging a request made through another channel) needs the broader create permission.
+    let target_student_id = match payload.student_id.as_deref() {
+        Some(student_id) if student_id != user.id => {
+            ensure_permission(
+                &state,
+                Some(user),
+                None,
+                PermissionPath::from_segments(
+                    ["training", "assignment_requests"],
+                    PermissionAction::Create,
+                ),
+            )
+            .await?;
 
-    let row = training_assignment_requests_repo::insert_assignment_request(db, &id, &user.id, now)
-        .await?;
+            if !training_assignments_repo::user_exists(db, student_id).await? {
+                return Err(ApiError::BadRequest);
+            }
+
+            student_id.to_string()
+        }
+        _ => {
+            ensure_permission(
+                &state,
+                Some(user),
+                None,
+                PermissionPath::from_segments(
+                    ["training", "assignment_requests", "self"],
+                    PermissionAction::Request,
+                ),
+            )
+            .await?;
+
+            user.id.clone()
+        }
+    };
+
+    let id = Uuid::new_v4().to_string();
+    let submitted_at = payload.submitted_at.unwrap_or_else(Utc::now);
+
+    let row = training_assignment_requests_repo::insert_assignment_request(
+        db,
+        &id,
+        &target_student_id,
+        submitted_at,
+    )
+    .await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1327,6 +1597,71 @@ pub async fn decide_assignment_request(
 }
 
 #[utoipa::path(
+    delete,
+    path = "/api/v1/training/assignment-requests/{request_id}",
+    tag = "training",
+    params(
+        ("request_id" = String, Path, description = "Assignment request ID")
+    ),
+    responses(
+        (status = 204, description = "Assignment request deleted"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Assignment request not found")
+    )
+)]
+pub async fn delete_assignment_request(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(request_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let existing = training_assignment_requests_repo::fetch_assignment_request(db, &request_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    // Data-dependent authorization: the student who submitted the request can cancel it
+    // while it's still PENDING without any extra permission; anyone else (including
+    // cancelling a decided request) needs the admin delete permission.
+    let is_self_pending_cancel = existing.student_id == user.id && existing.status == "PENDING";
+    if !is_self_pending_cancel {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(
+                ["training", "assignment_requests"],
+                PermissionAction::Delete,
+            ),
+        )
+        .await?;
+    }
+
+    training_assignment_requests_repo::delete_assignment_request_row(db, &request_id).await?;
+
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "DELETE".to_string(),
+            resource_type: "TRAINING_ASSIGNMENT_REQUEST".to_string(),
+            resource_id: Some(existing.id.clone()),
+            scope_type: "training_session".to_string(),
+            scope_key: Some(existing.student_id.clone()),
+            before_state: Some(audit_repo::sanitized_snapshot(&existing)?),
+            after_state: None,
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     get,
     path = "/api/v1/training/trainer-release-requests",
     tag = "training",
@@ -1377,19 +1712,59 @@ pub async fn list_release_requests(
 pub async fn create_release_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
-    _permission: RequirePermission<TrainingReleaseRequestsSelfRequest>,
     headers: HeaderMap,
     time: ResponseTimeContext,
-    Json(_payload): Json<CreateTrainerReleaseRequestRequest>,
+    Json(payload): Json<CreateTrainerReleaseRequestRequest>,
 ) -> Result<(StatusCode, ApiJson<TrainerReleaseRequest>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
+    // Self-request (the common case, e.g. the student's own "request release" button) only
+    // needs the self permission. Requesting release on someone else's behalf (a trainer
+    // releasing their own assigned student) needs the broader create permission.
+    let target_student_id = match payload.student_id.as_deref() {
+        Some(student_id) if student_id != user.id => {
+            ensure_permission(
+                &state,
+                Some(user),
+                None,
+                PermissionPath::from_segments(
+                    ["training", "release_requests"],
+                    PermissionAction::Create,
+                ),
+            )
+            .await?;
+
+            if !training_assignments_repo::user_exists(db, student_id).await? {
+                return Err(ApiError::BadRequest);
+            }
+
+            student_id.to_string()
+        }
+        _ => {
+            ensure_permission(
+                &state,
+                Some(user),
+                None,
+                PermissionPath::from_segments(
+                    ["training", "release_requests", "self"],
+                    PermissionAction::Request,
+                ),
+            )
+            .await?;
+
+            user.id.clone()
+        }
+    };
+
     let id = Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    let row =
-        training_release_requests_repo::insert_release_request(db, &id, &user.id, now).await?;
+    training_release_requests_repo::insert_release_request(db, &id, &target_student_id, now)
+        .await?;
+    let row = training_release_requests_repo::fetch_release_request(db, &id)
+        .await?
+        .ok_or(ApiError::Internal)?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
@@ -1444,23 +1819,38 @@ pub async fn decide_release_request(
     }
 
     let now = Utc::now();
-    let before = training_release_requests_repo::fetch_release_request(db, &request_id)
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+
+    let before = training_release_requests_repo::fetch_release_request(&mut *tx, &request_id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    let row = training_release_requests_repo::decide_release_request_row(
-        db,
+    training_release_requests_repo::decide_release_request_row(
+        &mut *tx,
         &request_id,
         &normalized_status,
         now,
         &user.id,
     )
-    .await?
-    .ok_or(ApiError::NotFound)?;
+    .await?;
+    let row = training_release_requests_repo::fetch_release_request(&mut *tx, &request_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
-    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    // Approving a release request ends the assignment it's releasing the student from —
+    // there'd be nothing left for the request to have accomplished otherwise. A missing
+    // assignment (already removed some other way) is not an error here.
+    if normalized_status == "APPROVED"
+        && let Some(assignment) =
+            training_assignments_repo::fetch_assignment_by_student(&mut *tx, &row.student_id)
+                .await?
+    {
+        training_assignments_repo::delete_assignment_row(&mut *tx, &assignment.id).await?;
+    }
+
+    let actor = audit_repo::resolve_audit_actor(&mut *tx, Some(user), None).await?;
     audit_repo::record_audit(
-        db,
+        &mut *tx,
         audit_repo::AuditEntryInput {
             actor_id: actor.actor_id,
             action: "DECIDE".to_string(),
@@ -1475,7 +1865,71 @@ pub async fn decide_release_request(
     )
     .await?;
 
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+
     Ok(ApiJson::new(row, time))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/training/trainer-release-requests/{request_id}",
+    tag = "training",
+    params(
+        ("request_id" = String, Path, description = "Trainer release request ID")
+    ),
+    responses(
+        (status = 204, description = "Trainer release request deleted"),
+        (status = 401, description = "Not authorized"),
+        (status = 404, description = "Release request not found")
+    )
+)]
+pub async fn delete_release_request(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(request_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    let existing = training_release_requests_repo::fetch_release_request(db, &request_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    let is_self_pending_cancel = existing.student_id == user.id && existing.status == "PENDING";
+    if !is_self_pending_cancel {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(
+                ["training", "release_requests"],
+                PermissionAction::Delete,
+            ),
+        )
+        .await?;
+    }
+
+    training_release_requests_repo::delete_release_request_row(db, &request_id).await?;
+
+    let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    audit_repo::record_audit(
+        db,
+        audit_repo::AuditEntryInput {
+            actor_id: actor.actor_id,
+            action: "DELETE".to_string(),
+            resource_type: "TRAINER_RELEASE_REQUEST".to_string(),
+            resource_id: Some(existing.id.clone()),
+            scope_type: "training_session".to_string(),
+            scope_key: Some(existing.student_id.clone()),
+            before_state: Some(audit_repo::sanitized_snapshot(&existing)?),
+            after_state: None,
+            ip_address: audit_repo::client_ip(&headers),
+        },
+    )
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -1575,14 +2029,7 @@ pub async fn remove_assignment_request_interest(
     get,
     path = "/api/v1/training/appointments",
     tag = "training",
-    params(
-        PaginationQuery,
-        ("sort_field" = Option<String>, Query, description = "Sort field"),
-        ("sort_order" = Option<String>, Query, description = "Sort order"),
-        ("trainer_id" = Option<String>, Query, description = "Optional trainer filter"),
-        ("student_id" = Option<String>, Query, description = "Optional student filter"),
-        ("user_id" = Option<String>, Query, description = "Optional shared user filter")
-    ),
+    params(ListTrainingAppointmentsQuery),
     responses(
         (status = 200, description = "List training appointments", body = TrainingAppointmentListResponse),
         (status = 401, description = "Not authorized")
@@ -1998,18 +2445,51 @@ pub async fn delete_training_appointment(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/training/stats",
+    tag = "training",
+    params(TrainingStatsQuery),
+    responses(
+        (status = 200, description = "Aggregated training-session statistics for the scope", body = TrainingStatsBundle),
+        (status = 400, description = "Invalid month"),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn get_training_stats(
+    State(state): State<AppState>,
+    _permission: RequirePermission<TrainingSessionsRead>,
+    Query(query): Query<TrainingStatsQuery>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingStatsBundle>, ApiError> {
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let bundle =
+        training_stats_repo::training_stats_bundle(db, query.year, query.month, query.cid).await?;
+    Ok(ApiJson::new(bundle, time))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/training/stats/all-time-hours",
+    tag = "training",
+    responses(
+        (status = 200, description = "All-time sum of training-session hours", body = TrainingStatsAllTimeHours),
+        (status = 401, description = "Not authorized")
+    )
+)]
+pub async fn get_all_time_training_hours(
+    State(state): State<AppState>,
+    _permission: RequirePermission<TrainingSessionsRead>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<TrainingStatsAllTimeHours>, ApiError> {
+    let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let hours = training_stats_repo::all_time_training_hours(db).await?;
+    Ok(ApiJson::new(TrainingStatsAllTimeHours { hours }, time))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/training/sessions",
     tag = "training",
-    params(
-        PaginationQuery,
-        ("sort_field" = Option<String>, Query, description = "Sort field"),
-        ("sort_order" = Option<String>, Query, description = "Sort order"),
-        ("filter_field" = Option<String>, Query, description = "Filter field"),
-        ("filter_operator" = Option<String>, Query, description = "Filter operator"),
-        ("filter_value" = Option<String>, Query, description = "Filter value"),
-        ("student_id" = Option<String>, Query, description = "Optional student filter"),
-        ("instructor_id" = Option<String>, Query, description = "Optional instructor filter")
-    ),
+    params(ListTrainingSessionsQuery),
     responses(
         (status = 200, description = "List training sessions", body = TrainingSessionListResponse),
         (status = 401, description = "Not authorized")
@@ -2101,15 +2581,37 @@ pub async fn list_training_sessions(
 )]
 pub async fn get_training_session(
     State(state): State<AppState>,
-    _permission: RequirePermission<TrainingSessionsRead>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
     Path(session_id): Path<String>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingSessionDetail>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let detail = training_sessions_repo::fetch_session_detail(db, &session_id)
         .await?
         .ok_or(ApiError::NotFound)?;
+
+    // Data-dependent authorization (same shape as org.rs::get_user_certifications):
+    // the session's own student may read it with just auth.profile.read; anyone
+    // else needs the staff-level training.sessions.read.
+    if detail.student_id == user.id {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["auth", "profile"], PermissionAction::Read),
+        )
+        .await?;
+    } else {
+        ensure_permission(
+            &state,
+            Some(user),
+            None,
+            PermissionPath::from_segments(["training", "sessions"], PermissionAction::Read),
+        )
+        .await?;
+    }
 
     Ok(ApiJson::new(detail, time))
 }
@@ -2135,7 +2637,7 @@ pub async fn create_training_session(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    match upsert_training_session(db, user, None, payload.into_update_request()).await? {
+    match upsert_training_session(&state, db, user, None, payload.into_update_request()).await? {
         Ok(result) => Ok((StatusCode::CREATED, ApiJson::new(result, time.clone()))),
         Err(errors) => Ok((
             StatusCode::BAD_REQUEST,
@@ -2166,13 +2668,16 @@ pub async fn update_training_session(
     Path(session_id): Path<String>,
     time: ResponseTimeContext,
     Json(payload): Json<UpdateTrainingSessionRequest>,
-) -> Result<ApiJson<CreateOrUpdateTrainingSessionResult>, ApiError> {
+) -> Result<(StatusCode, ApiJson<CreateOrUpdateTrainingSessionResult>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    match upsert_training_session(db, user, Some(session_id), payload).await? {
-        Ok(result) => Ok(ApiJson::new(result, time)),
-        Err(_) => Err(ApiError::BadRequest),
+    match upsert_training_session(&state, db, user, Some(session_id), payload).await? {
+        Ok(result) => Ok((StatusCode::OK, ApiJson::new(result, time.clone()))),
+        Err(errors) => Ok((
+            StatusCode::BAD_REQUEST,
+            ApiJson::new(error_result(errors), time),
+        )),
     }
 }
 
@@ -2369,6 +2874,7 @@ async fn validate_user_exists(
 }
 
 async fn upsert_training_session(
+    state: &AppState,
     db: &sqlx::PgPool,
     user: &CurrentUser,
     session_id: Option<String>,
@@ -2437,7 +2943,13 @@ async fn upsert_training_session(
 
         let old_tickets = training_sessions_repo::fetch_old_tickets(&mut tx, id).await?;
 
-        training_sessions_repo::delete_session_performance_indicators(&mut tx, id).await?;
+        // Only clear the existing performance indicator when the update actually
+        // supplies a replacement — omitting it (e.g. the caller didn't opt into
+        // re-editing PI) must leave whatever was already recorded untouched,
+        // not silently delete it.
+        if payload.performance_indicator.is_some() {
+            training_sessions_repo::delete_session_performance_indicators(&mut tx, id).await?;
+        }
         training_sessions_repo::delete_session_tickets(&mut tx, id).await?;
         training_sessions_repo::delete_session_additional_trainers(&mut tx, id).await?;
 
@@ -2613,6 +3125,25 @@ async fn upsert_training_session(
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    // Instant progression advance (parity choice: the website advances only in
+    // the periodic roster sweep, but we additionally advance right after a
+    // session is saved for immediate feedback). Best-effort and non-fatal: if
+    // this session passed the student's final required progression step, move
+    // them to the next progression (or unassign) and email them. Uses the
+    // non-optional gate — the roster sweep uses the stricter all-steps gate.
+    if let Err(err) = crate::handlers::training_admin::advance_progression_if_complete(
+        state,
+        db,
+        actor_id.as_deref(),
+        &student.id,
+        false,
+        false,
+    )
+    .await
+    {
+        tracing::warn!(?err, student_id = %student.id, "progression auto-advance after session save failed");
+    }
 
     let session = training_sessions_repo::fetch_session_detail(db, &session_id)
         .await?

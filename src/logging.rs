@@ -7,9 +7,16 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use chrono::Utc;
 use uuid::Uuid;
 
-use crate::auth::context::{CurrentServiceAccount, CurrentUser};
+use crate::{
+    auth::{
+        context::{CurrentServiceAccount, CurrentUser},
+        ip::client_ip,
+    },
+    repos::ip_request_log::IpRequestLogEntry,
+};
 
 const MAX_PREVIEW_BYTES: usize = 8 * 1024;
 const REDACTED: &str = "[REDACTED]";
@@ -30,7 +37,7 @@ const SENSITIVE_KEY_FRAGMENTS: &[&str] = &[
 ];
 
 pub async fn log_requests(
-    State(_state): State<crate::state::AppState>,
+    State(state): State<crate::state::AppState>,
     request: Request,
     next: Next,
 ) -> Response {
@@ -51,7 +58,10 @@ pub async fn log_requests(
         .get(header::CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<usize>().ok());
-    let client_ip = client_ip(request.headers()).unwrap_or_else(|| "unknown".to_string());
+    let client_ip_opt = client_ip(request.headers());
+    let client_ip = client_ip_opt
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
     let actor = actor_summary(request.extensions());
     let auth_mode = auth_mode(request.extensions());
 
@@ -108,6 +118,28 @@ pub async fn log_requests(
         outcome = %outcome,
         "http_request",
     );
+
+    // spec 011 — buffer this request's IP metadata for durable, batched persistence.
+    // Runs here (outside the rate-limit layer) so throttled 429s are tracked too.
+    // Only records requests with a resolvable, valid IP (the column is `inet not null`).
+    if state.ip_log_enabled {
+        if let Some(ip_address) = client_ip_opt {
+            let entry = IpRequestLogEntry {
+                ip_address,
+                method: method.clone(),
+                matched_path: matched_path.clone(),
+                status_code: status as i16,
+                actor_type: actor.actor_type.clone(),
+                actor_ref: actor.actor_id.clone(),
+                created_at: Utc::now(),
+            };
+            // Non-blocking: never back-pressure real traffic. A full/closed buffer
+            // drops the entry with a warning.
+            if let Err(error) = state.ip_log_tx.try_send(entry) {
+                tracing::warn!(%error, "dropped ip request log entry (buffer full or closed)");
+            }
+        }
+    }
 
     response
 }
@@ -232,27 +264,6 @@ fn header_value(headers: &HeaderMap, key: header::HeaderName) -> Option<String> 
         .get(key)
         .and_then(|value| value.to_str().ok())
         .map(|value| value.to_string())
-}
-
-fn client_ip(headers: &HeaderMap) -> Option<String> {
-    if let Some(value) = headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-    {
-        if let Some(first) = value.split(',').next() {
-            let parsed = first.trim();
-            if !parsed.is_empty() {
-                return Some(parsed.to_string());
-            }
-        }
-    }
-
-    headers
-        .get("x-real-ip")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 fn sanitize_query(query: &str) -> String {

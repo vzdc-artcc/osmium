@@ -1,0 +1,22 @@
+info:
+  name: stop_impersonation
+  type: http
+  seq: 13
+  tags:
+    - auth
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/admin/impersonate/stop"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |
+  End impersonation and restore the admin session (spec 012). Requires an
+  impersonating session (no permission — the effective subject may hold none).
+  Returns the restored admin's /me view.

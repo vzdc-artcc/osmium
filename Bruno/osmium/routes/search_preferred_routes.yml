@@ -1,0 +1,60 @@
+info:
+  name: search_preferred_routes
+  type: http
+  seq: 1
+  tags:
+    - routes
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/v1/routes/preferred?origin=KJFK&destination=KBOS"
+  headers:
+    - name: X-Response-Timezone
+      value: "{{responseTimezone}}"
+      disabled: true
+  params:
+    - name: origin
+      value: KJFK
+      type: query
+      description: "Origin airport identifier (case-insensitive)"
+    - name: destination
+      value: KBOS
+      type: query
+      description: "Destination airport identifier (case-insensitive)"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Matching preferred routes
+    request:
+      url: "{{baseUrl}}/api/v1/routes/preferred?origin=KJFK&destination=KBOS"
+      method: GET
+      headers:
+        - name: X-Response-Timezone
+          value: "{{responseTimezone}}"
+          disabled: true
+    response:
+      status: 200
+      statusText: OK
+  - name: 400 Response
+    description: Neither origin nor destination supplied
+    request:
+      url: "{{baseUrl}}/api/v1/routes/preferred"
+      method: GET
+    response:
+      status: 400
+      statusText: Bad Request
+  - name: 401 Response
+    description: Not authenticated
+    request:
+      url: "{{baseUrl}}/api/v1/routes/preferred?origin=KJFK"
+      method: GET
+    response:
+      status: 401
+      statusText: Unauthorized

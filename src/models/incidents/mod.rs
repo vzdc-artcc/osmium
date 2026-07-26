@@ -25,7 +25,7 @@ pub struct IncidentItem {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateIncidentRequest {
-    pub reportee_id: String,
+    pub reportee_cid: i64,
     pub timestamp: DateTime<Utc>,
     pub reason: String,
     pub reporter_callsign: Option<String>,
@@ -38,13 +38,17 @@ pub struct UpdateIncidentRequest {
     pub resolution: Option<String>,
 }
 
-#[derive(Debug, Deserialize, IntoParams)]
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ListIncidentsQuery {
     pub page: Option<i64>,
     pub page_size: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub closed: Option<bool>,
+    pub reporter_cid: Option<i64>,
+    pub reporter_name: Option<String>,
+    pub reportee_cid: Option<i64>,
+    pub reportee_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

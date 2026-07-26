@@ -6,3 +6,4 @@ pub mod ots;
 pub mod release_requests;
 pub mod rubrics;
 pub mod sessions;
+pub mod stats;

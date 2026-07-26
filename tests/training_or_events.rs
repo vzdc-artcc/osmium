@@ -51,8 +51,9 @@ async fn event_staff_flow_works_end_to_end() {
             &format!("/api/v1/events/{event_id}/positions"),
             Some(&user.session_token),
             Some(json!({
-                "callsign": "DCA_DEL",
-                "requested_slot": 1
+                "requested_position": "DCA_DEL",
+                "requested_start_time": "2026-05-09T15:00:00Z",
+                "requested_end_time": "2026-05-09T17:00:00Z"
             })),
         )
         .await;

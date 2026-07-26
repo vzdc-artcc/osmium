@@ -27,6 +27,21 @@ Timestamped auth responses such as TeamSpeak UID `linked_at` follow the shared r
 - `GET /api/v1/auth/vatsim/login`
 - `GET /api/v1/auth/vatsim/callback`
 - `POST /api/v1/auth/logout`
+- `POST /api/v1/admin/impersonate/{cid}` (start impersonation; SERVER_ADMIN only)
+- `POST /api/v1/admin/impersonate/stop` (end impersonation, restore admin session)
+
+## Impersonation
+
+Server admins can act as another user via authenticated impersonation (spec 012),
+which replaced the removed dev `login/as/{cid}` shortcut. `POST /admin/impersonate/{cid}`
+(gated on `auth.impersonate.create`, effectively SERVER_ADMIN only) flips the current
+session to resolve as the target — a single httpOnly cookie, no separate session — with
+a shortened TTL; `POST /admin/impersonate/stop` restores the admin. `GET /me` exposes an
+`impersonation` object (the real admin's cid/name) for a banner + stop control while
+active. Guards: refuses nested impersonation, self-target, and SERVER_ADMIN targets.
+Durable audit is attributed to the impersonator, start/stop are server-level
+`AUTH_IMPERSONATION` rows hidden from facility admins, and sensitive self-service writes
+are blocked while impersonating.
 
 ## Self-Service Profile Surface
 
@@ -50,6 +65,7 @@ Timestamped auth responses such as TeamSpeak UID `linked_at` follow the shared r
 - `timezone`
 - `bio`
 - `receive_event_notifications`
+- `operating_initials`
 
 Behavior notes:
 
@@ -57,6 +73,10 @@ Behavior notes:
 - `preferred_name: null` clears the stored preferred name
 - `bio: null` clears the stored bio
 - timezone values must be valid IANA timezone names such as `America/Chicago`
+- `operating_initials` must be exactly 2 alphabetic characters (case-insensitive,
+  normalized to uppercase); returns `409 Conflict` if already held by another
+  user (shares the same manual-reassignment path as the admin endpoint below,
+  not the deterministic login-time auto-generation)
 - the public field name is `receive_event_notifications`, while persistence continues to use `new_event_notifications`
 - this route does not change `display_name`
 - this route cannot change `roles`, `permissions`, or permission overrides

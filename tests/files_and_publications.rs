@@ -228,7 +228,12 @@ async fn publication_visibility_rules_hold_with_real_db_state() {
             None,
         )
         .await;
-    assert_status(&hidden_detail_response, StatusCode::BAD_REQUEST);
+    // A draft/non-public publication is indistinguishable from a nonexistent one to an
+    // unauthenticated caller: `fetch_publication(.., public_only: true)` filters it out at
+    // the SQL layer, so the handler can only ever see `None` for both cases. Matches the
+    // same "hidden resource reads as not-found" convention used elsewhere in this API
+    // (e.g. events) rather than leaking existence via a distinct status code.
+    assert_status(&hidden_detail_response, StatusCode::NOT_FOUND);
 
     let admin_detail_response = app
         .json_request(

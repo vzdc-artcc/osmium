@@ -292,6 +292,55 @@ pub async fn count_sessions(
     .map_err(|_| ApiError::Internal)
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct TrainingSessionListRow {
+    id: String,
+    student_id: String,
+    instructor_id: String,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    additional_comments: Option<String>,
+    trainer_comments: Option<String>,
+    vatusa_id: Option<String>,
+    enable_markdown: bool,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    student_cid: i64,
+    student_name: String,
+    instructor_cid: i64,
+    instructor_name: String,
+    ticket_count: i64,
+    tickets_json: serde_json::Value,
+    additional_trainer_count: i64,
+}
+
+impl TrainingSessionListRow {
+    fn into_model(self) -> Result<TrainingSessionListItem, ApiError> {
+        let tickets = serde_json::from_value(self.tickets_json).map_err(|_| ApiError::Internal)?;
+
+        Ok(TrainingSessionListItem {
+            id: self.id,
+            student_id: self.student_id,
+            instructor_id: self.instructor_id,
+            start: self.start,
+            end: self.end,
+            additional_comments: self.additional_comments,
+            trainer_comments: self.trainer_comments,
+            vatusa_id: self.vatusa_id,
+            enable_markdown: self.enable_markdown,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            student_cid: self.student_cid,
+            student_name: self.student_name,
+            instructor_cid: self.instructor_cid,
+            instructor_name: self.instructor_name,
+            ticket_count: self.ticket_count,
+            tickets,
+            additional_trainer_count: self.additional_trainer_count,
+        })
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn list_sessions(
     pool: &PgPool,
@@ -324,6 +373,20 @@ pub async fn list_sessions(
             iu.cid as instructor_cid,
             iu.full_name as instructor_name,
             count(tt.id)::bigint as ticket_count,
+            coalesce(
+                (
+                    select json_agg(json_build_object(
+                        'id', tt2.id,
+                        'lesson_id', tt2.lesson_id,
+                        'lesson_identifier', l2.identifier,
+                        'passed', tt2.passed
+                    ) order by l2.identifier asc, tt2.id asc)
+                    from training.training_tickets tt2
+                    join training.lessons l2 on l2.id = tt2.lesson_id
+                    where tt2.session_id = ts.id
+                ),
+                '[]'::json
+            ) as tickets_json,
             (
                 select count(*)::bigint
                 from training.training_session_additional_trainers sat
@@ -370,7 +433,7 @@ pub async fn list_sessions(
         "#
     );
 
-    sqlx::query_as::<_, TrainingSessionListItem>(&sql)
+    sqlx::query_as::<_, TrainingSessionListRow>(&sql)
         .bind(student_id)
         .bind(instructor_id)
         .bind(filter_field)
@@ -380,7 +443,10 @@ pub async fn list_sessions(
         .bind(offset)
         .fetch_all(pool)
         .await
-        .map_err(|_| ApiError::Internal)
+        .map_err(|_| ApiError::Internal)?
+        .into_iter()
+        .map(TrainingSessionListRow::into_model)
+        .collect()
 }
 
 pub async fn fetch_student_identity(
@@ -956,9 +1022,18 @@ pub async fn insert_release_request_from_session(
 ) -> Result<TrainerReleaseRequest, ApiError> {
     sqlx::query_as::<_, super::release_requests::TrainerReleaseRequestRow>(
         r#"
-        insert into training.trainer_release_requests (id, student_id, submitted_at, status, created_at, updated_at)
-        values ($1, $2, $3, 'PENDING', $3, $3)
-        returning id, student_id, submitted_at, status, decided_at, decided_by
+        with inserted as (
+            insert into training.trainer_release_requests (id, student_id, submitted_at, status, created_at, updated_at)
+            values ($1, $2, $3, 'PENDING', $3, $3)
+            returning id, student_id, submitted_at, status, decided_at, decided_by
+        )
+        select
+            r.id, r.student_id, s.cid as student_cid, s.display_name as student_name,
+            coalesce(sm.controller_status, 'NONE') as student_controller_status,
+            r.submitted_at, r.status, r.decided_at, r.decided_by
+        from inserted r
+        join identity.users s on s.id = r.student_id
+        left join org.memberships sm on sm.user_id = s.id
         "#,
     )
     .bind(id)
@@ -1005,16 +1080,32 @@ pub async fn insert_ots_recommendation_note(
 ) -> Result<OtsRecommendationSummary, ApiError> {
     sqlx::query_as::<_, super::ots::OtsRecommendationRow>(
         r#"
-        insert into training.ots_recommendations (
-            id,
-            student_id,
-            assigned_instructor_id,
-            notes,
-            created_at,
-            updated_at
+        with inserted as (
+            insert into training.ots_recommendations (
+                id,
+                student_id,
+                assigned_instructor_id,
+                notes,
+                created_at,
+                updated_at
+            )
+            values ($1, $2, null, $3, $4, $4)
+            returning *
         )
-        values ($1, $2, null, $3, $4, $4)
-        returning id, student_id, assigned_instructor_id, notes, created_at, updated_at
+        select
+            o.id,
+            o.student_id,
+            s.cid as student_cid,
+            s.display_name as student_name,
+            o.assigned_instructor_id,
+            i.cid as assigned_instructor_cid,
+            i.display_name as assigned_instructor_name,
+            o.notes,
+            o.created_at,
+            o.updated_at
+        from inserted o
+        join identity.users s on s.id = o.student_id
+        left join identity.users i on i.id = o.assigned_instructor_id
         "#,
     )
     .bind(id)

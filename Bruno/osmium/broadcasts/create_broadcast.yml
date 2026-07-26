@@ -15,7 +15,8 @@ http:
         "title": "New training policy",
         "description": "Effective immediately, all OTS sessions require...",
         "file_id": null,
-        "exempt_staff": false
+        "exempt_staff": false,
+        "recipient_groups": ["HOME_S1", "HOME_S2", "VISITING"]
       }
   auth: inherit
 
@@ -38,7 +39,8 @@ examples:
             "title": "New training policy",
             "description": "Effective immediately, all OTS sessions require...",
             "file_id": null,
-            "exempt_staff": false
+            "exempt_staff": false,
+            "recipient_groups": ["HOME_S1", "HOME_S2", "VISITING"]
           }
     response:
       status: 201
@@ -73,7 +75,8 @@ examples:
             "title": "New training policy",
             "description": "Effective immediately, all OTS sessions require...",
             "file_id": null,
-            "exempt_staff": false
+            "exempt_staff": false,
+            "recipient_groups": ["HOME_S1", "HOME_S2", "VISITING"]
           }
     response:
       status: 400
@@ -93,7 +96,8 @@ examples:
             "title": "New training policy",
             "description": "Effective immediately, all OTS sessions require...",
             "file_id": null,
-            "exempt_staff": false
+            "exempt_staff": false,
+            "recipient_groups": ["HOME_S1", "HOME_S2", "VISITING"]
           }
     response:
       status: 401
