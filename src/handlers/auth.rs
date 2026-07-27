@@ -556,6 +556,20 @@ pub async fn start_impersonation(
         return Err(ApiError::Conflict);
     }
 
+    // Provision the target with the baseline self-service permissions every
+    // controller is entitled to. These are otherwise only materialized on a user's
+    // first login, so a target who has never logged in (dev-seeded, migrated) would
+    // resolve with *fewer* permissions than they should — meaning impersonation
+    // couldn't perform basic self-service (e.g. requesting an event position).
+    // Additive and revoke-preserving: impersonation reflects exactly the target's
+    // real permissions (nothing less), never the admin's (nothing more).
+    access_repo::grant_missing_permissions(
+        pool,
+        &target_user_id,
+        BASELINE_SELF_SERVICE_PERMISSIONS,
+    )
+    .await?;
+
     // Server-level audit, attributed to the real admin, target in metadata. Recorded
     // with the AUTH_IMPERSONATION resource type so facility admins never see it.
     record_impersonation_audit(pool, &headers, admin, "START", cid, reason).await?;
@@ -783,6 +797,28 @@ fn validate_timezone(value: &str) -> Result<String, ApiError> {
     Ok(normalized.to_string())
 }
 
+/// The self-service permissions every non-`SERVER_ADMIN` user is entitled to.
+/// Seeded into `access.user_permissions` on a user's first login (below), and
+/// provisioned onto an impersonation target so acting-as-them reflects their real
+/// permissions even if they never logged in. Single source of truth so the login
+/// baseline and the impersonation baseline can never drift apart.
+pub(crate) const BASELINE_SELF_SERVICE_PERMISSIONS: &[&str] = &[
+    "auth.profile.read",
+    "auth.profile.update",
+    "auth.teamspeak_uids.read",
+    "auth.teamspeak_uids.create",
+    "auth.teamspeak_uids.delete",
+    "auth.sessions.delete",
+    "users.vatusa_refresh.self.request",
+    "users.visit_artcc.request",
+    "users.visitor_applications.self.read",
+    "users.visitor_applications.self.request",
+    "users.directory.read",
+    "feedback.items_self.read",
+    "feedback.items.create",
+    "events.positions.self.request",
+];
+
 /// Seeds baseline permissions once (only for a newly-created user) and keeps the
 /// `OSMIUM_SERVER_ADMIN_CID` role sync idempotent on every login. Public for the
 /// same integration-test reason as [`bootstrap_login_user`].
@@ -792,82 +828,67 @@ pub async fn ensure_user_login_access(
     cid: i64,
     was_new_user: bool,
 ) -> Result<(), ApiError> {
-    let configured_server_admin_cid = configured_server_admin_cid();
+    let configured_server_admin_cids = configured_server_admin_cids();
 
-    match configured_server_admin_cid {
-        Some(server_admin_cid) if server_admin_cid == cid => {
-            tracing::info!(
-                user_id,
-                cid,
-                configured_server_admin_cid = server_admin_cid,
-                "assigning server admin role during login sync"
-            );
+    if configured_server_admin_cids.contains(&cid) {
+        tracing::info!(
+            user_id,
+            cid,
+            "assigning server admin role during login sync"
+        );
 
-            let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-            access_repo::assign_server_admin(&mut tx, user_id).await?;
-            tx.commit().await.map_err(|_| ApiError::Internal)?;
+        let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+        access_repo::assign_server_admin(&mut tx, user_id).await?;
+        tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-            let roles = access_repo::fetch_user_role_names(pool, user_id).await?;
-            tracing::info!(
-                user_id,
-                cid,
-                roles = ?roles,
-                "server admin login access synced"
-            );
+        let roles = access_repo::fetch_user_role_names(pool, user_id).await?;
+        tracing::info!(
+            user_id,
+            cid,
+            roles = ?roles,
+            "server admin login access synced"
+        );
 
-            Ok(())
-        }
-        // Baseline self-service permissions are seeded once, on the login that
-        // first creates the identity.users row. Every later login leaves
-        // access.user_permissions untouched, so admin-granted permissions
-        // (via the staff permissions editor) survive across logins instead
-        // of being silently wiped back to the baseline each time.
-        _ if was_new_user => {
-            let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-            access_repo::replace_user_permissions(
-                &mut tx,
-                user_id,
-                &[
-                    "auth.profile.read".to_string(),
-                    "auth.profile.update".to_string(),
-                    "auth.teamspeak_uids.read".to_string(),
-                    "auth.teamspeak_uids.create".to_string(),
-                    "auth.teamspeak_uids.delete".to_string(),
-                    "auth.sessions.delete".to_string(),
-                    "users.vatusa_refresh.self.request".to_string(),
-                    "users.visit_artcc.request".to_string(),
-                    "users.visitor_applications.self.read".to_string(),
-                    "users.visitor_applications.self.request".to_string(),
-                    "users.directory.read".to_string(),
-                    "feedback.items_self.read".to_string(),
-                    "feedback.items.create".to_string(),
-                    "events.positions.self.request".to_string(),
-                ],
-            )
-            .await?;
-            tx.commit().await.map_err(|_| ApiError::Internal)?;
+        Ok(())
+    }
+    // Baseline self-service permissions are seeded once, on the login that
+    // first creates the identity.users row. Every later login leaves
+    // access.user_permissions untouched, so admin-granted permissions
+    // (via the staff permissions editor) survive across logins instead
+    // of being silently wiped back to the baseline each time.
+    else if was_new_user {
+        let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+        access_repo::replace_user_permissions(
+            &mut tx,
+            user_id,
+            &BASELINE_SELF_SERVICE_PERMISSIONS
+                .iter()
+                .map(|permission| permission.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+        tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-            tracing::info!(
-                user_id,
-                cid,
-                configured_server_admin_cid,
-                "baseline login access seeded for new user"
-            );
+        tracing::info!(user_id, cid, "baseline login access seeded for new user");
 
-            Ok(())
-        }
-        _ => Ok(()),
+        Ok(())
+    } else {
+        Ok(())
     }
 }
 
-fn configured_server_admin_cid() -> Option<i64> {
-    let raw = std::env::var("OSMIUM_SERVER_ADMIN_CID").ok()?;
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return None;
-    }
-
-    raw.parse::<i64>().ok().filter(|cid| *cid > 0)
+/// Parses `OSMIUM_SERVER_ADMIN_CID` into the set of CIDs that should hold the
+/// SERVER_ADMIN role. Accepts a single CID or a comma-separated list, so more
+/// than one person can be a server admin (e.g. `123,456,789`). Server admin is
+/// env-configured only — it is never grantable through the permissions UI.
+fn configured_server_admin_cids() -> Vec<i64> {
+    let Ok(raw) = std::env::var("OSMIUM_SERVER_ADMIN_CID") else {
+        return Vec::new();
+    };
+    raw.split(',')
+        .filter_map(|part| part.trim().parse::<i64>().ok())
+        .filter(|cid| *cid > 0)
+        .collect()
 }
 
 fn cookie_secure() -> bool {
@@ -968,7 +989,7 @@ fn url_origin(raw: &str) -> Option<String> {
 mod tests {
     use std::sync::{Mutex, OnceLock};
 
-    use super::{configured_server_admin_cid, validate_return_to};
+    use super::{configured_server_admin_cids, validate_return_to};
     use crate::auth::acl::SERVER_ADMIN_ROLE;
 
     struct EnvVarGuard {
@@ -1020,7 +1041,15 @@ mod tests {
         let _env_lock = env_test_lock().lock().unwrap();
         let _guard = EnvVarGuard::set("OSMIUM_SERVER_ADMIN_CID", "1234567");
 
-        assert_eq!(configured_server_admin_cid(), Some(1234567));
+        assert_eq!(configured_server_admin_cids(), vec![1234567]);
+    }
+
+    #[test]
+    fn parses_multiple_configured_server_admin_cids() {
+        let _env_lock = env_test_lock().lock().unwrap();
+        let _guard = EnvVarGuard::set("OSMIUM_SERVER_ADMIN_CID", "111, 222 ,333");
+
+        assert_eq!(configured_server_admin_cids(), vec![111, 222, 333]);
     }
 
     #[test]
@@ -1028,7 +1057,7 @@ mod tests {
         let _env_lock = env_test_lock().lock().unwrap();
         let _guard = EnvVarGuard::set("OSMIUM_SERVER_ADMIN_CID", "abc");
 
-        assert_eq!(configured_server_admin_cid(), None);
+        assert!(configured_server_admin_cids().is_empty());
     }
 
     #[test]
@@ -1036,7 +1065,7 @@ mod tests {
         let _env_lock = env_test_lock().lock().unwrap();
         let _guard = EnvVarGuard::unset("OSMIUM_SERVER_ADMIN_CID");
 
-        assert_eq!(configured_server_admin_cid(), None);
+        assert!(configured_server_admin_cids().is_empty());
     }
 
     #[test]

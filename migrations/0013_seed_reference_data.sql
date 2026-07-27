@@ -2,21 +2,10 @@ insert into platform.schema_version_notes (version_key, title, notes)
 values ('v1', 'Fresh-start multi-schema foundation', 'Initial fresh-start schema for Osmium.')
 on conflict (version_key) do nothing;
 
-insert into org.staff_positions (name, sort_order)
-values
-    ('ATM', 10),
-    ('DATM', 20),
-    ('TA', 30),
-    ('EC', 40),
-    ('FE', 50),
-    ('WM', 60),
-    ('ATA', 70),
-    ('AWM', 80),
-    ('AEC', 90),
-    ('AFE', 100),
-    ('INS', 110),
-    ('MTR', 120)
-on conflict (name) do nothing;
+-- Staff positions are intentionally NOT seeded here. The live staff-position
+-- system is the STAFF_POSITIONS constant + identity.staff_positions (VATUSA-synced,
+-- source auto/manual). The legacy org.staff_positions / org.user_staff_positions
+-- tables are dropped in migration 0063 as unused.
 
 -- Certification types are intentionally NOT seeded here. A fresh database starts
 -- with no certification types; the real position-based types come from either the

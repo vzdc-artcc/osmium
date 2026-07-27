@@ -268,16 +268,46 @@ pub async fn replace_user_permissions(
     Ok(())
 }
 
+/// Additively grant a user any of `permission_names` they don't already have a
+/// row for, without disturbing existing rows. `on conflict do nothing` preserves
+/// an explicit admin revoke (`granted = false`) — this only fills in *missing*
+/// grants, never overrides. Used to provision an impersonation target with the
+/// baseline self-service permissions every controller is entitled to but which are
+/// only materialized at first login, so acting as a never-logged-in target still
+/// resolves as their real self (nothing less), and never as the admin (nothing more).
+pub async fn grant_missing_permissions(
+    pool: &PgPool,
+    user_id: &str,
+    permission_names: &[&str],
+) -> Result<(), ApiError> {
+    for name in permission_names {
+        sqlx::query(
+            r#"
+            insert into access.user_permissions (user_id, permission_name, granted)
+            values ($1, $2, true)
+            on conflict (user_id, permission_name) do nothing
+            "#,
+        )
+        .bind(user_id)
+        .bind(name)
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    }
+    Ok(())
+}
+
+/// Grants the SERVER_ADMIN role to a user, clearing that user's other roles and
+/// direct permissions first (a server admin holds only SERVER_ADMIN and gets
+/// every permission via the effective-permissions cross-join).
+///
+/// SERVER_ADMIN is NOT a singleton — multiple users can hold it concurrently
+/// (configured via `OSMIUM_SERVER_ADMIN_CID`, comma-separated), so this does not
+/// disturb other users' SERVER_ADMIN grants.
 pub async fn assign_server_admin(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
 ) -> Result<(), ApiError> {
-    sqlx::query("delete from access.user_roles where role_name = $1")
-        .bind(SERVER_ADMIN_ROLE)
-        .execute(&mut **tx)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-
     sqlx::query("delete from access.user_roles where user_id = $1")
         .bind(user_id)
         .execute(&mut **tx)

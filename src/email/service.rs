@@ -69,6 +69,48 @@ impl EmailService {
         self.is_available() && self.config.worker_enabled
     }
 
+    /// Upsert every code-registered template into `email.templates` so the
+    /// `email.outbox.template_id` foreign key is satisfiable for every template
+    /// the code can enqueue. The code `registry()` is the source of truth; the
+    /// table is a mirror that exists only for the FK. Run at startup (after
+    /// migrations) — migration `0031` only ever seeded a stale subset, so any
+    /// template added to the registry since (progression.*, feedback.*, etc.)
+    /// would otherwise violate the FK when enqueued (e.g. from roster sync).
+    /// Idempotent.
+    pub async fn sync_template_registry(&self, pool: &PgPool) -> Result<u64, sqlx::Error> {
+        let mut synced = 0u64;
+        for template in registry() {
+            sqlx::query(
+                r#"
+                insert into email.templates (
+                    id, name, category, description,
+                    is_transactional, allow_arbitrary_addresses, respect_user_event_pref
+                )
+                values ($1, $2, $3, $4, $5, $6, $7)
+                on conflict (id) do update
+                set name = excluded.name,
+                    category = excluded.category,
+                    description = excluded.description,
+                    is_transactional = excluded.is_transactional,
+                    allow_arbitrary_addresses = excluded.allow_arbitrary_addresses,
+                    respect_user_event_pref = excluded.respect_user_event_pref,
+                    updated_at = now()
+                "#,
+            )
+            .bind(template.id)
+            .bind(template.name)
+            .bind(template.category)
+            .bind(template.description)
+            .bind(template.is_transactional)
+            .bind(template.allow_arbitrary_addresses)
+            .bind(template.respect_user_event_pref)
+            .execute(pool)
+            .await?;
+            synced += 1;
+        }
+        Ok(synced)
+    }
+
     pub fn templates(&self) -> Vec<EmailTemplateDefinitionResponse> {
         registry()
             .iter()

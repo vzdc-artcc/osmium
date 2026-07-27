@@ -856,6 +856,47 @@ pub async fn decide_visitor_application(
     .await?;
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
+    // Notify the applicant of the decision (accepted / rejected). Best-effort — a
+    // mail failure must not fail the decision.
+    let mut email_payload = serde_json::json!({
+        "user_name": after
+            .display_name
+            .clone()
+            .unwrap_or_else(|| "Controller".to_string()),
+        "artcc_name": configured_artcc(),
+    });
+    let template_id = if normalized_status == "APPROVED" {
+        "visitor.accepted"
+    } else {
+        if let Some(reason) = &normalized_reason {
+            email_payload["reason"] = serde_json::Value::String(reason.clone());
+        }
+        "visitor.rejected"
+    };
+    if let Err(error) = state
+        .email
+        .enqueue_to_users(
+            pool,
+            crate::email::service::EmailActor {
+                actor_id: None,
+                user_id: None,
+                service_account_id: None,
+                request_source: "system".to_string(),
+            },
+            template_id.to_string(),
+            email_payload,
+            vec![after.user_id.clone()],
+        )
+        .await
+    {
+        tracing::warn!(
+            ?error,
+            template_id,
+            user_id = %after.user_id,
+            "failed to enqueue visitor-decision email"
+        );
+    }
+
     Ok(ApiJson::new(after, time))
 }
 

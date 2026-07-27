@@ -3,6 +3,7 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
@@ -12,6 +13,7 @@ use crate::{
         permissions::{FeedbackItemsCreate, FeedbackItemsDecide},
         require_permission::RequirePermission,
     },
+    email::service::EmailActor,
     errors::ApiError,
     models::{
         CreateFeedbackRequest, DecideFeedbackRequest, FeedbackItem, FeedbackListQuery,
@@ -303,6 +305,7 @@ pub async fn decide_feedback(
     .ok_or(ApiError::NotFound)?;
 
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    let actor_id_for_email = actor.actor_id.clone();
     audit_repo::record_audit(
         pool,
         audit_repo::AuditEntryInput {
@@ -319,5 +322,53 @@ pub async fn decide_feedback(
     )
     .await?;
 
+    // Notify the controller when their feedback is released to them. Only on the
+    // transition into RELEASED, so re-saving an already-released item (e.g. editing
+    // staff comments) does not re-notify. Best-effort — a mail failure must not
+    // fail the release.
+    if normalized_status == "RELEASED" && before.status != "RELEASED" {
+        enqueue_feedback_released_email(&state, pool, actor_id_for_email.as_deref(), &item).await;
+    }
+
     Ok(ApiJson::new(item, time))
+}
+
+/// Enqueue the `feedback.new` template to the controller the feedback is about,
+/// sent when their feedback is released. Best-effort: errors are swallowed so the
+/// release request always succeeds.
+async fn enqueue_feedback_released_email(
+    state: &AppState,
+    pool: &sqlx::PgPool,
+    actor_id: Option<&str>,
+    item: &FeedbackItem,
+) {
+    let email_actor = EmailActor {
+        actor_id: actor_id.map(str::to_string),
+        user_id: None,
+        service_account_id: None,
+        request_source: "system".to_string(),
+    };
+    let payload = json!({
+        "controller_name": item.target_name.clone().unwrap_or_default(),
+        "position": item.controller_position,
+        "rating": format!("{} / 5", item.rating),
+    });
+    if let Err(error) = state
+        .email
+        .enqueue_to_users(
+            pool,
+            email_actor,
+            "feedback.new".to_string(),
+            payload,
+            vec![item.target_user_id.clone()],
+        )
+        .await
+    {
+        tracing::warn!(
+            ?error,
+            feedback_id = %item.id,
+            target_user_id = %item.target_user_id,
+            "failed to enqueue feedback-released email"
+        );
+    }
 }

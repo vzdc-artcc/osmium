@@ -105,9 +105,9 @@ User-managed API keys are a specialized kind of service account.
 - API access payloads group them as `{ resource: [action, ...] }`
 - direct overrides are rare exceptions
 - machine actors also receive roles and effective permissions
-- `SERVER_ADMIN` is a reserved singleton human role
+- `SERVER_ADMIN` is a reserved human role, configurable only via `OSMIUM_SERVER_ADMIN_CID` (never grantable in the UI); one or more users may hold it concurrently
 - `SERVER_ADMIN` resolves to every current permission in `access.permissions`, including permissions added later
-- `SERVER_ADMIN` is claimed or transferred on successful login when `OSMIUM_SERVER_ADMIN_CID` matches that user's CID
+- `SERVER_ADMIN` is claimed on successful login when the user's CID is in `OSMIUM_SERVER_ADMIN_CID` (a single CID or a comma-separated list)
 
 ## Important Permissions
 
@@ -135,7 +135,7 @@ User-managed API keys are a specialized kind of service account.
 
 Newly logged-in users receive the baseline `USER` role.
 
-If `OSMIUM_SERVER_ADMIN_CID` matches the logging-in user, Osmium replaces that user's normal human roles and direct permission overrides with the singleton `SERVER_ADMIN` role instead.
+If the logging-in user's CID is listed in `OSMIUM_SERVER_ADMIN_CID` (a single CID or a comma-separated list), Osmium replaces that user's normal human roles and direct permission overrides with the `SERVER_ADMIN` role instead. Several users can be listed and hold `SERVER_ADMIN` at the same time.
 
 - `USER` is read-mostly by default
 - `USER` can read its own auth/session info

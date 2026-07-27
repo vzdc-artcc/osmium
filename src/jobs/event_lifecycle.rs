@@ -1,20 +1,23 @@
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use crate::{
+    email::service::EmailActor,
     jobs::{Job, TickOutcome},
     repos::org::jobs as jobs_repo,
     state::AppState,
 };
 
 const DEFAULT_INTERVAL_SECS: u64 = 300;
+const DEFAULT_REMINDER_LEAD_HOURS: i64 = 24;
 const JOB_NAME: &str = "event_automation";
 
 #[derive(Debug, Clone, Default)]
 pub struct EventLifecycleMetrics {
     pub positions_locked: Option<i64>,
     pub events_archived: Option<i64>,
+    pub reminders_sent: Option<i64>,
 }
 
 struct EventLifecycleJob {
@@ -50,6 +53,10 @@ impl Job for EventLifecycleJob {
         let archive_result =
             jobs_repo::archive_ended_events(pool, now - chrono::Duration::hours(24)).await;
 
+        // Best-effort reminder dispatch — additive to the lock/archive sweep, and
+        // never the reason the tick fails.
+        let reminders_sent = send_due_event_reminders(state, pool, now).await;
+
         match (lock_result, archive_result) {
             (Ok(positions_locked), Ok(events_archived)) => {
                 let _ = jobs_repo::finish_job_run_success(
@@ -58,6 +65,7 @@ impl Job for EventLifecycleJob {
                     serde_json::json!({
                         "positions_locked": positions_locked,
                         "events_archived": events_archived,
+                        "reminders_sent": reminders_sent,
                     }),
                 )
                 .await;
@@ -65,6 +73,7 @@ impl Job for EventLifecycleJob {
                 Ok(TickOutcome::success(EventLifecycleMetrics {
                     positions_locked: Some(positions_locked),
                     events_archived: Some(events_archived),
+                    reminders_sent: Some(reminders_sent),
                 }))
             }
             _ => {
@@ -105,6 +114,81 @@ pub fn start_event_lifecycle_worker(state: AppState) {
         job_health,
         |health| &mut health.event_automation,
     );
+}
+
+/// Dispatch "your event is coming up" reminders to controllers holding a published
+/// position on any event entering the lead window. Fires once per event (guarded by
+/// `events.reminder_sent_at`). Returns the number of events reminded. Best-effort:
+/// individual failures are logged and skipped, never propagated.
+async fn send_due_event_reminders(state: &AppState, pool: &sqlx::PgPool, now: DateTime<Utc>) -> i64 {
+    let window_end = now + chrono::Duration::hours(event_reminder_lead_hours());
+    let due = match jobs_repo::fetch_events_due_for_reminder(pool, window_end).await {
+        Ok(events) => events,
+        Err(_) => return 0,
+    };
+
+    // `unsubscribe_base_url` is this deployment's public base URL (see email/render.rs).
+    let base = state.email.config.unsubscribe_base_url.clone();
+    let mut reminded = 0i64;
+
+    for event in due {
+        let recipients = match jobs_repo::fetch_event_reminder_recipients(pool, &event.id).await {
+            Ok(recipients) => recipients,
+            Err(_) => continue,
+        };
+        // No published participants yet — leave the event unmarked so a reminder
+        // still fires if positions get published before it starts.
+        if recipients.is_empty() {
+            continue;
+        }
+
+        let details_url = match base.as_deref() {
+            Some(base) => format!("{}/events/{}", base.trim_end_matches('/'), event.id),
+            None => format!("/events/{}", event.id),
+        };
+        let payload = serde_json::json!({
+            "event_title": event.title,
+            "starts_at": event.starts_at.to_rfc3339(),
+            "details_url": details_url,
+            "preheader": format!("{} is coming up", event.title),
+        });
+        let actor = EmailActor {
+            actor_id: None,
+            user_id: None,
+            service_account_id: None,
+            request_source: "system".to_string(),
+        };
+
+        if let Err(error) = state
+            .email
+            .enqueue_to_users(
+                pool,
+                actor,
+                "events.reminder".to_string(),
+                payload,
+                recipients,
+            )
+            .await
+        {
+            tracing::warn!(?error, event_id = %event.id, "failed to enqueue event reminder emails");
+            // Leave unmarked so the next tick retries while still in the window.
+            continue;
+        }
+
+        if jobs_repo::mark_event_reminder_sent(pool, &event.id).await.is_ok() {
+            reminded += 1;
+        }
+    }
+
+    reminded
+}
+
+fn event_reminder_lead_hours() -> i64 {
+    std::env::var("EVENT_REMINDER_LEAD_HOURS")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|hours| *hours > 0)
+        .unwrap_or(DEFAULT_REMINDER_LEAD_HOURS)
 }
 
 fn event_lifecycle_enabled() -> bool {
