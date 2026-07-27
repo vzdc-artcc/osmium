@@ -140,6 +140,76 @@ pub async fn lock_events_near_start(
     Ok(result.rows_affected() as i64)
 }
 
+/// An event that has entered the reminder lead window and hasn't been reminded yet.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EventReminderRow {
+    pub id: String,
+    pub title: String,
+    pub starts_at: DateTime<Utc>,
+}
+
+/// Events due for a "coming up" reminder: not archived/cancelled, starting after
+/// `now` but at or before `window_end`, and not already reminded.
+pub async fn fetch_events_due_for_reminder(
+    pool: &PgPool,
+    window_end: DateTime<Utc>,
+) -> Result<Vec<EventReminderRow>, ApiError> {
+    sqlx::query_as::<_, EventReminderRow>(
+        r#"
+        select id, title, starts_at
+        from events.events
+        where reminder_sent_at is null
+          and archived_at is null
+          and status <> 'CANCELLED'
+          and starts_at > now()
+          and starts_at <= $1
+        order by starts_at asc
+        "#,
+    )
+    .bind(window_end)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Distinct user ids of controllers holding a published position on the event —
+/// the recipients of its reminder.
+pub async fn fetch_event_reminder_recipients(
+    pool: &PgPool,
+    event_id: &str,
+) -> Result<Vec<String>, ApiError> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        select distinct user_id
+        from events.event_positions
+        where event_id = $1
+          and published = true
+          and user_id is not null
+        "#,
+    )
+    .bind(event_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+/// Mark an event's reminder as sent so the sweep does not re-send it.
+pub async fn mark_event_reminder_sent(pool: &PgPool, event_id: &str) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        update events.events
+        set reminder_sent_at = now(),
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(event_id)
+    .execute(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    Ok(())
+}
+
 pub async fn archive_ended_events(
     pool: &PgPool,
     threshold: DateTime<Utc>,

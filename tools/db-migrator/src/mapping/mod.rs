@@ -79,6 +79,7 @@ pub fn normalize_staff_position(position_name: &str) -> Option<&'static str> {
         "AFE" => Some("AFE"),
         "INS" => Some("INS"),
         "MTR" => Some("MTR"),
+        "FC" => Some("FC"),
         _ => None,
     }
 }

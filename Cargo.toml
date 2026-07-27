@@ -6,6 +6,10 @@ edition = "2024"
 [workspace]
 members = [
     ".",
+    # One-shot legacy->osmium migration tool. Kept a workspace member so the
+    # Dockerfile (`cargo build -p db-migrator`) and the migration-test compose can
+    # still build/ship it, but excluded from the osmium CI check/test jobs (see
+    # .github/workflows/ci.yml) so its tests and compile time don't gate osmium.
     "tools/db-migrator",
 ]
 exclude = [

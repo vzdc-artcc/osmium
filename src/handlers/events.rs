@@ -4,6 +4,9 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
+use std::collections::HashSet;
+
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
@@ -17,6 +20,7 @@ use crate::{
         },
         require_permission::RequirePermission,
     },
+    email::service::EmailActor,
     errors::ApiError,
     models::{
         CreateEventPositionRequest, CreateEventRequest, Event, EventListResponse, EventPosition,
@@ -667,6 +671,7 @@ pub async fn publish_event_positions(
     let after = events_repo::list_event_positions_all(db, &event_id).await?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
+    let actor_id_for_email = actor.actor_id.clone();
     audit_repo::record_audit(
         db,
         audit_repo::AuditEntryInput {
@@ -675,7 +680,7 @@ pub async fn publish_event_positions(
             resource_type: "EVENT_POSITION_BATCH".to_string(),
             resource_id: None,
             scope_type: "event".to_string(),
-            scope_key: Some(event_id),
+            scope_key: Some(event_id.clone()),
             before_state: Some(audit_repo::sanitized_snapshot(&before)?),
             after_state: Some(audit_repo::sanitized_snapshot(&after)?),
             ip_address: audit_repo::client_ip(&headers),
@@ -683,5 +688,86 @@ pub async fn publish_event_positions(
     )
     .await?;
 
+    // Notify each controller whose assigned position was *newly* published (the
+    // batch-publish flips the whole event's positions, so diff against `before` to
+    // avoid re-notifying already-published assignments). Best-effort — a mail
+    // failure must not fail the publish. Respects each user's event-notification
+    // preference (the template's respect_user_event_pref).
+    notify_newly_published_positions(&state, db, &event_id, &before, &after, actor_id_for_email)
+        .await;
+
     Ok(StatusCode::OK)
+}
+
+/// Enqueue `events.position_published` to controllers whose assigned position
+/// transitioned to published in this batch.
+async fn notify_newly_published_positions(
+    state: &AppState,
+    db: &sqlx::PgPool,
+    event_id: &str,
+    before: &[EventPosition],
+    after: &[EventPosition],
+    actor_id: Option<String>,
+) {
+    let previously_published: HashSet<&str> = before
+        .iter()
+        .filter(|position| position.published)
+        .map(|position| position.id.as_str())
+        .collect();
+
+    let mut recipients: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for position in after {
+        if !position.published || previously_published.contains(position.id.as_str()) {
+            continue;
+        }
+        if let Some(user_id) = &position.user_id {
+            if seen.insert(user_id.clone()) {
+                recipients.push(user_id.clone());
+            }
+        }
+    }
+
+    if recipients.is_empty() {
+        return;
+    }
+
+    let Ok(Some(event)) = events_repo::fetch_event(db, event_id).await else {
+        return;
+    };
+
+    // `unsubscribe_base_url` is this deployment's public base URL (see
+    // email/render.rs); fall back to a relative path if it isn't configured.
+    let details_url = match state.email.config.unsubscribe_base_url.as_deref() {
+        Some(base) => format!("{}/events/{}", base.trim_end_matches('/'), event_id),
+        None => format!("/events/{event_id}"),
+    };
+
+    let payload = json!({
+        "event_title": event.title,
+        "starts_at": event.starts_at.to_rfc3339(),
+        "details_url": details_url,
+        "preheader": format!("Your position for {} has been published", event.title),
+    });
+
+    let email_actor = EmailActor {
+        actor_id,
+        user_id: None,
+        service_account_id: None,
+        request_source: "system".to_string(),
+    };
+
+    if let Err(error) = state
+        .email
+        .enqueue_to_users(
+            db,
+            email_actor,
+            "events.position_published".to_string(),
+            payload,
+            recipients,
+        )
+        .await
+    {
+        tracing::warn!(?error, event_id, "failed to enqueue event position-published emails");
+    }
 }

@@ -24,6 +24,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = state::AppState::from_env().await?;
     run_startup_migrations(&state).await?;
+    sync_email_templates(&state).await;
     jobs::email_delivery::start_email_delivery_worker(state.clone());
     jobs::stats_sync::start_stats_sync_worker(state.clone());
     jobs::roster_sync::start_roster_sync_worker(state.clone());
@@ -54,6 +55,22 @@ fn init_tracing() {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,tower_http=debug".into());
 
     let _ = fmt().with_env_filter(filter).with_target(false).try_init();
+}
+
+/// Mirror the code template registry into `email.templates` so every enqueueable
+/// template satisfies the `email.outbox.template_id` FK. Best-effort: logged, not
+/// fatal — but a failure means template sends (e.g. roster-sync progression mail)
+/// will keep hitting the FK until it succeeds.
+async fn sync_email_templates(state: &state::AppState) {
+    let Some(pool) = state.db.as_ref() else {
+        return;
+    };
+    match state.email.sync_template_registry(pool).await {
+        Ok(count) => tracing::info!(templates = count, "synced email template registry"),
+        Err(error) => {
+            tracing::error!(?error, "failed to sync email template registry")
+        }
+    }
 }
 
 fn startup_migrations_enabled() -> bool {

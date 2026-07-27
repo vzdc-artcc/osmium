@@ -31,7 +31,6 @@ struct SourceUser {
     rating: Option<i32>,
     division: Option<String>,
     roles: Vec<String>,
-    staff_positions: Vec<String>,
     bio: Option<String>,
     controller_status: Option<String>,
     updated_at: NaiveDateTime,
@@ -88,7 +87,6 @@ struct UserPayload {
     updated_at: DateTime<Utc>,
     email_verified_at: Option<DateTime<Utc>>,
     roles: Vec<String>,
-    staff_positions: Vec<String>,
     teamspeak_uid: Option<String>,
     discord_uid: Option<String>,
     discord_tag: Option<String>,
@@ -111,7 +109,6 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
             rating,
             division,
             coalesce(roles::text[], '{}'::text[]) as roles,
-            coalesce("staffPositions"::text[], '{}'::text[]) as staff_positions,
             bio,
             "controllerStatus"::text as controller_status,
             "updatedAt" as updated_at,
@@ -141,13 +138,6 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
     .fetch_all(&state.source)
     .await?;
 
-    let staff_position_lookup =
-        sqlx::query_as::<_, TargetStaffPosition>(r#"select id, name from org.staff_positions"#)
-            .fetch_all(&state.target)
-            .await?
-            .into_iter()
-            .map(|row| (row.name, row.id))
-            .collect::<HashMap<_, _>>();
     let duplicate_operating_initials = users
         .iter()
         .filter_map(|user| {
@@ -168,19 +158,13 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
     for user in users {
         state.report.domain_mut(DOMAIN).planned += 1;
         let payload = build_payload(state, &user, &duplicate_operating_initials).await?;
-        upsert_user(state, &user.id, &payload, &staff_position_lookup).await?;
+        upsert_user(state, &user.id, &payload).await?;
     }
 
     if !state.config.dry_run {
         target::checkpoint(&state.target, &state.config.run_id, DOMAIN, "users").await?;
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct TargetStaffPosition {
-    id: String,
-    name: String,
 }
 
 async fn build_payload(
@@ -249,17 +233,6 @@ async fn build_payload(
         roles.insert("USER".to_string());
     }
 
-    let mut staff_positions = BTreeSet::new();
-    for position_name in &user.staff_positions {
-        let mapped = normalize_staff_position(position_name).with_context(|| {
-            format!(
-                "unknown legacy staff position `{position_name}` for user {}",
-                user.id
-            )
-        })?;
-        staff_positions.insert(mapped.to_string());
-    }
-
     let display_name = user
         .preferred_name
         .as_deref()
@@ -325,7 +298,6 @@ async fn build_payload(
         updated_at: assume_utc(user.updated_at),
         email_verified_at: assume_utc_opt(user.email_verified_at),
         roles: roles.into_iter().collect(),
-        staff_positions: staff_positions.into_iter().collect(),
         teamspeak_uid: user.teamspeak_uid.clone(),
         discord_uid: user.discord_uid.clone(),
         discord_tag: user.discord_tag.clone(),
@@ -333,12 +305,7 @@ async fn build_payload(
     })
 }
 
-async fn upsert_user(
-    state: &mut AppState,
-    source_id: &str,
-    payload: &UserPayload,
-    staff_position_lookup: &HashMap<String, String>,
-) -> Result<()> {
+async fn upsert_user(state: &mut AppState, source_id: &str, payload: &UserPayload) -> Result<()> {
     let source_business_key = format!("cid:{}", payload.cid);
     let target_id =
         if let Some(mapping) = target::find_mapping(&state.target, "user", source_id).await? {
@@ -486,29 +453,6 @@ async fn upsert_user(
             )
             .bind(&target_id)
             .bind(role_name)
-            .execute(&state.target)
-            .await?;
-        }
-
-        sqlx::query(
-            r#"delete from org.user_staff_positions where user_id = $1 and ends_at is null"#,
-        )
-        .bind(&target_id)
-        .execute(&state.target)
-        .await?;
-        for position_name in &payload.staff_positions {
-            let staff_position_id = staff_position_lookup
-                .get(position_name)
-                .with_context(|| format!("missing target staff position `{position_name}`"))?;
-            sqlx::query(
-                r#"
-                insert into org.user_staff_positions (id, user_id, staff_position_id, starts_at)
-                values (gen_random_uuid()::text, $1, $2, $3)
-                "#,
-            )
-            .bind(&target_id)
-            .bind(staff_position_id)
-            .bind(payload.join_date)
             .execute(&state.target)
             .await?;
         }

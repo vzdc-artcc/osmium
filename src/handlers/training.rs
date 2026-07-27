@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use crate::email::service::EmailActor;
 use crate::{
     auth::{
         acl::{PermissionAction, PermissionPath},
@@ -64,6 +65,80 @@ use crate::{
     state::AppState,
     time::{ApiJson, ResponseTimeContext},
 };
+
+/// Notify a controller of a training-appointment lifecycle event (scheduled /
+/// updated / canceled). Best-effort — a mail failure never fails the request.
+async fn enqueue_appointment_email(
+    state: &AppState,
+    db: &sqlx::PgPool,
+    template_id: &str,
+    student_id: &str,
+    student_name: &str,
+    trainer_name: &str,
+    appointment_start: chrono::DateTime<Utc>,
+) {
+    let payload = serde_json::json!({
+        "student_name": student_name,
+        "trainer_name": trainer_name,
+        "appointment_start": appointment_start.to_rfc3339(),
+    });
+    let actor = EmailActor {
+        actor_id: None,
+        user_id: None,
+        service_account_id: None,
+        request_source: "system".to_string(),
+    };
+    if let Err(error) = state
+        .email
+        .enqueue_to_users(
+            db,
+            actor,
+            template_id.to_string(),
+            payload,
+            vec![student_id.to_string()],
+        )
+        .await
+    {
+        tracing::warn!(?error, template_id, student_id, "failed to enqueue appointment email");
+    }
+}
+
+/// Notify the student when a training session (ticket) is logged for them.
+/// Best-effort.
+async fn enqueue_session_created_email(
+    state: &AppState,
+    db: &sqlx::PgPool,
+    detail: &TrainingSessionDetail,
+) {
+    let payload = serde_json::json!({
+        "student_name": detail.student_name,
+        "trainer_name": detail.instructor_name,
+        "session_date": detail.start.to_rfc3339(),
+    });
+    let actor = EmailActor {
+        actor_id: None,
+        user_id: None,
+        service_account_id: None,
+        request_source: "system".to_string(),
+    };
+    if let Err(error) = state
+        .email
+        .enqueue_to_users(
+            db,
+            actor,
+            "training.session_created".to_string(),
+            payload,
+            vec![detail.student_id.clone()],
+        )
+        .await
+    {
+        tracing::warn!(
+            ?error,
+            student_id = %detail.student_id,
+            "failed to enqueue session-created email"
+        );
+    }
+}
 
 const VALID_PI_MARKERS: &[&str] = &[
     "OBSERVED",
@@ -2218,6 +2293,17 @@ pub async fn create_training_appointment(
         .await?
         .ok_or(ApiError::Internal)?;
 
+    enqueue_appointment_email(
+        &state,
+        db,
+        "training.appointment_scheduled",
+        &detail.student_id,
+        &detail.student_name,
+        &detail.trainer_name,
+        detail.start,
+    )
+    .await;
+
     Ok((StatusCode::CREATED, ApiJson::new(detail, time)))
 }
 
@@ -2369,6 +2455,17 @@ pub async fn update_training_appointment(
         .await?
         .ok_or(ApiError::Internal)?;
 
+    enqueue_appointment_email(
+        &state,
+        db,
+        "training.appointment_updated",
+        &detail.student_id,
+        &detail.student_name,
+        &detail.trainer_name,
+        detail.start,
+    )
+    .await;
+
     Ok(ApiJson::new(detail, time))
 }
 
@@ -2394,6 +2491,11 @@ pub async fn delete_training_appointment(
 ) -> Result<StatusCode, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+
+    // Capture the appointment (with student/trainer names) before deleting it, so
+    // the cancellation email has the data the deleted row itself no longer carries.
+    let detail_before =
+        training_appointments_repo::fetch_appointment_detail(db, &appointment_id).await?;
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
@@ -2437,6 +2539,19 @@ pub async fn delete_training_appointment(
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+    if let Some(detail) = &detail_before {
+        enqueue_appointment_email(
+            &state,
+            db,
+            "training.appointment_canceled",
+            &detail.student_id,
+            &detail.student_name,
+            &detail.trainer_name,
+            detail.start,
+        )
+        .await;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2636,7 +2751,12 @@ pub async fn create_training_session(
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     match upsert_training_session(&state, db, user, None, payload.into_update_request()).await? {
-        Ok(result) => Ok((StatusCode::CREATED, ApiJson::new(result, time.clone()))),
+        Ok(result) => {
+            if let Some(detail) = &result.session {
+                enqueue_session_created_email(&state, db, detail).await;
+            }
+            Ok((StatusCode::CREATED, ApiJson::new(result, time.clone())))
+        }
         Err(errors) => Ok((
             StatusCode::BAD_REQUEST,
             ApiJson::new(error_result(errors), time),

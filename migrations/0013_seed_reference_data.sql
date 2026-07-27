@@ -2,47 +2,14 @@ insert into platform.schema_version_notes (version_key, title, notes)
 values ('v1', 'Fresh-start multi-schema foundation', 'Initial fresh-start schema for Osmium.')
 on conflict (version_key) do nothing;
 
-insert into org.staff_positions (name, sort_order)
-values
-    ('ATM', 10),
-    ('DATM', 20),
-    ('TA', 30),
-    ('EC', 40),
-    ('FE', 50),
-    ('WM', 60),
-    ('ATA', 70),
-    ('AWM', 80),
-    ('AEC', 90),
-    ('AFE', 100),
-    ('INS', 110),
-    ('MTR', 120)
-on conflict (name) do nothing;
+-- Staff positions are intentionally NOT seeded here. The live staff-position
+-- system is the STAFF_POSITIONS constant + identity.staff_positions (VATUSA-synced,
+-- source auto/manual). The legacy org.staff_positions / org.user_staff_positions
+-- tables are dropped in migration 0063 as unused.
 
-insert into org.certification_types (name, sort_order, can_solo_cert, auto_assign_unrestricted)
-values
-    ('GROUND', 10, true, false),
-    ('TOWER', 20, true, false),
-    ('APPROACH', 30, true, false),
-    ('CENTER', 40, false, true)
-on conflict (name) do nothing;
-
-insert into org.certification_type_allowed_options (certification_type_id, option_key)
-select ct.id, option_key
-from org.certification_types ct
-cross join (
-    values
-        ('NONE'),
-        ('UNRESTRICTED'),
-        ('DEL'),
-        ('GND'),
-        ('TWR'),
-        ('APP'),
-        ('CTR'),
-        ('TIER_1'),
-        ('CERTIFIED'),
-        ('SOLO')
-) as options(option_key)
-on conflict do nothing;
+-- Certification types are intentionally NOT seeded here. A fresh database starts
+-- with no certification types; the real position-based types come from either the
+-- legacy data migration (db-migrator reference domain) or manual admin configuration.
 
 insert into stats.sync_times (id)
 values ('default')

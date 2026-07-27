@@ -36,7 +36,7 @@ cargo test --workspace --all-targets -- --test-threads=1
 docker build -f Dockerfile .
 ```
 
-If you want your first login to become the singleton server admin, set `OSMIUM_SERVER_ADMIN_CID` before starting the API:
+If you want your first login to become a server admin, set `OSMIUM_SERVER_ADMIN_CID` before starting the API (a single CID, or a comma-separated list for multiple admins):
 
 ```bash
 OSMIUM_SERVER_ADMIN_CID=1234567
