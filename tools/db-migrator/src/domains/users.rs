@@ -251,13 +251,25 @@ async fn build_payload(
 
     let mut staff_positions = BTreeSet::new();
     for position_name in &user.staff_positions {
-        let mapped = normalize_staff_position(position_name).with_context(|| {
-            format!(
+        if let Some(mapped) = normalize_staff_position(position_name) {
+            staff_positions.insert(mapped.to_string());
+            continue;
+        }
+
+        if state.config.strict {
+            bail!(
                 "unknown legacy staff position `{position_name}` for user {}",
                 user.id
-            )
-        })?;
-        staff_positions.insert(mapped.to_string());
+            );
+        }
+        record_warning(
+            state,
+            DOMAIN,
+            "user-staff-position",
+            &user.id,
+            format!("skipping unmapped staff position `{position_name}`"),
+        )
+        .await?;
     }
 
     let display_name = user

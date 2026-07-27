@@ -46,7 +46,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cargo check
-        run: cargo check --workspace --all-targets
+        # db-migrator is a one-shot migration tool (built/shipped only via the
+        # Dockerfile); it must not gate the osmium build/CI.
+        run: cargo check --workspace --exclude db-migrator --all-targets
 
   test:
     runs-on: ubuntu-latest
@@ -91,4 +93,5 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo test --workspace --all-targets -- --test-threads=1
+        # See the check job: db-migrator is excluded from osmium CI.
+        run: cargo test --workspace --exclude db-migrator --all-targets -- --test-threads=1

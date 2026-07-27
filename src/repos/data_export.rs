@@ -373,6 +373,11 @@ pub async fn fetch_progression(
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct DossierRow {
+    /// Always `"[redacted]"`. The dossier author (a staff member) is third-party
+    /// personal data and is deliberately withheld from the data subject's export;
+    /// see the GDPR `evaluative_notes_disclosure` notice. The real `writer_id` is
+    /// never selected from the database.
+    pub author: String,
     pub message: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub is_confidential: bool,
@@ -384,7 +389,7 @@ pub struct DossierRow {
 /// author's identity is the author's.
 pub async fn fetch_dossier(pool: &PgPool, user_id: &str) -> Result<Vec<DossierRow>, ApiError> {
     sqlx::query_as::<_, DossierRow>(
-        "select message, timestamp, is_confidential, created_at from feedback.dossier_entries where user_id = $1 order by timestamp desc",
+        "select '[redacted]' as author, message, timestamp, is_confidential, created_at from feedback.dossier_entries where user_id = $1 order by timestamp desc",
     )
     .bind(user_id)
     .fetch_all(pool)

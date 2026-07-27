@@ -27,7 +27,7 @@ services:
     env_file:
       - .env
     environment:
-      BIND_ADDR: 0.0.0.0:3000
+      BIND_ADDR: 0.0.0.0:3900
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/osmium
       RUST_LOG: info,tower_http=debug
       RUN_MIGRATIONS_ON_STARTUP: "true"
@@ -35,7 +35,7 @@ services:
       OSMIUM_SERVER_ADMIN_CID: ${OSMIUM_SERVER_ADMIN_CID:-}
       FILE_STORAGE_ROOT: /app/storage/files
     ports:
-      - "3000:3000"
+      - "3900:3900"
     volumes:
       - osmium-files-data:/app/storage/files
 

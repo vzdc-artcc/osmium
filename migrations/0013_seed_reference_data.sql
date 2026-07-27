@@ -18,31 +18,9 @@ values
     ('MTR', 120)
 on conflict (name) do nothing;
 
-insert into org.certification_types (name, sort_order, can_solo_cert, auto_assign_unrestricted)
-values
-    ('GROUND', 10, true, false),
-    ('TOWER', 20, true, false),
-    ('APPROACH', 30, true, false),
-    ('CENTER', 40, false, true)
-on conflict (name) do nothing;
-
-insert into org.certification_type_allowed_options (certification_type_id, option_key)
-select ct.id, option_key
-from org.certification_types ct
-cross join (
-    values
-        ('NONE'),
-        ('UNRESTRICTED'),
-        ('DEL'),
-        ('GND'),
-        ('TWR'),
-        ('APP'),
-        ('CTR'),
-        ('TIER_1'),
-        ('CERTIFIED'),
-        ('SOLO')
-) as options(option_key)
-on conflict do nothing;
+-- Certification types are intentionally NOT seeded here. A fresh database starts
+-- with no certification types; the real position-based types come from either the
+-- legacy data migration (db-migrator reference domain) or manual admin configuration.
 
 insert into stats.sync_times (id)
 values ('default')

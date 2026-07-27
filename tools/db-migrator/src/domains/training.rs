@@ -435,9 +435,12 @@ async fn migrate_appointments(state: &mut AppState) -> Result<()> {
     .await?;
     let lessons = sqlx::query_as::<_, SourceAppointmentLesson>(
         r#"
+        -- Prisma implicit m2m join: columns are ordered alphabetically by related
+        -- model, so "A" = Lesson and "B" = TrainingAppointment (see the table's
+        -- A_fkey -> Lesson, B_fkey -> TrainingAppointment).
         select
-            "A" as appointment_id,
-            "B" as lesson_id
+            "B" as appointment_id,
+            "A" as lesson_id
         from public."_LessonToTrainingAppointment"
         "#,
     )
