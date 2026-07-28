@@ -119,7 +119,10 @@ impl TestApp {
         // fake AWS creds + from-address) via overrides; `from_env` is then
         // `is_available()` and enqueues persist without ever contacting SES (only the
         // delivery worker, which tests don't run, would send).
-        let email = if std::env::var("EMAIL_ENABLED").map(|v| v == "true").unwrap_or(false) {
+        let email = if std::env::var("EMAIL_ENABLED")
+            .map(|v| v == "true")
+            .unwrap_or(false)
+        {
             Arc::new(EmailService::from_env().await)
         } else {
             Arc::new(EmailService::disabled())

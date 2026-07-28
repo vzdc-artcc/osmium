@@ -119,6 +119,75 @@ async fn server_admin_cid_gets_role_on_every_login() {
     app.cleanup().await;
 }
 
+/// A user removed from OSMIUM_SERVER_ADMIN_CID must lose the SERVER_ADMIN role
+/// on their next login — the sync reconciles demotions, not just promotions — so
+/// a former admin cannot silently retain server-admin access. The demoted
+/// account is left as an ordinary user with baseline self-service permissions
+/// rather than locked out with none.
+#[tokio::test(flavor = "current_thread")]
+async fn server_admin_role_is_revoked_when_cid_no_longer_configured() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let cid = 10000304i64;
+    let cid_string = cid.to_string();
+
+    // First login while configured as a server admin.
+    unsafe {
+        std::env::set_var("OSMIUM_SERVER_ADMIN_CID", &cid_string);
+    }
+    login_as(&app, cid).await;
+
+    let user_id: String = sqlx::query_scalar("select id from identity.users where cid = $1")
+        .bind(cid)
+        .fetch_one(&app.pool)
+        .await
+        .expect("user created");
+
+    let is_admin_before: bool = sqlx::query_scalar(
+        "select exists(select 1 from access.user_roles where user_id = $1 and role_name = 'SERVER_ADMIN')",
+    )
+    .bind(&user_id)
+    .fetch_one(&app.pool)
+    .await
+    .expect("check role before demotion");
+    assert!(is_admin_before, "should hold SERVER_ADMIN while configured");
+
+    // CID removed from the env: the next login must revoke the role.
+    unsafe {
+        std::env::remove_var("OSMIUM_SERVER_ADMIN_CID");
+    }
+    login_as(&app, cid).await;
+
+    let is_admin_after: bool = sqlx::query_scalar(
+        "select exists(select 1 from access.user_roles where user_id = $1 and role_name = 'SERVER_ADMIN')",
+    )
+    .bind(&user_id)
+    .fetch_one(&app.pool)
+    .await
+    .expect("check role after demotion");
+    assert!(
+        !is_admin_after,
+        "SERVER_ADMIN must be revoked once the cid is no longer configured"
+    );
+
+    let perms: Vec<String> = sqlx::query_scalar(
+        "select permission_name from access.user_permissions where user_id = $1",
+    )
+    .bind(&user_id)
+    .fetch_all(&app.pool)
+    .await
+    .expect("fetch permissions after demotion");
+    assert!(
+        perms.contains(&"auth.profile.read".to_string()),
+        "demoted user should be reset to baseline self-service access, not locked out"
+    );
+
+    app.cleanup().await;
+}
+
 /// The STAFF role must now carry access.catalog.read/access.users.read/
 /// access.users.update (migration 0047) so the permissions editor is usable
 /// by role membership alone, without also needing a direct grant.

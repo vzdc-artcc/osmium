@@ -120,7 +120,11 @@ pub fn start_event_lifecycle_worker(state: AppState) {
 /// position on any event entering the lead window. Fires once per event (guarded by
 /// `events.reminder_sent_at`). Returns the number of events reminded. Best-effort:
 /// individual failures are logged and skipped, never propagated.
-async fn send_due_event_reminders(state: &AppState, pool: &sqlx::PgPool, now: DateTime<Utc>) -> i64 {
+async fn send_due_event_reminders(
+    state: &AppState,
+    pool: &sqlx::PgPool,
+    now: DateTime<Utc>,
+) -> i64 {
     let window_end = now + chrono::Duration::hours(event_reminder_lead_hours());
     let due = match jobs_repo::fetch_events_due_for_reminder(pool, window_end).await {
         Ok(events) => events,
@@ -175,7 +179,10 @@ async fn send_due_event_reminders(state: &AppState, pool: &sqlx::PgPool, now: Da
             continue;
         }
 
-        if jobs_repo::mark_event_reminder_sent(pool, &event.id).await.is_ok() {
+        if jobs_repo::mark_event_reminder_sent(pool, &event.id)
+            .await
+            .is_ok()
+        {
             reminded += 1;
         }
     }
