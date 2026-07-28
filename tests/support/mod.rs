@@ -231,7 +231,11 @@ impl TestApp {
             "#,
         )
         .bind(&user_id)
-        .bind(format!("T{}", cid % 10))
+        // Derive the OI from the full cid, not `cid % 10`: `org.memberships` has a
+        // partial-unique index on `operating_initials` (migration 0026), and any
+        // two cids sharing a last digit (e.g. 1000 & 2000) would otherwise collide
+        // on the same `T{digit}`. cids are unique per user, so this is unique too.
+        .bind(format!("T{cid}"))
         .execute(&self.pool)
         .await
         .expect("insert test membership");
