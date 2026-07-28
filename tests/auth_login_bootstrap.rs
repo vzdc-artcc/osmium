@@ -2,7 +2,7 @@ mod support;
 
 use axum::http::StatusCode;
 use serde_json::Value;
-use support::{TestApp, assert_status, json_body, lock_env};
+use support::{EnvVarGuard, TestApp, assert_status, json_body, lock_env};
 
 /// Runs the login-bootstrap path a real VATSIM OAuth callback runs — directly,
 /// since the dev `login/as/{cid}` route that used to trigger it was retired when
@@ -134,11 +134,13 @@ async fn server_admin_role_is_revoked_when_cid_no_longer_configured() {
     let cid = 10000304i64;
     let cid_string = cid.to_string();
 
-    // First login while configured as a server admin.
-    unsafe {
-        std::env::set_var("OSMIUM_SERVER_ADMIN_CID", &cid_string);
+    // First login while configured as a server admin. The scoped guard restores
+    // OSMIUM_SERVER_ADMIN_CID to its prior state on drop so the mutation never
+    // leaks to later tests.
+    {
+        let _admin = EnvVarGuard::set("OSMIUM_SERVER_ADMIN_CID", &cid_string);
+        login_as(&app, cid).await;
     }
-    login_as(&app, cid).await;
 
     let user_id: String = sqlx::query_scalar("select id from identity.users where cid = $1")
         .bind(cid)
@@ -155,11 +157,12 @@ async fn server_admin_role_is_revoked_when_cid_no_longer_configured() {
     .expect("check role before demotion");
     assert!(is_admin_before, "should hold SERVER_ADMIN while configured");
 
-    // CID removed from the env: the next login must revoke the role.
-    unsafe {
-        std::env::remove_var("OSMIUM_SERVER_ADMIN_CID");
+    // CID removed from the env: the next login must revoke the role. Scoped so
+    // the unset is likewise restored on drop.
+    {
+        let _demote = EnvVarGuard::unset("OSMIUM_SERVER_ADMIN_CID");
+        login_as(&app, cid).await;
     }
-    login_as(&app, cid).await;
 
     let is_admin_after: bool = sqlx::query_scalar(
         "select exists(select 1 from access.user_roles where user_id = $1 and role_name = 'SERVER_ADMIN')",

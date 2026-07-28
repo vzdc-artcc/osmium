@@ -340,11 +340,19 @@ pub async fn assign_server_admin(
 /// role row was actually deleted (the user was demoted). Used by the login sync
 /// to reconcile a CID that is no longer in `OSMIUM_SERVER_ADMIN_CID`, so a
 /// removed admin does not silently retain server-admin access.
-pub async fn revoke_server_admin(pool: &PgPool, user_id: &str) -> Result<bool, ApiError> {
+///
+/// Takes the caller's transaction so the revoke and the baseline-permission
+/// re-seed commit (or roll back) together: a former admin holds no other roles
+/// or permissions, so revoking outside the seed's transaction risks leaving the
+/// account with neither if the seed fails.
+pub async fn revoke_server_admin(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+) -> Result<bool, ApiError> {
     let result = sqlx::query("delete from access.user_roles where user_id = $1 and role_name = $2")
         .bind(user_id)
         .bind(SERVER_ADMIN_ROLE)
-        .execute(pool)
+        .execute(&mut **tx)
         .await
         .map_err(|_| ApiError::Internal)?;
 
