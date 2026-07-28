@@ -851,11 +851,19 @@ pub async fn ensure_user_login_access(
 
         Ok(())
     } else {
-        // Reconcile a demotion: a user no longer in OSMIUM_SERVER_ADMIN_CID must
-        // not keep the SERVER_ADMIN role granted on a previous login. This runs
-        // on every non-admin login and is a no-op (zero rows) for users who
-        // never held it.
-        let demoted = access_repo::revoke_server_admin(pool, user_id).await?;
+        // Reconcile a demotion and (re)seed baseline access in a single
+        // transaction so the two commit or roll back together. A user no longer
+        // in OSMIUM_SERVER_ADMIN_CID must not keep the SERVER_ADMIN role granted
+        // on a previous login; but since a former admin holds no other roles or
+        // permissions, revoking outside the seed's transaction risks a crash
+        // between them leaving the account with neither — a lockout no later
+        // login would repair (the revoke would then be a no-op, so the demotion
+        // is never re-detected). Sharing one transaction makes the failure mode
+        // "keep SERVER_ADMIN, retry next login" instead.
+        let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+
+        // No-op (zero rows) for users who never held the role.
+        let demoted = access_repo::revoke_server_admin(&mut tx, user_id).await?;
 
         // Seed baseline self-service permissions when the identity.users row is
         // first created (was_new_user), or when we just demoted a former server
@@ -865,7 +873,6 @@ pub async fn ensure_user_login_access(
         // admin-granted permissions (via the staff permissions editor) survive
         // across logins instead of being wiped back to the baseline each time.
         if was_new_user || demoted {
-            let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
             access_repo::replace_user_permissions(
                 &mut tx,
                 user_id,
@@ -875,17 +882,18 @@ pub async fn ensure_user_login_access(
                     .collect::<Vec<_>>(),
             )
             .await?;
-            tx.commit().await.map_err(|_| ApiError::Internal)?;
+        }
 
-            if demoted {
-                tracing::info!(
-                    user_id,
-                    cid,
-                    "revoked server admin role on login (cid no longer configured); reset to baseline access"
-                );
-            } else {
-                tracing::info!(user_id, cid, "baseline login access seeded for new user");
-            }
+        tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+        if demoted {
+            tracing::info!(
+                user_id,
+                cid,
+                "revoked server admin role on login (cid no longer configured); reset to baseline access"
+            );
+        } else if was_new_user {
+            tracing::info!(user_id, cid, "baseline login access seeded for new user");
         }
 
         Ok(())

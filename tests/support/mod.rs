@@ -380,16 +380,28 @@ fn database_url_for_name(root_url: &str, database_name: &str) -> String {
     url.to_string()
 }
 
-struct EnvVarGuard {
+pub struct EnvVarGuard {
     key: &'static str,
     previous: Option<String>,
 }
 
 impl EnvVarGuard {
-    fn set(key: &'static str, value: &str) -> Self {
+    pub fn set(key: &'static str, value: &str) -> Self {
         let previous = std::env::var(key).ok();
         unsafe {
             std::env::set_var(key, value);
+        }
+
+        Self { key, previous }
+    }
+
+    /// Removes the env var for the guard's lifetime, restoring the previous
+    /// value (or its absence) on drop. Lets a test exercise the "not set" case
+    /// without leaking the change to later tests.
+    pub fn unset(key: &'static str) -> Self {
+        let previous = std::env::var(key).ok();
+        unsafe {
+            std::env::remove_var(key);
         }
 
         Self { key, previous }

@@ -35,6 +35,20 @@ impl Drop for EnvVarGuard {
     }
 }
 
+/// Warning-email enqueues only persist when email transport is "available"
+/// (`EmailService::from_env().is_available()` — see `EmailConfig::transport_enabled`),
+/// so this test enables it with fake AWS creds. Enqueues land in `email.outbox`
+/// without ever contacting SES (only the delivery worker, which this test does
+/// not run, would send). Without this, `EmailService::disabled()` is used and
+/// every warning enqueue no-ops, so `warning_emails_sent` would be 0.
+const EMAIL_ENV: &[(&'static str, &str)] = &[
+    ("EMAIL_ENABLED", "true"),
+    ("AWS_REGION", "us-east-1"),
+    ("AWS_ACCESS_KEY_ID", "test-key"),
+    ("AWS_SECRET_ACCESS_KEY", "test-secret"),
+    ("EMAIL_FROM_ADDRESS", "noreply@example.invalid"),
+];
+
 /// Full sweep of the ported `/api/update/appointments` logic: LIVE/CLASSROOM
 /// shortcuts bypass the rotation, same-shape appointments round-robin across
 /// the single configured environment, an unavoidable overlap gets marked
@@ -47,9 +61,20 @@ async fn appointments_sync_assigns_environments_and_flags_warning_emails() {
     let _training_environments_guard = EnvVarGuard::set("TRAINING_ENVIRONMENTS", "SBX1");
     let _buffer_guard = EnvVarGuard::set("BUFFER_TIME", "15");
 
-    let Some(app) = TestApp::new().await else {
+    // Warning emails only enqueue when email transport is available, so build the
+    // app with it enabled (fake AWS creds — nothing actually contacts SES here).
+    let Some(app) = TestApp::new_with_env_overrides(EMAIL_ENV).await else {
         return;
     };
+
+    // Mirror the startup registry sync so `training.appointment_warning` exists in
+    // `email.templates` and satisfies the `email.outbox` foreign key (migration
+    // 0031 only seeds a subset). Without this the warning enqueues fail the FK.
+    app.state
+        .email
+        .sync_template_registry(&app.pool)
+        .await
+        .expect("sync template registry");
 
     let staff = app
         .create_user(

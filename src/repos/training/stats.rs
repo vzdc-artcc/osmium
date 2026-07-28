@@ -14,22 +14,30 @@ const MONTH_ABBR: [&str; 12] = [
 ];
 
 /// Half-open UTC window `[start, next)` for a 0-based month within `year`.
-fn month_window(year: i32, month0: u32) -> (DateTime<Utc>, DateTime<Utc>) {
-    let start = Utc.with_ymd_and_hms(year, month0 + 1, 1, 0, 0, 0).unwrap();
+/// Returns `None` when `year` is outside chrono's representable range (or would
+/// overflow `year + 1`), so callers can reject out-of-range input instead of the
+/// builder panicking.
+fn month_window(year: i32, month0: u32) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    let start = Utc
+        .with_ymd_and_hms(year, month0 + 1, 1, 0, 0, 0)
+        .single()?;
     let (ny, nm) = if month0 == 11 {
-        (year + 1, 1)
+        (year.checked_add(1)?, 1)
     } else {
         (year, month0 + 2)
     };
-    let next = Utc.with_ymd_and_hms(ny, nm, 1, 0, 0, 0).unwrap();
-    (start, next)
+    let next = Utc.with_ymd_and_hms(ny, nm, 1, 0, 0, 0).single()?;
+    Some((start, next))
 }
 
-/// Half-open UTC window `[start, next)` for a full year.
-fn year_window(year: i32) -> (DateTime<Utc>, DateTime<Utc>) {
-    let start = Utc.with_ymd_and_hms(year, 1, 1, 0, 0, 0).unwrap();
-    let next = Utc.with_ymd_and_hms(year + 1, 1, 1, 0, 0, 0).unwrap();
-    (start, next)
+/// Half-open UTC window `[start, next)` for a full year. Returns `None` for a
+/// `year` outside chrono's representable range (or that overflows `year + 1`).
+fn year_window(year: i32) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    let start = Utc.with_ymd_and_hms(year, 1, 1, 0, 0, 0).single()?;
+    let next = Utc
+        .with_ymd_and_hms(year.checked_add(1)?, 1, 1, 0, 0, 0)
+        .single()?;
+    Some((start, next))
 }
 
 fn empty_bundle(month: Option<i32>) -> TrainingStatsBundle {
@@ -79,18 +87,15 @@ pub async fn training_stats_bundle(
     month: Option<i32>,
     cid: Option<i64>,
 ) -> Result<TrainingStatsBundle, ApiError> {
-    // Guard the window builders: `year` is an unvalidated request param, and an
-    // out-of-range value would overflow `year + 1` or make chrono's date
-    // construction return None and panic on `.unwrap()`.
-    if !(1970..=9999).contains(&year) {
-        return Err(ApiError::BadRequest);
-    }
-
+    // The window builders return `None` for an out-of-range `year` (an
+    // unvalidated request param) instead of panicking, so an absurd year is a
+    // clean 400 rather than a crashed request task.
     let (start, next) = match month {
         Some(m) if (0..=11).contains(&m) => month_window(year, m as u32),
         Some(_) => return Err(ApiError::BadRequest),
         None => year_window(year),
-    };
+    }
+    .ok_or(ApiError::BadRequest)?;
 
     // Resolve the instructor filter once; an unknown cid yields an empty bundle.
     let instructor_id: Option<String> = match cid {

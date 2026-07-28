@@ -299,3 +299,104 @@ async fn session_crud_lifecycle_and_pi_full_replace_contract() {
 
     app.cleanup().await;
 }
+
+/// Regression: `sort_field=end` must produce valid SQL. `end` is a reserved SQL
+/// keyword, so the ORDER BY column has to be quoted (`ts."end"`); the unquoted
+/// `ts.end` it once used is a syntax error that made the whole list endpoint 500.
+/// This exercises the actual query end-to-end so a later refactor of the
+/// `sort_column` match that drops the quoting is caught.
+#[tokio::test(flavor = "current_thread")]
+async fn list_sessions_sorts_by_end_keyword() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let staff = app
+        .create_user(
+            10000200,
+            "Sort Staff",
+            &["training.sessions.read", "users.directory.read"],
+        )
+        .await;
+    let student = app.create_user(10000201, "Sort Student", &[]).await;
+
+    // Two sessions whose end-order differs from their start-order, so sorting by
+    // `end` produces an order distinct from the default start sort.
+    for (id, start, end) in [
+        (
+            "session-end-a",
+            "2026-03-01T10:00:00Z",
+            "2026-03-01T12:00:00Z",
+        ),
+        (
+            "session-end-b",
+            "2026-03-01T11:00:00Z",
+            "2026-03-01T11:30:00Z",
+        ),
+    ] {
+        sqlx::query(
+            r#"
+            insert into training.training_sessions (id, student_id, instructor_id, start, "end")
+            values ($1, $2, $3, $4::timestamptz, $5::timestamptz)
+            "#,
+        )
+        .bind(id)
+        .bind(&student.id)
+        .bind(&staff.id)
+        .bind(start)
+        .bind(end)
+        .execute(&app.pool)
+        .await
+        .expect("seed training session");
+    }
+
+    // Ascending by end: B (11:30) before A (12:00). A 500 here would mean the
+    // reserved-keyword quoting regressed.
+    let asc = app
+        .json_request(
+            "GET",
+            "/api/v1/training/sessions?sort_field=end&sort_order=asc&page_size=200",
+            Some(&staff.session_token),
+            None,
+        )
+        .await;
+    assert_status(&asc, StatusCode::OK);
+    let asc: Value = json_body(asc).await;
+    let asc_ids: Vec<&str> = asc["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        asc_ids,
+        vec!["session-end-b", "session-end-a"],
+        "sessions must be ordered by ascending end time"
+    );
+
+    // Descending by end: A (12:00) before B (11:30).
+    let desc = app
+        .json_request(
+            "GET",
+            "/api/v1/training/sessions?sort_field=end&sort_order=desc&page_size=200",
+            Some(&staff.session_token),
+            None,
+        )
+        .await;
+    assert_status(&desc, StatusCode::OK);
+    let desc: Value = json_body(desc).await;
+    let desc_ids: Vec<&str> = desc["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        desc_ids,
+        vec!["session-end-a", "session-end-b"],
+        "sessions must be ordered by descending end time"
+    );
+
+    app.cleanup().await;
+}
