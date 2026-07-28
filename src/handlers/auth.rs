@@ -850,29 +850,44 @@ pub async fn ensure_user_login_access(
         );
 
         Ok(())
-    }
-    // Baseline self-service permissions are seeded once, on the login that
-    // first creates the identity.users row. Every later login leaves
-    // access.user_permissions untouched, so admin-granted permissions
-    // (via the staff permissions editor) survive across logins instead
-    // of being silently wiped back to the baseline each time.
-    else if was_new_user {
-        let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-        access_repo::replace_user_permissions(
-            &mut tx,
-            user_id,
-            &BASELINE_SELF_SERVICE_PERMISSIONS
-                .iter()
-                .map(|permission| permission.to_string())
-                .collect::<Vec<_>>(),
-        )
-        .await?;
-        tx.commit().await.map_err(|_| ApiError::Internal)?;
-
-        tracing::info!(user_id, cid, "baseline login access seeded for new user");
-
-        Ok(())
     } else {
+        // Reconcile a demotion: a user no longer in OSMIUM_SERVER_ADMIN_CID must
+        // not keep the SERVER_ADMIN role granted on a previous login. This runs
+        // on every non-admin login and is a no-op (zero rows) for users who
+        // never held it.
+        let demoted = access_repo::revoke_server_admin(pool, user_id).await?;
+
+        // Seed baseline self-service permissions when the identity.users row is
+        // first created (was_new_user), or when we just demoted a former server
+        // admin — whose only access was the now-removed role — so the account is
+        // left as an ordinary user rather than locked out with no permissions.
+        // Any other returning user leaves access.user_permissions untouched, so
+        // admin-granted permissions (via the staff permissions editor) survive
+        // across logins instead of being wiped back to the baseline each time.
+        if was_new_user || demoted {
+            let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+            access_repo::replace_user_permissions(
+                &mut tx,
+                user_id,
+                &BASELINE_SELF_SERVICE_PERMISSIONS
+                    .iter()
+                    .map(|permission| permission.to_string())
+                    .collect::<Vec<_>>(),
+            )
+            .await?;
+            tx.commit().await.map_err(|_| ApiError::Internal)?;
+
+            if demoted {
+                tracing::info!(
+                    user_id,
+                    cid,
+                    "revoked server admin role on login (cid no longer configured); reset to baseline access"
+                );
+            } else {
+                tracing::info!(user_id, cid, "baseline login access seeded for new user");
+            }
+        }
+
         Ok(())
     }
 }

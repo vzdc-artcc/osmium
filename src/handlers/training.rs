@@ -99,7 +99,12 @@ async fn enqueue_appointment_email(
         )
         .await
     {
-        tracing::warn!(?error, template_id, student_id, "failed to enqueue appointment email");
+        tracing::warn!(
+            ?error,
+            template_id,
+            student_id,
+            "failed to enqueue appointment email"
+        );
     }
 }
 
@@ -2620,7 +2625,8 @@ pub async fn list_training_sessions(
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
             .resolve(25, 200);
     let sort_column = match query.sort_field.as_deref() {
-        Some("end") => "ts.end",
+        // `end` is a reserved keyword, so it must stay quoted in the ORDER BY.
+        Some("end") => "ts.\"end\"",
         _ => "ts.start",
     };
     let sort_direction = match query.sort_order.as_deref() {

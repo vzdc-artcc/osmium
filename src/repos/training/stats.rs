@@ -79,6 +79,13 @@ pub async fn training_stats_bundle(
     month: Option<i32>,
     cid: Option<i64>,
 ) -> Result<TrainingStatsBundle, ApiError> {
+    // Guard the window builders: `year` is an unvalidated request param, and an
+    // out-of-range value would overflow `year + 1` or make chrono's date
+    // construction return None and panic on `.unwrap()`.
+    if !(1970..=9999).contains(&year) {
+        return Err(ApiError::BadRequest);
+    }
+
     let (start, next) = match month {
         Some(m) if (0..=11).contains(&m) => month_window(year, m as u32),
         Some(_) => return Err(ApiError::BadRequest),

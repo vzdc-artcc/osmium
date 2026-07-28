@@ -115,6 +115,21 @@ pub fn ip_request_log_enabled() -> bool {
     env_flag_enabled_default_true("IP_REQUEST_LOG_ENABLED")
 }
 
+/// Number of trusted reverse proxies in front of osmium. The client IP is taken
+/// from the `X-Forwarded-For` hop this many entries from the right — the value
+/// appended by our own outermost trusted proxy — rather than the leftmost hop,
+/// which is fully client-controlled and would let a caller spoof the rate-limit
+/// key and the audit/request-log IP. Defaults to 1 (a single reverse proxy);
+/// set to the actual proxy-chain depth in deployments with more (e.g. CDN +
+/// nginx). Clamped to at least 1.
+pub fn trusted_proxy_count() -> usize {
+    std::env::var("TRUSTED_PROXY_COUNT")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
 /// Rows older than this are pruned by the cleanup job.
 pub fn ip_request_log_retention_days() -> i64 {
     std::env::var("IP_REQUEST_LOG_RETENTION_DAYS")

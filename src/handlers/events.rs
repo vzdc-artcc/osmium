@@ -768,6 +768,10 @@ async fn notify_newly_published_positions(
         )
         .await
     {
-        tracing::warn!(?error, event_id, "failed to enqueue event position-published emails");
+        tracing::warn!(
+            ?error,
+            event_id,
+            "failed to enqueue event position-published emails"
+        );
     }
 }

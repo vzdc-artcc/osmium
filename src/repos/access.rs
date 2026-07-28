@@ -336,6 +336,21 @@ pub async fn assign_server_admin(
     Ok(())
 }
 
+/// Removes the SERVER_ADMIN role from a user if present. Returns `true` when a
+/// role row was actually deleted (the user was demoted). Used by the login sync
+/// to reconcile a CID that is no longer in `OSMIUM_SERVER_ADMIN_CID`, so a
+/// removed admin does not silently retain server-admin access.
+pub async fn revoke_server_admin(pool: &PgPool, user_id: &str) -> Result<bool, ApiError> {
+    let result = sqlx::query("delete from access.user_roles where user_id = $1 and role_name = $2")
+        .bind(user_id)
+        .bind(SERVER_ADMIN_ROLE)
+        .execute(pool)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// VATUSA facility roles that auto-sync into `access.user_roles`, folded
 /// into the same coarse buckets the website's NextAuth session used to
 /// compute directly (`auth/vatsimProvider.ts::getRolesAndStaffPositions`).

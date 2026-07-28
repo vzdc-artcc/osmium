@@ -129,12 +129,15 @@ fn buffer_minutes() -> i64 {
         .unwrap_or(15)
 }
 
+/// Enqueues the warning email for one appointment. Returns whether the enqueue
+/// succeeded so the caller only marks the appointment warned when it did —
+/// otherwise a transient failure would be recorded as sent and never retried.
 async fn send_warning_email(
     state: &AppState,
     pool: &sqlx::PgPool,
     actor: &audit_repo::AuditActor,
     appointment: &AppointmentWarningRow,
-) {
+) -> bool {
     let payload = json!({
         "student_name": appointment.student_name,
         "trainer_name": appointment.trainer_name,
@@ -148,7 +151,7 @@ async fn send_warning_email(
         request_source: "job".to_string(),
     };
 
-    let _ = state
+    match state
         .email
         .enqueue_to_users(
             pool,
@@ -160,7 +163,18 @@ async fn send_warning_email(
                 appointment.trainer_id.clone(),
             ],
         )
-        .await;
+        .await
+    {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::warn!(
+                ?error,
+                appointment_id = %appointment.id,
+                "failed to enqueue appointment warning email"
+            );
+            false
+        }
+    }
 }
 
 struct AppointmentsSyncJob {
@@ -251,9 +265,12 @@ async fn run_sync(
 
     let mut warning_emails_sent = 0i64;
     for appointment in &needing_warning {
-        send_warning_email(state, pool, &actor, appointment).await;
-        appointments::mark_warning_email_sent(pool, &appointment.id).await?;
-        warning_emails_sent += 1;
+        // Only mark the appointment warned when the email actually enqueued;
+        // on failure leave it unmarked so the next sweep retries.
+        if send_warning_email(state, pool, &actor, appointment).await {
+            appointments::mark_warning_email_sent(pool, &appointment.id).await?;
+            warning_emails_sent += 1;
+        }
     }
 
     Ok(AppointmentsSyncMetrics {
