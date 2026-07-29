@@ -144,7 +144,7 @@ After authenticating, useful manual checks are:
 curl -s http://127.0.0.1:3000/api/v1/me
 curl -s -X PATCH http://127.0.0.1:3000/api/v1/me \
   -H 'Content-Type: application/json' \
-  --data '{"preferred_name":"Jay","timezone":"America/Chicago","bio":"Facility controller.","receive_event_notifications":true}'
+  --data '{"preferred_name":"Jay","timezone":"America/Chicago","bio":"Facility controller."}'
 curl -s http://127.0.0.1:3000/api/v1/me/teamspeak-uids
 ```
 

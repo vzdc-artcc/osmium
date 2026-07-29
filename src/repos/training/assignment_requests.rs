@@ -10,6 +10,7 @@ const ASSIGNMENT_REQUEST_SELECT: &str = r#"
         s.cid as student_cid,
         s.display_name as student_name,
         coalesce(sm.controller_status, 'NONE') as student_controller_status,
+        sm.rating as student_rating,
         r.submitted_at,
         r.status,
         r.decided_at,
@@ -22,7 +23,25 @@ const ASSIGNMENT_REQUEST_SELECT: &str = r#"
                 where it.assignment_request_id = r.id
             ),
             '[]'::json
-        ) as interested_trainers
+        ) as interested_trainers,
+        coalesce(
+            (
+                select json_agg(
+                    json_build_object('lesson_identifier', l.identifier, 'passed', t.passed)
+                    order by t.created_at
+                )
+                from training.training_tickets t
+                join training.lessons l on l.id = t.lesson_id
+                where t.session_id = (
+                    select ts.id
+                    from training.training_sessions ts
+                    where ts.student_id = r.student_id
+                    order by ts.start desc, ts.id desc
+                    limit 1
+                )
+            ),
+            '[]'::json
+        ) as last_session_tickets
     from training.training_assignment_requests r
     join identity.users s on s.id = r.student_id
     left join org.memberships sm on sm.user_id = s.id
@@ -35,17 +54,21 @@ struct AssignmentRequestRow {
     student_cid: i64,
     student_name: String,
     student_controller_status: String,
+    student_rating: Option<String>,
     submitted_at: DateTime<Utc>,
     status: String,
     decided_at: Option<DateTime<Utc>>,
     decided_by: Option<String>,
     interested_trainers: serde_json::Value,
+    last_session_tickets: serde_json::Value,
 }
 
 impl AssignmentRequestRow {
     fn into_model(self) -> Result<TrainingAssignmentRequest, ApiError> {
         let interested_trainers =
             serde_json::from_value(self.interested_trainers).map_err(|_| ApiError::Internal)?;
+        let last_session_tickets =
+            serde_json::from_value(self.last_session_tickets).map_err(|_| ApiError::Internal)?;
 
         Ok(TrainingAssignmentRequest {
             id: self.id,
@@ -53,11 +76,13 @@ impl AssignmentRequestRow {
             student_cid: self.student_cid,
             student_name: self.student_name,
             student_controller_status: self.student_controller_status,
+            student_rating: self.student_rating,
             submitted_at: self.submitted_at,
             status: self.status,
             decided_at: self.decided_at,
             decided_by: self.decided_by,
             interested_trainers,
+            last_session_tickets,
         })
     }
 }

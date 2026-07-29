@@ -37,6 +37,12 @@ pub struct EventPosition {
     pub user_id: Option<String>,
     pub user_cid: Option<i64>,
     pub user_name: Option<String>,
+    /// Controller's VATSIM rating (e.g. `S3`, `C1`), from the roster membership.
+    pub user_rating: Option<String>,
+    /// Controller's roster status (`HOME` / `VISITOR` / `NONE`), from the membership.
+    pub user_controller_status: Option<String>,
+    /// Controller's linked Discord user id, for @mention on event postings.
+    pub user_discord_id: Option<String>,
     pub requested_slot: Option<i32>,
     pub assigned_slot: Option<i32>,
     pub requested_position: Option<String>,

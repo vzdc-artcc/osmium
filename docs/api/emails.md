@@ -17,6 +17,8 @@ Timestamped outbox and send-email responses follow the shared response-timezone 
 - `GET /api/v1/emails/outbox/{id}`
 - `GET /api/v1/emails/preferences`
 - `POST /api/v1/emails/preferences`
+- `GET /api/v1/me/email-preferences`
+- `PUT /api/v1/me/email-preferences`
 - `POST /api/v1/emails/resubscribe`
 - `GET /api/v1/admin/emails/branding`
 - `PATCH /api/v1/admin/emails/branding`
@@ -109,7 +111,7 @@ Current audience fields:
 - `roles`
 - `artcc`
 - `rating`
-- `receive_event_notifications`
+- `receive_event_notifications` (deprecated/vestigial — the underlying opt-in flag is retired; prefer per-category suppression, which is applied to audience recipients automatically)
 - `active_only`
 
 Audience filters only resolve first-party user rows with stored email addresses.
@@ -180,6 +182,25 @@ Suppressions are category-scoped.
 - transactional categories are returned for display but cannot be modified
 - non-transactional categories can be suppressed per email address
 - unsubscribe links are HMAC-signed using `EMAIL_UNSUBSCRIBE_SECRET`
+
+## Self-Service Preferences (session)
+
+The profile "Email Preferences" section uses the session-authenticated equivalent of
+the token flow — no unsubscribe token, the caller's email is resolved from their
+session:
+
+- `GET /api/v1/me/email-preferences` (`auth.profile.read`) — returns the same
+  `EmailPreferencesResponse` (`categories: [{id,name,description,is_transactional,editable,subscribed}]`).
+- `PUT /api/v1/me/email-preferences` (`auth.profile.update`) — body
+  `{ "preferences": [{ "category": "...", "subscribed": true|false }] }`. Subscribe
+  revokes the suppression; unsubscribe creates it (`source = "self_service_preferences"`).
+  Transactional categories are rejected with `400`.
+
+All categories default to **subscribed** (opt-out model). The seeded opt-out
+categories are `event_notifications`, `announcements`, `training`, `feedback`, `org`
+(Roster & Membership), and `marketing`; `transactional` is always-on. This replaces
+the retired `new_event_notifications` profile flag — event mail is now gated solely by
+the `event_notifications` suppression category.
 
 ## Preference API Examples
 
