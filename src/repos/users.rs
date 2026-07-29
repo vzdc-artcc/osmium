@@ -16,7 +16,6 @@ pub struct SelfProfileUpdate {
     pub preferred_name: Option<String>,
     pub bio: Option<String>,
     pub timezone: String,
-    pub receive_event_notifications: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -438,7 +437,6 @@ pub async fn fetch_me_profile(pool: &PgPool, user_id: &str) -> Result<MeProfileB
             u.preferred_name,
             p.bio,
             coalesce(p.timezone, $2) as timezone,
-            coalesce(p.new_event_notifications, false) as receive_event_notifications,
             m.operating_initials
         from identity.users u
         left join identity.user_profiles p on p.user_id = u.id
@@ -493,19 +491,17 @@ pub async fn update_me_profile(
 
     sqlx::query(
         r#"
-        insert into identity.user_profiles (user_id, bio, timezone, new_event_notifications)
-        values ($1, $2, $3, $4)
+        insert into identity.user_profiles (user_id, bio, timezone)
+        values ($1, $2, $3)
         on conflict (user_id) do update
         set bio = excluded.bio,
             timezone = excluded.timezone,
-            new_event_notifications = excluded.new_event_notifications,
             updated_at = now()
         "#,
     )
     .bind(user_id)
     .bind(&update.bio)
     .bind(&update.timezone)
-    .bind(update.receive_event_notifications)
     .execute(&mut *tx)
     .await
     .map_err(|_| ApiError::Internal)?;
@@ -518,7 +514,6 @@ pub async fn update_me_profile(
             u.preferred_name,
             p.bio,
             p.timezone,
-            p.new_event_notifications as receive_event_notifications,
             m.operating_initials
         from identity.users u
         join identity.user_profiles p on p.user_id = u.id
@@ -587,7 +582,6 @@ pub async fn admin_update_user_profile(
             u.preferred_name,
             p.bio,
             p.timezone,
-            p.new_event_notifications as receive_event_notifications,
             m.operating_initials
         from identity.users u
         join identity.user_profiles p on p.user_id = u.id

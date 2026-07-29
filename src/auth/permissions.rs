@@ -241,6 +241,7 @@ permission!(TrainingSessionsRead, ["training", "sessions"], Read);
 permission!(TrainingSessionsCreate, ["training", "sessions"], Create);
 permission!(TrainingSessionsUpdate, ["training", "sessions"], Update);
 permission!(TrainingSessionsDelete, ["training", "sessions"], Delete);
+permission!(TrainingImpromptuCreate, ["training", "impromptu"], Create);
 permission!(
     TrainingAssignmentRequestsRead,
     ["training", "assignment_requests"],

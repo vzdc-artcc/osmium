@@ -230,6 +230,13 @@ pub struct EmailPreferencesUpdateRequest {
     pub preferences: Vec<EmailPreferenceUpdateItem>,
 }
 
+/// Session-authenticated variant of [`EmailPreferencesUpdateRequest`]: the caller's
+/// email is resolved from their session, so no unsubscribe token is required.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MeEmailPreferencesUpdateRequest {
+    pub preferences: Vec<EmailPreferenceUpdateItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EmailResubscribeRequest {
     pub category: String,

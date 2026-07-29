@@ -30,11 +30,13 @@ Permission-gated routes:
 - `GET /api/v1/me` -> `auth.profile.read`
 - `PATCH /api/v1/me` -> `auth.profile.update`
 - `GET /api/v1/me/data-export` -> `auth.profile.read` (self-service GDPR Article 15 export; hard-scoped to the caller's own user id)
+- `GET /api/v1/me/email-preferences` -> `auth.profile.read` (self-service per-category email preferences; email resolved from session)
+- `PUT /api/v1/me/email-preferences` -> `auth.profile.update` (subscribe/unsubscribe per category; transactional cannot be unsubscribed)
 - `GET /api/v1/admin/data-export/roster` -> `users.data_export.read` (admin bulk export of every on-roster controller's document; granted to no role = SERVER_ADMIN-only, kept out of the assignable catalog)
 - `GET /api/v1/routes/preferred` -> authenticated (any logged-in member; no specific permission — public FAA reference data, deliberately not exposed unauthenticated)
 - `GET /api/v1/me/discord` -> `auth.profile.read`
 - `POST /api/v1/me/discord/link/start` -> `auth.profile.read`
-- `POST /api/v1/me/discord/link/complete` -> `auth.profile.read`
+- `GET /api/v1/me/discord/link/callback` -> public (identifies the user from the single-use OAuth `state` token; Discord redirects the browser here, osmium exchanges the code server-side and 302s back to the website)
 - `POST /api/v1/me/discord/unlink` -> `auth.profile.read`
 - `GET /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.read`
 - `POST /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.create`

@@ -628,7 +628,8 @@ impl EmailService {
             .as_deref()
             .ok_or(ApiError::ServiceUnavailable)?;
         let claims = verify_unsubscribe_token(secret, token)?;
-        self.build_preferences_response(pool, &claims).await
+        self.build_preferences_response(pool, &claims.email, Some(&claims.category))
+            .await
     }
 
     pub async fn update_preferences(
@@ -663,7 +664,8 @@ impl EmailService {
             }
         }
 
-        self.build_preferences_response(pool, &claims).await
+        self.build_preferences_response(pool, &claims.email, Some(&claims.category))
+            .await
     }
 
     pub async fn resubscribe(
@@ -680,20 +682,66 @@ impl EmailService {
         })
     }
 
+    /// Read the current per-category preference state for a session-authenticated
+    /// user, keyed on their own email. Same shape the token flow returns, but
+    /// without a token — the session is the credential. Pure suppression-table
+    /// reads, so it does NOT require email transport to be available.
+    pub async fn get_email_preferences(
+        &self,
+        pool: &PgPool,
+        email: &str,
+    ) -> Result<EmailPreferencesResponse, ApiError> {
+        self.build_preferences_response(pool, email, None).await
+    }
+
+    /// Apply per-category preference updates for a session-authenticated user
+    /// (subscribe => revoke the suppression, unsubscribe => create it). Transactional
+    /// categories are rejected by `validate_preference_updates`.
+    pub async fn update_email_preferences(
+        &self,
+        pool: &PgPool,
+        email: &str,
+        user_id: Option<&str>,
+        preferences: &[EmailPreferenceUpdateItem],
+    ) -> Result<EmailPreferencesResponse, ApiError> {
+        let categories = list_suppression_categories(pool).await?;
+        let updates = validate_preference_updates(&categories, preferences)?;
+
+        for update in updates {
+            if update.subscribed {
+                revoke_suppression(pool, &update.category, email).await?;
+            } else {
+                create_suppression(
+                    pool,
+                    &super::suppression::UnsubscribeTokenClaims {
+                        category: update.category,
+                        email: email.to_string(),
+                        user_id: user_id.map(str::to_string),
+                    },
+                    "self_service_preferences",
+                )
+                .await?;
+            }
+        }
+
+        self.build_preferences_response(pool, email, None).await
+    }
+
     async fn build_preferences_response(
         &self,
         pool: &PgPool,
-        claims: &super::suppression::UnsubscribeTokenClaims,
+        email: &str,
+        linked_category: Option<&str>,
     ) -> Result<EmailPreferencesResponse, ApiError> {
         let categories = list_suppression_categories(pool).await?;
-        let suppressed = list_active_suppressions_for_email(pool, &claims.email)
+        let suppressed = list_active_suppressions_for_email(pool, email)
             .await?
             .into_iter()
             .collect::<BTreeSet<_>>();
 
         Ok(EmailPreferencesResponse {
-            email: claims.email.clone(),
-            linked_category: Some(claims.category.clone()),
+            email: email.to_string(),
+            linked_category: linked_category.map(str::to_string),
             categories: categories
                 .into_iter()
                 .map(|category| EmailPreferenceState {

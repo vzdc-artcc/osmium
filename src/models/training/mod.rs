@@ -95,6 +95,16 @@ pub struct UpdateTrainingAssignmentRequest {
     pub other_trainer_ids: Option<Vec<String>>,
 }
 
+/// One ticket from a student's most recent training session, for the request
+/// table's "Last Training Session" chips.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LastSessionTicket {
+    /// The lesson's short identifier (e.g. `2-1-SV`), shown on the chip.
+    pub lesson_identifier: String,
+    /// Whether the ticket passed (green chip) or failed (red chip).
+    pub passed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingAssignmentRequest {
     pub id: String,
@@ -102,6 +112,9 @@ pub struct TrainingAssignmentRequest {
     pub student_cid: i64,
     pub student_name: String,
     pub student_controller_status: String,
+    /// Membership rating code (e.g. `S2`, `C1`); `None` if the student has no
+    /// membership row.
+    pub student_rating: Option<String>,
     #[serde(serialize_with = "crate::time::serialize_datetime")]
     pub submitted_at: chrono::DateTime<chrono::Utc>,
     pub status: String,
@@ -109,6 +122,9 @@ pub struct TrainingAssignmentRequest {
     pub decided_at: Option<chrono::DateTime<chrono::Utc>>,
     pub decided_by: Option<String>,
     pub interested_trainers: Vec<AssignmentTrainerSummary>,
+    /// Tickets from the student's most recent training session (lesson id +
+    /// pass/fail), for the "Last Training Session" chips. Empty when none.
+    pub last_session_tickets: Vec<LastSessionTicket>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -670,4 +686,71 @@ pub struct CreateOrUpdateTrainingSessionResult {
     pub roster_updates: Vec<LessonRosterChangeSummary>,
     pub ots_recommendation: Option<OtsRecommendationSummary>,
     pub errors: Vec<ApiMessage>,
+}
+
+// --- Impromptu training session offers ---
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ImpromptuClaimItem {
+    pub id: String,
+    pub user_id: String,
+    pub cid: i64,
+    pub name: String,
+    pub rating: Option<String>,
+    pub controller_status: Option<String>,
+    pub status: String,
+    pub session_count: i64,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub last_session_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub claimed_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ImpromptuOfferItem {
+    pub id: String,
+    pub created_by_user_id: String,
+    pub created_by_name: String,
+    pub session_types: Vec<String>,
+    #[serde(serialize_with = "crate::time::serialize_optional_datetime")]
+    pub available_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub notes: Option<String>,
+    pub status: String,
+    pub accepted_user_id: Option<String>,
+    pub claim_count: i64,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ImpromptuOfferListResponse {
+    pub items: Vec<ImpromptuOfferItem>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ImpromptuOfferDetail {
+    #[serde(flatten)]
+    pub offer: ImpromptuOfferItem,
+    pub claims: Vec<ImpromptuClaimItem>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateImpromptuOfferRequest {
+    /// Any of `ground`, `tower`, `approach`, `center`.
+    pub session_types: Vec<String>,
+    /// Omit / null for "available now"; otherwise a scheduled availability time.
+    pub available_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AcceptImpromptuOfferRequest {
+    pub user_id: String,
+}
+
+/// Bot-facing: record a student's claim by their Discord id.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RecordImpromptuClaimRequest {
+    pub offer_id: String,
+    pub discord_id: String,
 }

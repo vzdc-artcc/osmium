@@ -9,8 +9,8 @@ use crate::{
     docs,
     handlers::{
         admin, api_keys, auth, bookings, broadcasts, captcha, data_export, dev,
-        docs as docs_handlers, emails, event_ops, events, feedback, files, health, incidents,
-        integrations, org, publications, routes as routes_handlers, stats, training,
+        docs as docs_handlers, emails, event_ops, events, feedback, files, health, impromptu,
+        incidents, integrations, org, publications, routes as routes_handlers, stats, training,
         training_admin, users, welcome_messages,
     },
     state::AppState,
@@ -104,6 +104,22 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/integrations/discord/configs",
             get(integrations::list_discord_configs).post(integrations::create_discord_config),
+        )
+        .route(
+            "/integrations/discord/features",
+            get(integrations::list_bot_features).patch(integrations::update_bot_features),
+        )
+        .route(
+            "/integrations/discord/impromptu-claims",
+            post(impromptu::record_impromptu_claim),
+        )
+        .route(
+            "/integrations/discord/guilds",
+            get(integrations::list_discord_guilds),
+        )
+        .route(
+            "/integrations/discord/guilds/{guild_id}/discovery",
+            get(integrations::discover_discord_guild),
         )
         .route(
             "/integrations/discord/configs/{config_id}",
@@ -336,6 +352,10 @@ pub fn build_router(state: AppState) -> Router {
             post(integrations::queue_event_publish_discord),
         )
         .route(
+            "/{event_id}/discord-event",
+            post(integrations::queue_event_discord_scheduled_event),
+        )
+        .route(
             "/{event_id}/ops-plan/files",
             get(event_ops::list_ops_plan_files).post(event_ops::create_ops_plan_file),
         )
@@ -358,6 +378,22 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let training_routes = Router::new()
+        .route(
+            "/impromptu-offers",
+            get(impromptu::list_impromptu_offers).post(impromptu::create_impromptu_offer),
+        )
+        .route(
+            "/impromptu-offers/{offer_id}",
+            get(impromptu::get_impromptu_offer),
+        )
+        .route(
+            "/impromptu-offers/{offer_id}/accept",
+            post(impromptu::accept_impromptu_offer),
+        )
+        .route(
+            "/impromptu-offers/{offer_id}/cancel",
+            post(impromptu::cancel_impromptu_offer),
+        )
         .route(
             "/assignments",
             get(training::list_assignments).post(training::create_assignment),
@@ -545,6 +581,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/me", get(auth::me).patch(auth::patch_me))
         .route("/me/data-export", get(data_export::export_my_data))
         .route(
+            "/me/email-preferences",
+            get(emails::get_my_email_preferences).put(emails::update_my_email_preferences),
+        )
+        .route(
             "/routes/preferred",
             get(routes_handlers::search_preferred_routes),
         )
@@ -554,8 +594,8 @@ pub fn build_router(state: AppState) -> Router {
             post(integrations::start_discord_link),
         )
         .route(
-            "/me/discord/link/complete",
-            post(integrations::complete_discord_link),
+            "/me/discord/link/callback",
+            get(integrations::discord_link_callback),
         )
         .route("/me/discord/unlink", post(integrations::unlink_discord))
         .route(

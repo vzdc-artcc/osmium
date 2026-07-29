@@ -13,6 +13,7 @@ pub mod events;
 pub mod feedback;
 pub mod files;
 pub mod health;
+pub mod impromptu;
 pub mod incidents;
 pub mod integrations;
 pub mod org;

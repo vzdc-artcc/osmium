@@ -119,9 +119,6 @@ pub async fn patch_me(
         Some(value) => validate_timezone(&value)?,
         None => current_profile.timezone,
     };
-    let receive_event_notifications = payload
-        .receive_event_notifications
-        .unwrap_or(current_profile.receive_event_notifications);
 
     user_repo::update_me_profile(
         pool,
@@ -130,7 +127,6 @@ pub async fn patch_me(
             preferred_name,
             bio,
             timezone,
-            receive_event_notifications,
         },
     )
     .await?;

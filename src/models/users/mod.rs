@@ -14,7 +14,6 @@ pub struct PatchMeRequest {
     pub preferred_name: Option<Option<String>>,
     pub timezone: Option<String>,
     pub bio: Option<Option<String>>,
-    pub receive_event_notifications: Option<bool>,
     pub operating_initials: Option<String>,
 }
 
@@ -99,7 +98,6 @@ pub struct MeProfileBody {
     pub preferred_name: Option<String>,
     pub bio: Option<String>,
     pub timezone: String,
-    pub receive_event_notifications: bool,
     pub operating_initials: Option<String>,
 }
 
@@ -442,7 +440,6 @@ impl ToSchema for PatchMeRequest {
 impl PartialSchema for PatchMeRequest {
     fn schema() -> RefOr<Schema> {
         let nullable_string: SchemaType = [Type::String, Type::Null].into_iter().collect();
-        let nullable_bool: SchemaType = [Type::Boolean, Type::Null].into_iter().collect();
 
         ObjectBuilder::new()
             .description(Some(
@@ -474,12 +471,6 @@ impl PartialSchema for PatchMeRequest {
                             .collect::<SchemaType>(),
                     )
                     .description(Some("Profile bio. Use null to clear.")),
-            )
-            .property(
-                "receive_event_notifications",
-                ObjectBuilder::new()
-                    .schema_type(nullable_bool)
-                    .description(Some("Whether the user wants new event notifications.")),
             )
             .into()
     }

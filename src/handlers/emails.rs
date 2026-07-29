@@ -10,8 +10,9 @@ use crate::{
     auth::{
         context::{CurrentServiceAccount, CurrentUser},
         permissions::{
-            EmailsBrandingRead, EmailsBrandingUpdate, EmailsOutboxRead, EmailsPreviewCreate,
-            EmailsSendCreate, EmailsSuppressionsUpdate, EmailsTemplatesRead,
+            AuthProfileRead, AuthProfileUpdate, EmailsBrandingRead, EmailsBrandingUpdate,
+            EmailsOutboxRead, EmailsPreviewCreate, EmailsSendCreate, EmailsSuppressionsUpdate,
+            EmailsTemplatesRead,
         },
         require_permission::RequirePermission,
     },
@@ -22,7 +23,7 @@ use crate::{
         EmailPreferencesUpdateRequest, EmailPreviewRequest, EmailPreviewResponse,
         EmailResubscribeRequest, EmailSendRequest, EmailSendResponse,
         EmailSuppressionRecordResponse, EmailTemplateDefinitionResponse, ListEmailOutboxQuery,
-        PaginationMeta, PaginationQuery,
+        MeEmailPreferencesUpdateRequest, PaginationMeta, PaginationQuery,
     },
     repos::{audit, email_branding},
     state::AppState,
@@ -237,6 +238,65 @@ pub async fn update_preferences(
 ) -> Result<Json<EmailPreferencesResponse>, ApiError> {
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     Ok(Json(state.email.update_preferences(pool, &request).await?))
+}
+
+/// Self-service, session-authenticated email preferences (the profile "Email
+/// Preferences" section). Same per-category model as the token-based unsubscribe
+/// flow, but the caller's email is resolved from their session rather than an
+/// unsubscribe token. Gated by `auth.profile.read` (baseline self-read).
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/email-preferences",
+    tag = "emails",
+    responses(
+        (status = 200, description = "The caller's per-category email preferences", body = EmailPreferencesResponse),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn get_my_email_preferences(
+    State(state): State<AppState>,
+    _permission: RequirePermission<AuthProfileRead>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<EmailPreferencesResponse>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    Ok(ApiJson::new(
+        state.email.get_email_preferences(pool, &user.email).await?,
+        time,
+    ))
+}
+
+/// Update the caller's own per-category email preferences. Subscribe revokes the
+/// suppression; unsubscribe creates it. Transactional categories cannot be
+/// unsubscribed (rejected as a bad request). Gated by `auth.profile.update`.
+#[utoipa::path(
+    put,
+    path = "/api/v1/me/email-preferences",
+    tag = "emails",
+    request_body = MeEmailPreferencesUpdateRequest,
+    responses(
+        (status = 200, description = "Updated per-category email preferences", body = EmailPreferencesResponse),
+        (status = 400, description = "Invalid request (unknown or transactional category)"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn update_my_email_preferences(
+    State(state): State<AppState>,
+    _permission: RequirePermission<AuthProfileUpdate>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    time: ResponseTimeContext,
+    Json(request): Json<MeEmailPreferencesUpdateRequest>,
+) -> Result<ApiJson<EmailPreferencesResponse>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    Ok(ApiJson::new(
+        state
+            .email
+            .update_email_preferences(pool, &user.email, Some(&user.id), &request.preferences)
+            .await?,
+        time,
+    ))
 }
 
 #[utoipa::path(

@@ -63,6 +63,9 @@ struct EventPositionRow {
     user_id: Option<String>,
     user_cid: Option<i64>,
     user_name: Option<String>,
+    user_rating: Option<String>,
+    user_controller_status: Option<String>,
+    user_discord_id: Option<String>,
     requested_slot: Option<i32>,
     assigned_slot: Option<i32>,
     requested_position: Option<String>,
@@ -87,9 +90,11 @@ struct EventPositionRow {
     updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-const EVENT_POSITION_COLUMNS: &str = "ep.id, ep.event_id, ep.callsign, ep.user_id, u.cid as user_cid, u.display_name as user_name, ep.requested_slot, ep.assigned_slot, ep.requested_position, ep.requested_secondary_position, ep.notes, ep.requested_start_time, ep.requested_end_time, ep.final_start_time, ep.final_end_time, ep.final_position, ep.final_notes, ep.controlling_category, ep.is_instructor, ep.is_solo, ep.is_ots, ep.is_tmu, ep.is_cic, ep.published, ep.status, ep.submitted_at, ep.created_at, ep.updated_at";
-const EVENT_POSITION_FROM: &str =
-    "events.event_positions ep left join identity.users u on u.id = ep.user_id";
+const EVENT_POSITION_COLUMNS: &str = "ep.id, ep.event_id, ep.callsign, ep.user_id, u.cid as user_cid, u.display_name as user_name, m.rating as user_rating, m.controller_status as user_controller_status, dl.external_id as user_discord_id, ep.requested_slot, ep.assigned_slot, ep.requested_position, ep.requested_secondary_position, ep.notes, ep.requested_start_time, ep.requested_end_time, ep.final_start_time, ep.final_end_time, ep.final_position, ep.final_notes, ep.controlling_category, ep.is_instructor, ep.is_solo, ep.is_ots, ep.is_tmu, ep.is_cic, ep.published, ep.status, ep.submitted_at, ep.created_at, ep.updated_at";
+const EVENT_POSITION_FROM: &str = "events.event_positions ep \
+    left join identity.users u on u.id = ep.user_id \
+    left join org.memberships m on m.user_id = ep.user_id \
+    left join integration.external_sync_mappings dl on dl.system_code = 'discord' and dl.entity_type = 'user_identity' and dl.local_id = ep.user_id";
 
 impl From<EventPositionRow> for EventPosition {
     fn from(row: EventPositionRow) -> Self {
@@ -100,6 +105,9 @@ impl From<EventPositionRow> for EventPosition {
             user_id: row.user_id,
             user_cid: row.user_cid,
             user_name: row.user_name,
+            user_rating: row.user_rating,
+            user_controller_status: row.user_controller_status,
+            user_discord_id: row.user_discord_id,
             requested_slot: row.requested_slot,
             assigned_slot: row.assigned_slot,
             requested_position: row.requested_position,
@@ -402,7 +410,7 @@ pub async fn insert_event_position(
              VALUES ($1, $2, $3, $4, $3, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21, $21)
              RETURNING *
          )
-         SELECT {EVENT_POSITION_COLUMNS} FROM inserted ep LEFT JOIN identity.users u ON u.id = ep.user_id"
+         SELECT {EVENT_POSITION_COLUMNS} FROM inserted ep LEFT JOIN identity.users u ON u.id = ep.user_id LEFT JOIN org.memberships m ON m.user_id = ep.user_id LEFT JOIN integration.external_sync_mappings dl ON dl.system_code = 'discord' AND dl.entity_type = 'user_identity' AND dl.local_id = ep.user_id"
     ))
     .bind(id)
     .bind(event_id)
@@ -499,7 +507,7 @@ pub async fn update_event_position_row(
              WHERE id = $1 AND event_id = $2
              RETURNING *
         )
-        SELECT {EVENT_POSITION_COLUMNS} FROM updated ep LEFT JOIN identity.users u ON u.id = ep.user_id
+        SELECT {EVENT_POSITION_COLUMNS} FROM updated ep LEFT JOIN identity.users u ON u.id = ep.user_id LEFT JOIN org.memberships m ON m.user_id = ep.user_id LEFT JOIN integration.external_sync_mappings dl ON dl.system_code = 'discord' AND dl.entity_type = 'user_identity' AND dl.local_id = ep.user_id
         "#
     ))
     .bind(position_id)

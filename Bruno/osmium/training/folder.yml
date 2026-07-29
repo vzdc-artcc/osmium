@@ -1,7 +1,0 @@
-info:
-  name: training
-  type: folder
-  seq: 1
-
-request:
-  auth: inherit

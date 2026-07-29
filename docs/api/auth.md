@@ -18,7 +18,7 @@ Timestamped auth responses such as TeamSpeak UID `linked_at` follow the shared r
 - `PATCH /api/v1/me`
 - `GET /api/v1/me/discord`
 - `POST /api/v1/me/discord/link/start`
-- `POST /api/v1/me/discord/link/complete`
+- `GET /api/v1/me/discord/link/callback`
 - `POST /api/v1/me/discord/unlink`
 - `GET /api/v1/me/teamspeak-uids`
 - `POST /api/v1/me/teamspeak-uids`
@@ -57,7 +57,6 @@ impersonation is for read-only support/debugging, and real changes are made afte
   - `preferred_name`
   - `bio`
   - `timezone`
-  - `receive_event_notifications`
   - `operating_initials`
 - a self-only `teamspeak_uids` collection
 
@@ -66,7 +65,6 @@ impersonation is for read-only support/debugging, and real changes are made afte
 - `preferred_name`
 - `timezone`
 - `bio`
-- `receive_event_notifications`
 - `operating_initials`
 
 Behavior notes:
@@ -79,7 +77,8 @@ Behavior notes:
   normalized to uppercase); returns `409 Conflict` if already held by another
   user (shares the same manual-reassignment path as the admin endpoint below,
   not the deterministic login-time auto-generation)
-- the public field name is `receive_event_notifications`, while persistence continues to use `new_event_notifications`
+- email preferences are no longer set here — the retired `new_event_notifications`
+  opt-in flag is replaced by per-category preferences at `PUT /api/v1/me/email-preferences`
 - this route does not change `display_name`
 - this route cannot change `roles`, `permissions`, or permission overrides
 - access changes belong to `POST /api/v1/admin/users/{cid}/access`

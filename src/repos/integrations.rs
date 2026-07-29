@@ -405,3 +405,38 @@ pub async fn update_outbound_job_result(
     .await
     .map_err(|_| ApiError::Internal)
 }
+
+pub async fn get_bot_feature_flags(
+    pool: &PgPool,
+) -> Result<std::collections::HashMap<String, bool>, ApiError> {
+    let rows = sqlx::query_as::<_, (String, bool)>(
+        "select feature, enabled from integration.bot_feature_flags",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+    Ok(rows.into_iter().collect())
+}
+
+pub async fn upsert_bot_feature_flags(
+    pool: &PgPool,
+    flags: &[(String, bool)],
+) -> Result<(), ApiError> {
+    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
+    for (feature, enabled) in flags {
+        sqlx::query(
+            r#"
+            insert into integration.bot_feature_flags (feature, enabled, updated_at)
+            values ($1, $2, now())
+            on conflict (feature) do update set enabled = excluded.enabled, updated_at = now()
+            "#,
+        )
+        .bind(feature)
+        .bind(enabled)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    }
+    tx.commit().await.map_err(|_| ApiError::Internal)?;
+    Ok(())
+}

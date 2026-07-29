@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
+    response::Redirect,
 };
 use chrono::{Duration, Utc};
 use reqwest::Client;
@@ -21,12 +22,14 @@ use crate::{
     email::service::actor_from_context,
     errors::ApiError,
     models::{
-        AnnouncementRequest, CreateDiscordCategoryRequest, CreateDiscordChannelRequest,
-        CreateDiscordConfigRequest, CreateDiscordRoleRequest, DiscordCategoryItem,
-        DiscordChannelItem, DiscordConfigBundle, DiscordConfigItem, DiscordLinkCompleteRequest,
-        DiscordLinkStartRequest, DiscordLinkStateBody, DiscordRoleItem, DiscordUnlinkRequest,
-        EventPublishDiscordRequest, OutboundJobItem, OutboundJobListResponse, OutboundJobsQuery,
-        PaginationMeta, PaginationQuery, UpdateDiscordCategoryRequest, UpdateDiscordChannelRequest,
+        AnnouncementRequest, BotFeatureFlag, BotFeatureFlagsResponse, CreateDiscordCategoryRequest,
+        CreateDiscordChannelRequest, CreateDiscordConfigRequest, CreateDiscordRoleRequest,
+        CreateDiscordScheduledEventRequest, DiscordCategoryItem, DiscordChannelItem,
+        DiscordConfigBundle, DiscordConfigItem, DiscordLinkCallbackQuery, DiscordLinkStartRequest,
+        DiscordLinkStateBody, DiscordRoleItem, DiscordUnlinkRequest, DiscoveredGuildListResponse,
+        EventPublishDiscordRequest, GuildDiscoveryResponse, OutboundJobItem,
+        OutboundJobListResponse, OutboundJobsQuery, PaginationMeta, PaginationQuery,
+        UpdateBotFeatureFlagsRequest, UpdateDiscordCategoryRequest, UpdateDiscordChannelRequest,
         UpdateDiscordConfigRequest, UpdateDiscordRoleRequest,
     },
     repos::{audit as audit_repo, integrations as integrations_repo},
@@ -65,9 +68,10 @@ pub async fn start_discord_link(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let state_token = Uuid::new_v4().to_string();
-    let redirect_uri = payload
-        .redirect_uri
-        .or_else(|| std::env::var("DISCORD_REDIRECT_URI").ok());
+    // Discord redirects to osmium's own callback, which performs the token
+    // exchange server-side and then 302s the browser back to `return_url`. The
+    // redirect_uri here is osmium's, not the website's.
+    let redirect_uri = std::env::var("DISCORD_REDIRECT_URI").ok();
     let client_id = std::env::var("DISCORD_CLIENT_ID").ok();
     let auth_url = if let (Some(client_id), Some(redirect_uri)) = (client_id, redirect_uri.clone())
     {
@@ -90,6 +94,7 @@ pub async fn start_discord_link(
             "user_id": user.id,
             "cid": user.cid,
             "redirect_uri": redirect_uri,
+            "return_url": payload.return_url,
             "created_at": Utc::now(),
             "expires_at": Utc::now() + Duration::hours(1)
         }),
@@ -118,90 +123,212 @@ pub async fn unlink_discord(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/me/discord/link/complete", tag = "integrations", request_body = DiscordLinkCompleteRequest, responses((status = 200, description = "Discord identity linked", body = DiscordLinkStateBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
-pub async fn complete_discord_link(
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/discord/link/callback",
+    tag = "integrations",
+    params(DiscordLinkCallbackQuery),
+    responses((status = 303, description = "Redirects back to the website with the link outcome"))
+)]
+pub async fn discord_link_callback(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
-    _permission: RequirePermission<AuthProfileRead>,
-    Json(payload): Json<DiscordLinkCompleteRequest>,
-) -> Result<Json<DiscordLinkStateBody>, ApiError> {
-    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
-    if payload.code.trim().is_empty() || payload.state.trim().is_empty() {
-        return Err(ApiError::BadRequest);
+    Query(query): Query<DiscordLinkCallbackQuery>,
+) -> Redirect {
+    // Public endpoint: Discord redirects the browser here after authorization. The
+    // acting user is identified from the single-use `state` token (bound to a user
+    // at `start`), not the session cookie, so the flow survives the cross-site hop
+    // regardless of cookie SameSite behavior. Every path resolves to a website URL
+    // so the browser always lands somewhere with a readable outcome.
+    Redirect::to(&run_discord_link_callback(&state, query).await)
+}
+
+async fn run_discord_link_callback(state: &AppState, query: DiscordLinkCallbackQuery) -> String {
+    let fail = |return_url: Option<String>, reason: &str| {
+        append_query(
+            &resolve_return_url(return_url),
+            &[("discord_error", reason)],
+        )
+    };
+
+    let Some(pool) = state.db.as_ref() else {
+        return fail(None, "server_error");
+    };
+    let Some(state_token) = query
+        .state
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    else {
+        return fail(None, "missing_state");
+    };
+
+    let state_row = match integrations_repo::fetch_discord_oauth_state(pool, state_token).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return fail(None, "invalid_state"),
+        Err(_) => return fail(None, "server_error"),
+    };
+    let return_url = state_row
+        .metadata
+        .get("return_url")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
+    // Discord bounced back with an explicit error (e.g. the user pressed Cancel).
+    if let Some(err) = query
+        .error
+        .as_deref()
+        .map(str::trim)
+        .filter(|err| !err.is_empty())
+    {
+        return fail(return_url, err);
     }
-    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    let state_row = integrations_repo::fetch_discord_oauth_state(pool, payload.state.trim())
-        .await?
-        .ok_or(ApiError::BadRequest)?;
-    if state_row.external_id != user.id {
-        return Err(ApiError::Unauthorized);
-    }
-    let expires_at = state_row
+    let Some(code) = query
+        .code
+        .as_deref()
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+    else {
+        return fail(return_url, "missing_code");
+    };
+
+    let fresh = state_row
         .metadata
         .get("expires_at")
         .and_then(Value::as_str)
         .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
         .map(|value| value.with_timezone(&Utc))
-        .ok_or(ApiError::BadRequest)?;
-    if expires_at < Utc::now() {
-        return Err(ApiError::BadRequest);
+        .is_some_and(|expires_at| expires_at >= Utc::now());
+    if !fresh {
+        return fail(return_url, "expired");
     }
 
-    let redirect_uri = payload
-        .redirect_uri
-        .or_else(|| {
-            state_row
-                .metadata
-                .get("redirect_uri")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .or_else(|| std::env::var("DISCORD_REDIRECT_URI").ok())
-        .ok_or(ApiError::ServiceUnavailable)?;
-    let client_id = std::env::var("DISCORD_CLIENT_ID").map_err(|_| ApiError::ServiceUnavailable)?;
-    let client_secret =
-        std::env::var("DISCORD_CLIENT_SECRET").map_err(|_| ApiError::ServiceUnavailable)?;
+    let redirect_uri = state_row
+        .metadata
+        .get("redirect_uri")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| std::env::var("DISCORD_REDIRECT_URI").ok());
+    let (Some(redirect_uri), Ok(client_id), Ok(client_secret)) = (
+        redirect_uri,
+        std::env::var("DISCORD_CLIENT_ID"),
+        std::env::var("DISCORD_CLIENT_SECRET"),
+    ) else {
+        return fail(return_url, "server_error");
+    };
 
-    let discord_identity = exchange_discord_code(
-        payload.code.trim(),
-        &redirect_uri,
-        &client_id,
-        &client_secret,
-    )
-    .await?;
+    let identity =
+        match exchange_discord_code(code, &redirect_uri, &client_id, &client_secret).await {
+            Ok(identity) => identity,
+            Err(_) => return fail(return_url, "link_failed"),
+        };
 
-    let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let existing_owner =
-        integrations_repo::find_discord_identity_owner(&mut *tx, &discord_identity.id).await?;
-    if existing_owner
-        .as_deref()
-        .is_some_and(|owner| owner != user.id)
-    {
-        return Err(ApiError::BadRequest);
+    let user_id = state_row.external_id.clone();
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return fail(return_url, "server_error"),
+    };
+    match integrations_repo::find_discord_identity_owner(&mut *tx, &identity.id).await {
+        Ok(Some(owner)) if owner != user_id => return fail(return_url, "already_linked"),
+        Ok(_) => {}
+        Err(_) => return fail(return_url, "server_error"),
     }
-
-    integrations_repo::insert_discord_user_identity(
+    if integrations_repo::insert_discord_user_identity(
         &mut *tx,
         &Uuid::new_v4().to_string(),
-        &user.id,
-        &discord_identity.id,
+        &user_id,
+        &identity.id,
         json!({
-            "username": discord_identity.username,
-            "global_name": discord_identity.global_name,
+            "username": identity.username,
+            "global_name": identity.global_name,
             "linked_at": Utc::now(),
         }),
     )
-    .await?;
+    .await
+    .is_err()
+    {
+        return fail(return_url, "server_error");
+    }
+    if integrations_repo::delete_discord_oauth_state(&mut *tx, state_token)
+        .await
+        .is_err()
+    {
+        return fail(return_url, "server_error");
+    }
+    if tx.commit().await.is_err() {
+        return fail(return_url, "server_error");
+    }
 
-    integrations_repo::delete_discord_oauth_state(&mut *tx, payload.state.trim()).await?;
+    let display_name = identity.global_name.unwrap_or(identity.username);
+    append_query(
+        &resolve_return_url(return_url),
+        &[("discord_linked", "1"), ("discord_username", &display_name)],
+    )
+}
 
-    tx.commit().await.map_err(|_| ApiError::Internal)?;
+/// Website origins osmium is willing to 302 back to after the Discord round-trip.
+/// Reuses the CORS allowlist so the callback can never be turned into an open
+/// redirector.
+fn allowed_website_origins() -> Vec<String> {
+    std::env::var("CORS_ALLOWED_ORIGINS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|origin| origin.trim().trim_end_matches('/').to_string())
+        .filter(|origin| !origin.is_empty())
+        .collect()
+}
 
-    Ok(Json(DiscordLinkStateBody {
-        linked: true,
-        external_id: Some(discord_identity.id),
-        auth_url: None,
-    }))
+/// Extracts the `scheme://authority` origin from a URL string, or `None` if it is
+/// not shaped like an absolute URL.
+fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    if scheme.is_empty() {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    if authority.is_empty() {
+        return None;
+    }
+    Some(format!("{scheme}://{authority}"))
+}
+
+/// Resolves the base website URL (no query string) to send the browser back to.
+/// Honors the caller-supplied `return_url` only when its origin is allowlisted;
+/// otherwise falls back to the first allowed origin + `/profile/overview`.
+fn resolve_return_url(candidate: Option<String>) -> String {
+    let allowed = allowed_website_origins();
+    if let Some(url) = candidate
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        if let Some(origin) = origin_of(url) {
+            if allowed
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(&origin))
+            {
+                return url.trim_end_matches('/').to_string();
+            }
+        }
+    }
+    let base = allowed
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+    format!("{base}/profile/overview")
+}
+
+/// Appends query params to a URL that may or may not already carry a query string.
+fn append_query(base: &str, params: &[(&str, &str)]) -> String {
+    let mut url = base.to_string();
+    let mut separator = if base.contains('?') { '&' } else { '?' };
+    for (key, value) in params {
+        url.push(separator);
+        url.push_str(key);
+        url.push('=');
+        url.push_str(&urlencoding::encode(value));
+        separator = '&';
+    }
+    url
 }
 
 #[utoipa::path(get, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", responses((status = 200, description = "Discord configuration bundle", body = DiscordConfigBundle), (status = 401, description = "Not authenticated")))]
@@ -224,6 +351,79 @@ pub async fn list_discord_configs(
         },
         time,
     ))
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/features", tag = "integrations", responses((status = 200, description = "Discord bot feature toggles", body = BotFeatureFlagsResponse), (status = 401, description = "Not authenticated")))]
+pub async fn list_bot_features(
+    State(state): State<AppState>,
+    _permission: RequirePermission<IntegrationsStatsUpdate>,
+) -> Result<Json<BotFeatureFlagsResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let stored = integrations_repo::get_bot_feature_flags(pool).await?;
+    let features = crate::models::integrations::BOT_FEATURES
+        .iter()
+        .map(|(key, label)| BotFeatureFlag {
+            key: (*key).to_string(),
+            label: (*label).to_string(),
+            // Features default to enabled when there is no stored override.
+            enabled: stored.get(*key).copied().unwrap_or(true),
+        })
+        .collect();
+    Ok(Json(BotFeatureFlagsResponse { features }))
+}
+
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/features", tag = "integrations", request_body = UpdateBotFeatureFlagsRequest, responses((status = 200, description = "Updated Discord bot feature toggles", body = BotFeatureFlagsResponse), (status = 401, description = "Not authenticated")))]
+pub async fn update_bot_features(
+    State(state): State<AppState>,
+    _permission: RequirePermission<IntegrationsStatsUpdate>,
+    Json(payload): Json<UpdateBotFeatureFlagsRequest>,
+) -> Result<Json<BotFeatureFlagsResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    // Only persist known feature keys.
+    let flags: Vec<(String, bool)> = payload
+        .features
+        .into_iter()
+        .filter(|(key, _)| {
+            crate::models::integrations::BOT_FEATURES
+                .iter()
+                .any(|(known, _)| known == key)
+        })
+        .collect();
+    if !flags.is_empty() {
+        integrations_repo::upsert_bot_feature_flags(pool, &flags).await?;
+    }
+    let stored = integrations_repo::get_bot_feature_flags(pool).await?;
+    let features = crate::models::integrations::BOT_FEATURES
+        .iter()
+        .map(|(key, label)| BotFeatureFlag {
+            key: (*key).to_string(),
+            label: (*label).to_string(),
+            enabled: stored.get(*key).copied().unwrap_or(true),
+        })
+        .collect();
+    Ok(Json(BotFeatureFlagsResponse { features }))
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/guilds", tag = "integrations", responses((status = 200, description = "Guilds the Discord bot is a member of", body = DiscoveredGuildListResponse), (status = 401, description = "Not authenticated"), (status = 503, description = "Discord bot unavailable")))]
+pub async fn list_discord_guilds(
+    _permission: RequirePermission<IntegrationsStatsUpdate>,
+) -> Result<Json<DiscoveredGuildListResponse>, ApiError> {
+    let response = bot_api_get::<DiscoveredGuildListResponse>("/guilds").await?;
+    Ok(Json(response))
+}
+
+#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/guilds/{guild_id}/discovery", tag = "integrations", params(("guild_id" = String, Path, description = "Discord guild id")), responses((status = 200, description = "Live channels, categories, and roles for the guild", body = GuildDiscoveryResponse), (status = 401, description = "Not authenticated"), (status = 503, description = "Discord bot unavailable")))]
+pub async fn discover_discord_guild(
+    _permission: RequirePermission<IntegrationsStatsUpdate>,
+    Path(guild_id): Path<String>,
+) -> Result<Json<GuildDiscoveryResponse>, ApiError> {
+    let guild_id = guild_id.trim();
+    if guild_id.is_empty() || !guild_id.chars().all(|c| c.is_ascii_digit()) {
+        return Err(ApiError::BadRequest);
+    }
+    let response =
+        bot_api_get::<GuildDiscoveryResponse>(&format!("/guilds/{guild_id}/discovery")).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(post, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", request_body = CreateDiscordConfigRequest, responses((status = 201, description = "Discord config created", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
@@ -520,7 +720,11 @@ pub async fn queue_announcement(
                     roles: Vec::new(),
                     artcc: Vec::new(),
                     rating: Vec::new(),
-                    receive_event_notifications: Some(true),
+                    // Announcements are gated by the `announcements` suppression
+                    // category in resolve_recipients (opt-out), not by the retired
+                    // event-notifications profile flag — send to all active users and
+                    // let per-category suppression drop those who opted out.
+                    receive_event_notifications: None,
                     active_only: Some(true),
                 },
             )
@@ -536,7 +740,8 @@ pub async fn queue_announcement(
                 "title": payload.title,
                 "body_markdown": payload.body_markdown,
                 "details_url": payload.details_url,
-                "requested_by_cid": user.cid
+                "requested_by_cid": user.cid,
+                "channel": payload.channel
             }),
         )
         .await?;
@@ -593,6 +798,51 @@ pub async fn queue_event_publish_discord(
     .await?;
     Ok(Json(ApiMessageBody {
         message: "event publish queued".to_string(),
+    }))
+}
+
+#[utoipa::path(post, path = "/api/v1/events/{event_id}/discord-event", tag = "integrations", params(("event_id" = String, Path, description = "Event ID")), request_body = CreateDiscordScheduledEventRequest, responses((status = 200, description = "Discord scheduled-event creation queued", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+pub async fn queue_event_discord_scheduled_event(
+    State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
+    Path(event_id): Path<String>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateDiscordScheduledEventRequest>,
+) -> Result<Json<ApiMessageBody>, ApiError> {
+    let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
+    ensure_integrations_manage(&state, user).await?;
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let location = payload
+        .location
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("vatsim.net");
+    integrations_repo::enqueue_outbound_job(
+        pool,
+        "discord.scheduled_event",
+        Some("event"),
+        Some(&event_id),
+        json!({
+            "event_id": event_id,
+            "location": location,
+            "requested_by_cid": user.cid
+        }),
+    )
+    .await?;
+    record_audit(
+        pool,
+        user,
+        &headers,
+        "QUEUE",
+        "EVENT_DISCORD_SCHEDULED_EVENT",
+        Some(event_id.clone()),
+        None,
+        Some(json!({ "event_id": event_id })),
+    )
+    .await?;
+    Ok(Json(ApiMessageBody {
+        message: "discord scheduled event queued".to_string(),
     }))
 }
 
@@ -678,6 +928,62 @@ struct DiscordUserIdentity {
     global_name: Option<String>,
 }
 
+/// Shared, connection-pooled HTTP client for calls to the Discord bot, so each
+/// request reuses keep-alive connections instead of building a fresh client.
+pub(crate) static BOT_CLIENT: std::sync::LazyLock<Client> = std::sync::LazyLock::new(Client::new);
+
+/// Perform an authenticated POST against the Discord bot's HTTP API and decode
+/// the JSON response. Shares the `BOT_API_BASE_URL` / `BOT_API_SECRET_KEY`
+/// configuration and the pooled `BOT_CLIENT`.
+pub(crate) async fn bot_api_post<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+    path: &str,
+    body: &B,
+) -> Result<T, ApiError> {
+    let base_url = std::env::var("BOT_API_BASE_URL").map_err(|_| ApiError::ServiceUnavailable)?;
+    let api_key = std::env::var("BOT_API_SECRET_KEY").map_err(|_| ApiError::ServiceUnavailable)?;
+
+    let response = BOT_CLIENT
+        .post(format!("{base_url}{path}"))
+        .header("X-API-Key", api_key)
+        .json(body)
+        .send()
+        .await
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+
+    if !response.status().is_success() {
+        return Err(ApiError::ServiceUnavailable);
+    }
+
+    response
+        .json::<T>()
+        .await
+        .map_err(|_| ApiError::ServiceUnavailable)
+}
+
+/// Perform an authenticated GET against the Discord bot's HTTP API and decode
+/// the JSON response. Shares the `BOT_API_BASE_URL` / `BOT_API_SECRET_KEY`
+/// configuration used for outbound job delivery.
+async fn bot_api_get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, ApiError> {
+    let base_url = std::env::var("BOT_API_BASE_URL").map_err(|_| ApiError::ServiceUnavailable)?;
+    let api_key = std::env::var("BOT_API_SECRET_KEY").map_err(|_| ApiError::ServiceUnavailable)?;
+
+    let response = BOT_CLIENT
+        .get(format!("{base_url}{path}"))
+        .header("X-API-Key", api_key)
+        .send()
+        .await
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+
+    if !response.status().is_success() {
+        return Err(ApiError::ServiceUnavailable);
+    }
+
+    response
+        .json::<T>()
+        .await
+        .map_err(|_| ApiError::ServiceUnavailable)
+}
+
 async fn dispatch_outbound_job(client: &Client, job: &OutboundJobItem) -> Result<(), String> {
     let base_url = std::env::var("BOT_API_BASE_URL").ok();
     let api_key = std::env::var("BOT_API_SECRET_KEY").ok();
@@ -691,6 +997,7 @@ async fn dispatch_outbound_job(client: &Client, job: &OutboundJobItem) -> Result
     let (path, body) = match job.job_type.as_str() {
         "discord.announcement" => ("/announcement", job.payload.clone()),
         "discord.event_positions_published" => ("/event_position_posting", job.payload.clone()),
+        "discord.scheduled_event" => ("/scheduled_event", job.payload.clone()),
         _ => return Err("unsupported job type".to_string()),
     };
     let response = client
@@ -717,7 +1024,10 @@ async fn exchange_discord_code(
     client_id: &str,
     client_secret: &str,
 ) -> Result<DiscordUserIdentity, ApiError> {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|_| ApiError::ServiceUnavailable)?;
     let token = client
         .post("https://discord.com/api/oauth2/token")
         .form(&[
@@ -729,8 +1039,22 @@ async fn exchange_discord_code(
         ])
         .send()
         .await
-        .map_err(|_| ApiError::ServiceUnavailable)?;
+        .map_err(|err| {
+            tracing::warn!(error = %err, "discord token exchange request failed");
+            ApiError::ServiceUnavailable
+        })?;
     if !token.status().is_success() {
+        let status = token.status();
+        let body = token
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unreadable body>".to_string());
+        tracing::warn!(
+            %status,
+            redirect_uri,
+            %body,
+            "discord token exchange rejected"
+        );
         return Err(ApiError::BadRequest);
     }
     let token_body = token
