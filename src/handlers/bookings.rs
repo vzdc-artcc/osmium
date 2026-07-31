@@ -404,6 +404,7 @@ async fn record_booking_audit(
             resource_id,
             scope_type: "global".to_string(),
             scope_key: Some(user.cid.to_string()),
+            message: None,
             before_state: None,
             after_state: None,
             ip_address: audit_repo::client_ip(headers),

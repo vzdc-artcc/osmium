@@ -156,8 +156,32 @@ pub async fn list_audit_logs(
         .filter(|value| !value.is_empty())
         .map(|value| value.to_ascii_uppercase());
 
+    // Free-text resource_type search: trim + uppercase so it matches the stored
+    // uppercase values regardless of how the user typed it (mirrors `action`).
+    let normalized_resource_type = query
+        .resource_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase());
+
+    // Comma-separated domain allow-list (e.g. `TRAINING_SESSION,LESSON`). Split,
+    // trim, uppercase, drop empties; None when absent or all-empty so it's a no-op.
+    let resource_types = query
+        .resource_types
+        .as_deref()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_ascii_uppercase())
+                .collect::<Vec<_>>()
+        })
+        .filter(|values| !values.is_empty());
+
     let filters = audit_repo::AuditLogFilters {
-        resource_type: query.resource_type,
+        resource_type: normalized_resource_type,
+        resource_types,
         resource_id: query.resource_id,
         actor_id: query.actor_id,
         actor_type: query.actor_type,
@@ -259,6 +283,7 @@ pub async fn set_user_controller_status(
             resource_id: before.as_ref().map(|row| row.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
+            message: None,
             before_state: before
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
@@ -359,6 +384,7 @@ pub async fn update_user_flags(
             resource_id: Some(target_id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
+            message: None,
             before_state: Some(audit_repo::sanitized_snapshot(&before)?),
             after_state: Some(audit_repo::sanitized_snapshot(&after)?),
             ip_address: audit_repo::client_ip(&headers),
@@ -431,6 +457,7 @@ pub async fn admin_update_user_profile(
             resource_id: Some(target_id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
+            message: None,
             before_state: None,
             after_state: Some(audit_repo::sanitized_snapshot(&profile)?),
             ip_address: audit_repo::client_ip(&headers),
@@ -501,6 +528,7 @@ pub async fn reassign_user_operating_initials(
             resource_id: Some(target_id),
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
+            message: None,
             before_state: None,
             after_state: Some(audit_repo::sanitized_snapshot(&response)?),
             ip_address: audit_repo::client_ip(&headers),
@@ -627,6 +655,7 @@ async fn set_staff_position_for_cid(
             resource_id: Some(target_user_id),
             scope_type: "global".to_string(),
             scope_key: Some(format!("{cid}:{position}")),
+            message: None,
             before_state: Some(audit_repo::sanitized_snapshot(&StaffPositionsResponse {
                 cid,
                 positions: before,
@@ -705,6 +734,7 @@ pub async fn refresh_user_vatusa(
             resource_id: before.as_ref().map(|row| row.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
+            message: None,
             before_state: before
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
@@ -848,6 +878,7 @@ pub async fn decide_visitor_application(
             resource_id: Some(after.id.clone()),
             scope_type: "global".to_string(),
             scope_key: after.cid.map(|cid| cid.to_string()),
+            message: None,
             before_state: Some(audit_repo::sanitized_snapshot(&before)?),
             after_state: Some(audit_repo::sanitized_snapshot(&after)?),
             ip_address: audit_repo::client_ip(&headers),
@@ -1127,6 +1158,7 @@ async fn record_session_revoke_audit(
             resource_id: Some(target_cid.to_string()),
             scope_type: "global".to_string(),
             scope_key: Some(target_cid.to_string()),
+            message: None,
             before_state: None,
             after_state: Some(after_state),
             ip_address: audit_repo::client_ip(headers),
@@ -1319,6 +1351,7 @@ pub async fn update_user_access(
             resource_id: Some(updated.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
+            message: None,
             before_state: Some(audit_repo::sanitize_value(serde_json::json!({
                 "user": target_before,
                 "server_admin": is_server_admin(&before_roles),

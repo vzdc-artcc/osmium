@@ -644,6 +644,7 @@ async fn record_impersonation_audit(
             resource_id: Some(target_cid.to_string()),
             scope_type: "global".to_string(),
             scope_key: Some(target_cid.to_string()),
+            message: None,
             before_state: None,
             after_state: Some(serde_json::json!({
                 "impersonated_cid": target_cid,

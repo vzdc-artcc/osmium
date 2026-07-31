@@ -71,6 +71,7 @@ pub async fn export_my_data(
             // "self" is not valid and made this insert (and the whole export) 500.
             scope_type: "global".to_string(),
             scope_key: Some(user.cid.to_string()),
+            message: None,
             before_state: None,
             after_state: None,
             ip_address: audit_repo::client_ip(&headers),
@@ -134,6 +135,7 @@ pub async fn export_roster_data(
             resource_id: None,
             scope_type: "global".to_string(),
             scope_key: Some(subjects.len().to_string()),
+            message: None,
             before_state: None,
             after_state: None,
             ip_address: audit_repo::client_ip(&headers),
@@ -277,6 +279,7 @@ async fn fetch_activity_log(pool: &sqlx::PgPool, uid: &str) -> Result<Value, Api
         pool,
         &audit_repo::AuditLogFilters {
             resource_type: None,
+            resource_types: None,
             resource_id: None,
             actor_id: Some(actor_id),
             actor_type: None,

@@ -34,6 +34,9 @@ const SENSITIVE_KEY_FRAGMENTS: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct AuditLogFilters {
     pub resource_type: Option<String>,
+    /// Multi-value resource_type filter (domain views pass a set). ANDed with the
+    /// singular `resource_type` above; domain pages set only this one.
+    pub resource_types: Option<Vec<String>>,
     pub resource_id: Option<String>,
     pub actor_id: Option<String>,
     pub actor_type: Option<String>,
@@ -59,6 +62,10 @@ pub struct AuditEntryInput {
     pub resource_id: Option<String>,
     pub scope_type: String,
     pub scope_key: Option<String>,
+    /// Human-readable summary of what happened, composed at write time and shown
+    /// as the "Message" column on the website. Optional so legacy/un-updated call
+    /// sites are simply blank rather than failing.
+    pub message: Option<String>,
     pub before_state: Option<Value>,
     pub after_state: Option<Value>,
     pub ip_address: Option<String>,
@@ -82,6 +89,7 @@ pub async fn fetch_audit_logs(
             l.resource_id,
             l.scope_type,
             l.scope_key,
+            l.message,
             l.before_state,
             l.after_state,
             l.ip_address::text as ip_address,
@@ -96,6 +104,7 @@ pub async fn fetch_audit_logs(
           and ($6::text is null or l.scope_key = $6)
           and ($7::text is null or l.action = $7)
           and ($10::bool or l.resource_type <> 'AUTH_IMPERSONATION')
+          and ($11::text[] is null or l.resource_type = any($11))
         order by l.created_at desc
         limit $8 offset $9
         "#,
@@ -110,6 +119,7 @@ pub async fn fetch_audit_logs(
     .bind(filters.limit)
     .bind(filters.offset)
     .bind(filters.include_server_sensitive)
+    .bind(filters.resource_types.as_deref())
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -132,6 +142,7 @@ pub async fn count_audit_logs(pool: &PgPool, filters: &AuditLogFilters) -> Resul
           and ($6::text is null or l.scope_key = $6)
           and ($7::text is null or l.action = $7)
           and ($8::bool or l.resource_type <> 'AUTH_IMPERSONATION')
+          and ($9::text[] is null or l.resource_type = any($9))
         "#,
     )
     .bind(filters.resource_type.as_deref())
@@ -142,6 +153,7 @@ pub async fn count_audit_logs(pool: &PgPool, filters: &AuditLogFilters) -> Resul
     .bind(filters.scope_key.as_deref())
     .bind(filters.action.as_deref())
     .bind(filters.include_server_sensitive)
+    .bind(filters.resource_types.as_deref())
     .fetch_one(pool)
     .await
     .map_err(|_| ApiError::Internal)
@@ -174,10 +186,19 @@ where
     Ok(AuditActor { actor_id: None })
 }
 
-pub async fn record_audit<'e, E>(executor: E, entry: AuditEntryInput) -> Result<(), ApiError>
+pub async fn record_audit<'e, E>(executor: E, mut entry: AuditEntryInput) -> Result<(), ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {
+    // Fall back to a readable auto-composed summary when a call site doesn't pass
+    // a hand-written message, so every audit row has a non-empty "Message".
+    let message = entry.message.take().or_else(|| {
+        Some(default_audit_message(
+            &entry.action,
+            &entry.resource_type,
+            entry.resource_id.as_deref(),
+        ))
+    });
     sqlx::query(
         r#"
         insert into access.audit_logs (
@@ -188,12 +209,13 @@ where
             resource_id,
             scope_type,
             scope_key,
+            message,
             before_state,
             after_state,
             ip_address,
             created_at
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::inet, now())
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::inet, now())
         "#,
     )
     .bind(Uuid::new_v4().to_string())
@@ -203,6 +225,7 @@ where
     .bind(entry.resource_id)
     .bind(entry.scope_type)
     .bind(entry.scope_key)
+    .bind(message)
     .bind(entry.before_state)
     .bind(entry.after_state)
     .bind(entry.ip_address)
@@ -211,6 +234,60 @@ where
     .map_err(|_| ApiError::Internal)?;
 
     Ok(())
+}
+
+/// Composes a readable default message like "Created training session (abc123)"
+/// from an entry's action / resource_type / resource_id. Used by the per-handler
+/// audit helpers so every log has a human-readable "Message" without threading a
+/// hand-written string through ~180 call sites; inline sites may pass a richer one.
+pub fn default_audit_message(
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+) -> String {
+    let verb = match action.to_ascii_uppercase().as_str() {
+        "CREATE" => "Created",
+        "UPDATE" => "Updated",
+        "DELETE" => "Deleted",
+        "PUBLISH" => "Published",
+        "ASSIGN" => "Assigned",
+        "UNASSIGN" => "Unassigned",
+        "REVOKE" => "Revoked",
+        "UPSERT" => "Saved",
+        "RUN" => "Ran",
+        "DECIDE" => "Decided",
+        "EXPORT" | "EXPORT_ALL" => "Exported",
+        // Unknown action: title-case it ("APPROVE" -> "Approve", "REVOKE_ALL" ->
+        // "Revoke all") so it reads like the known verbs, not raw uppercase.
+        other => {
+            let verb = humanize_action(other);
+            let noun = humanize_resource(resource_type);
+            return match resource_id {
+                Some(id) => format!("{verb} {noun} ({id})"),
+                None => format!("{verb} {noun}"),
+            };
+        }
+    };
+    let noun = humanize_resource(resource_type);
+    match resource_id {
+        Some(id) => format!("{verb} {noun} ({id})"),
+        None => format!("{verb} {noun}"),
+    }
+}
+
+fn humanize_resource(resource_type: &str) -> String {
+    resource_type.to_ascii_lowercase().replace('_', " ")
+}
+
+/// Lower-cases an action, swaps `_` for spaces, and capitalizes the first letter,
+/// so an un-mapped action renders as a Title-case verb ("Approve", "Revoke all").
+fn humanize_action(action: &str) -> String {
+    let lower = action.to_ascii_lowercase().replace('_', " ");
+    let mut chars = lower.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => lower,
+    }
 }
 
 pub fn sanitize_value(value: Value) -> Value {

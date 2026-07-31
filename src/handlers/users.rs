@@ -246,6 +246,7 @@ pub async fn visit_artcc(
             resource_id: Some(viewer.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(viewer.cid.to_string()),
+            message: None,
             before_state: before
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
@@ -322,6 +323,7 @@ pub async fn refresh_my_vatusa(
             resource_id: before.as_ref().map(|row| row.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(viewer.cid.to_string()),
+            message: None,
             before_state: before
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
@@ -425,6 +427,7 @@ pub async fn create_visitor_application(
             resource_id: Some(application.id.clone()),
             scope_type: "global".to_string(),
             scope_key: Some(user.cid.to_string()),
+            message: None,
             before_state: before
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
