@@ -426,6 +426,7 @@ where
             resource_id: Some(broadcast_id.to_string()),
             scope_type: "web".to_string(),
             scope_key: Some(broadcast_id.to_string()),
+            message: None,
             before_state: before_state
                 .map(audit_repo::sanitized_snapshot)
                 .transpose()?,

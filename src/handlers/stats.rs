@@ -525,6 +525,7 @@ pub async fn update_statistics_prefixes(
             resource_id: Some(after.id.clone()),
             scope_type: "web".to_string(),
             scope_key: Some(after.id.clone()),
+            message: None,
             before_state: before
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)

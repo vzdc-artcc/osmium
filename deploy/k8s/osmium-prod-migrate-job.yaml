@@ -1,0 +1,60 @@
+# =============================================================================
+# osmium-prod-migrate — one-shot Job that runs the db-migrator IN-CLUSTER,
+# reading the legacy prod (Prisma) database and writing the osmium database.
+# Both live in the same `database` Postgres, so nothing leaves the cluster and
+# no dump/local access is needed. Deploy from Portainer → Add with a manifest.
+#
+# SAFETY: the migrator only READS the source (SELECTs) and writes only the
+# target. Prod data is never modified — the only impact is read load on prod
+# during the run (prefer off-peak).
+#
+# BEFORE RUNNING:
+#   1. osmium must already be running against `database:5432/osmium` so its
+#      schema exists (the migrator fills tables, it does NOT create osmium's
+#      schema). Check: kubectl get pods -n default -l app=osmium  (Running, not
+#      CrashLoop).
+#   2. Set REPLACE_PROD_DB_NAME below to the legacy prod database name (the
+#      website's DB_NAME). Find it with:
+#        kubectl run pgcheck --rm -i --restart=Never -n default \
+#          --image=postgres:16 --env='PGPASSWORD=<pw>' -- \
+#          psql -h database -p 5432 -U vzdc -d postgres -c '\l'
+#   3. Run PLAN first (command below is `plan`), check the pod logs, then change
+#      the command to `migrate` and re-deploy.
+#
+# The Postgres user/password/host/port come from the shared `db-secret` (same as
+# every other app), so no credentials live in this file.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osmium-prod-migrate
+  namespace: default
+  labels:
+    app: osmium-migrate
+spec:
+  backoffLimit: 0                  # don't auto-retry — inspect a failed run
+  ttlSecondsAfterFinished: 86400   # auto-clean the Job a day after it finishes
+  template:
+    metadata:
+      labels:
+        app: osmium-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrator
+          image: ghcr.io/vzdc-artcc/osmium:latest
+          # PLAN first (read-only preflight). Change to ["db-migrator","migrate"]
+          # to actually write, and rename the Job (metadata.name) or delete the
+          # old one first — completed Job names can't be reused.
+          command: ["db-migrator", "plan"]
+          env:
+            # Source = legacy prod (Prisma) DB. Set the DB name; user/pw/host/port
+            # come from db-secret via the $(VAR) expansion below.
+            - name: SOURCE_DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/website
+            # Target = the osmium database (schema already created by osmium).
+            - name: TARGET_DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/osmium
+          envFrom:
+            - secretRef:
+                name: db-secret      # provides POSTGRES_USER/PASSWORD/HOST/PORT

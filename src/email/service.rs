@@ -240,6 +240,7 @@ impl EmailService {
                 resource_id: Some(id.to_string()),
                 scope_type: "global".to_string(),
                 scope_key: Some(template.id.to_string()),
+                message: None,
                 before_state: None,
                 after_state: Some(audit::sanitize_value(serde_json::json!({
                     "template_id": template.id,

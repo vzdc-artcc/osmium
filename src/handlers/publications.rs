@@ -671,6 +671,7 @@ where
             resource_id: Some(resource_id.to_string()),
             scope_type: "web".to_string(),
             scope_key: Some(resource_id.to_string()),
+            message: None,
             before_state: before_state
                 .map(audit_repo::sanitized_snapshot)
                 .transpose()?,

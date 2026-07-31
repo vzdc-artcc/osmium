@@ -99,6 +99,7 @@ pub async fn update_welcome_message_content(
             resource_id: Some("welcome_messages".to_string()),
             scope_type: "web".to_string(),
             scope_key: Some("welcome_messages".to_string()),
+            message: None,
             before_state: Some(audit_repo::sanitized_snapshot(&before)?),
             after_state: Some(audit_repo::sanitized_snapshot(&after)?),
             ip_address: audit_repo::client_ip(&headers),

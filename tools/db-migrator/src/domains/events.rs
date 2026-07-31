@@ -108,7 +108,12 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
             "opsFreeText" as ops_free_text,
             "opsPlanPublished" as ops_plan_published,
             "opsPlannerId" as ops_planner_id,
-            "bannerKey" as banner_asset_id
+            -- Legacy `bannerKey` is the old site's storage key, NOT an osmium
+            -- media.file_assets id — copying it here produced broken banners
+            -- (they point at assets that don't exist in osmium). Leave banners
+            -- null; they get re-uploaded in osmium. (bannerKey is still in the
+            -- source Event table if we ever build real file migration.)
+            null::text as banner_asset_id
         from public."Event"
         order by start asc
         "#,

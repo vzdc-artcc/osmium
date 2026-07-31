@@ -394,6 +394,7 @@ pub async fn update_email_branding(
             resource_id: Some("default".to_string()),
             scope_type: "web".to_string(),
             scope_key: Some("default".to_string()),
+            message: None,
             before_state: before.as_ref().map(audit::sanitized_snapshot).transpose()?,
             after_state: Some(audit::sanitized_snapshot(&after)?),
             ip_address: audit::client_ip(&headers),

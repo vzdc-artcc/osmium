@@ -62,6 +62,10 @@ pub struct ListAuditLogsQuery {
     pub scope_type: Option<String>,
     pub scope_key: Option<String>,
     pub action: Option<String>,
+    /// Comma-separated resource_type allow-list for domain-scoped views (e.g.
+    /// `TRAINING_SESSION,TRAINING_APPOINTMENT`). Single string, not repeated keys,
+    /// because the handler uses serde_urlencoded which can't build a Vec.
+    pub resource_types: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
@@ -77,6 +81,7 @@ pub struct AuditLogItem {
     pub resource_id: Option<String>,
     pub scope_type: String,
     pub scope_key: Option<String>,
+    pub message: Option<String>,
     pub before_state: Option<serde_json::Value>,
     pub after_state: Option<serde_json::Value>,
     pub ip_address: Option<String>,
