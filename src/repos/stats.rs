@@ -541,20 +541,26 @@ pub async fn last_feed_updated_at(
 pub async fn list_online_controllers(
     pool: &PgPool,
 ) -> Result<Vec<crate::models::OnlineControllerItem>, ApiError> {
+    // Live-environment controllers currently connected: an open session
+    // (logout_at is null) with a currently-active position (ended_at is null).
+    // Sessions/activations are the post-0017 model that the stats sync writes;
+    // the old `controller_positions` table it replaced is no longer populated.
     sqlx::query_as::<_, crate::models::OnlineControllerItem>(
         r#"
         select
-            u.cid,
-            u.display_name,
-            m.rating,
-            cp.position,
-            cp.start
-        from stats.controller_positions cp
-        join stats.controller_logs cl on cl.id = cp.log_id
-        join identity.users u on u.id = cl.user_id
+            s.cid,
+            coalesce(u.display_name, s.real_name, s.cid::text) as display_name,
+            coalesce(m.rating, s.user_rating) as rating,
+            coalesce(a.default_callsign, a.position_name) as position,
+            a.started_at as start
+        from stats.controller_sessions s
+        join stats.controller_activations a
+            on a.session_id = s.id and a.ended_at is null
+        left join identity.users u on u.id = s.user_id
         left join org.memberships m on m.user_id = u.id
-        where cp.active
-        order by cp.start asc
+        where s.logout_at is null
+          and s.environment = 'live'
+        order by a.started_at asc
         "#,
     )
     .fetch_all(pool)

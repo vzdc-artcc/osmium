@@ -1316,7 +1316,7 @@ fn storage_key_for_id(file_id: &str) -> String {
     format!("{shard}/{file_id}.bin")
 }
 
-fn max_upload_bytes() -> u64 {
+pub(crate) fn max_upload_bytes() -> u64 {
     std::env::var("FILE_MAX_UPLOAD_BYTES")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())

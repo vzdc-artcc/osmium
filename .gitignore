@@ -23,6 +23,7 @@ dev-data
 # templates (deploy/k8s/*.example.yaml) in git; never commit real values.
 # osmium-all-in-one.yaml is ignored because it's meant to be filled in with real
 # secrets before import.
-/deploy/k8s/osmium-all-in-one.yaml
+/deploy/k8s/*-all-in-one.yaml
+/deploy/k8s/*-job.yaml
 /deploy/k8s/*.local.yaml
 /deploy/k8s/*.filled.yaml
