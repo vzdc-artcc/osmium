@@ -1,58 +1,57 @@
 -- ============================================================================
--- Osmium — one-time Postgres setup
+-- next-osmium — Postgres database setup / reset
 -- ============================================================================
--- Run this ONCE, as a Postgres SUPERUSER, against your existing Postgres
--- instance BEFORE deploying osmium.
+-- Run as a Postgres SUPERUSER (or the DB owner) against your Postgres instance.
+-- Connect to a DIFFERENT database than next-osmium (e.g. `postgres` on a normal
+-- server, or `defaultdb` on DigitalOcean managed Postgres) — you cannot drop or
+-- create the database you're currently connected to.
 --
--- osmium reuses the shared `db-secret` credentials (the SAME POSTGRES_USER the
--- website connects as), so all we need here is a NEW, SEPARATE `osmium`
--- database + the extensions osmium's migrations require. This is purely
--- additive — the website's database is never touched, so it cannot break
--- existing data. osmium's connection pool is also hard-capped at 10 connections,
--- so it won't exhaust a shared Postgres.
+-- The database name is `next-osmium` (hyphen ⇒ it must be double-quoted in DDL).
+-- osmium creates all of its own schemas (identity, access, org, training, events,
+-- feedback, media, routes, stats, integration, platform, web, email) on first
+-- startup via its embedded migrations — nothing else to create here.
 -- ============================================================================
 
--- 1) Create the osmium database, owned by the role osmium connects as (the
---    POSTGRES_USER value inside db-secret). Replace REPLACE_DB_USER with that
---    username.
+-- ── OPTIONAL RESET — uncomment to DROP the existing database first ───────────
+-- ⚠️  DESTRUCTIVE: deletes ALL next-osmium data. Scale the app to 0 first
+--     (`kubectl scale deployment/next-osmium --replicas=0`) so it releases its
+--     connections, then run these two lines:
 --
---    If that user is already the `postgres` superuser (common), you can drop the
---    OWNER clause entirely: CREATE DATABASE osmium;
---
---    (CREATE DATABASE cannot run inside a transaction/DO block. If the database
---    already exists Postgres will error — that is safe to ignore; just skip it.)
-CREATE DATABASE osmium OWNER "vzdc";
+-- SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+--  WHERE datname = 'next-osmium' AND pid <> pg_backend_pid();
+-- DROP DATABASE IF EXISTS "next-osmium";
 
--- 2) Install the required extensions (per-database; needs a superuser). osmium's
---    first migration also runs `CREATE EXTENSION IF NOT EXISTS`, but that path
---    requires superuser only when the extension is missing — pre-creating them
---    here means the app role never needs elevated rights.
---
---    In psql, `\connect` switches databases. In a GUI, open a new connection to
---    the `osmium` database and run the two CREATE EXTENSION lines.
-\connect osmium
+-- 1) Create the database, owned by the role in your DATABASE_URL (here "vzdc";
+--    drop the OWNER clause if that role is already the superuser). CREATE
+--    DATABASE cannot run in a transaction/DO block; if it already exists Postgres
+--    errors — safe to ignore.
+CREATE DATABASE "next-osmium" OWNER "vzdc";
+
+-- 2) Install the required extensions (per-database; needs a superuser). Migration
+--    0001 also runs `CREATE EXTENSION IF NOT EXISTS`, but pre-creating them here
+--    means the app role never needs elevated rights. `\connect` switches DB in
+--    psql; in a GUI, open a new connection to `next-osmium` and run these two.
+\connect "next-osmium"
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS citext;
 
 -- ----------------------------------------------------------------------------
 -- Verify (optional):
---   \l osmium        -- shows the DB, owned by REPLACE_DB_USER
---   \dx              -- (while connected to osmium) lists pgcrypto + citext
+--   \l next-osmium   -- shows the DB + owner
+--   \dx              -- (while connected to next-osmium) lists pgcrypto + citext
 -- ----------------------------------------------------------------------------
 --
--- osmium creates all of its own schemas (identity, access, org, training,
--- events, feedback, media, routes, stats, integration, platform, web, email)
--- automatically on first startup via its embedded migrations — nothing else to
--- run here.
+-- After this, (re)start next-osmium — with RUN_MIGRATIONS_ON_STARTUP=true it
+-- applies every migration to the fresh database on boot:
+--   kubectl scale deployment/next-osmium --replicas=1
+--   kubectl logs -f deploy/next-osmium      # migrations → "starting osmium api"
 --
--- Prefer a dedicated, least-privilege login instead of reusing the shared user?
--- Create a separate role and database, and put a full DATABASE_URL in
--- osmium-secret instead of building it from db-secret:
+-- Dedicated least-privilege login instead of reusing an existing role? Point
+-- next-osmium-secret's DATABASE_URL at it:
 --   CREATE ROLE osmium WITH LOGIN PASSWORD '...';
---   CREATE DATABASE osmium OWNER osmium;
---   \connect osmium
+--   CREATE DATABASE "next-osmium" OWNER osmium;
+--   \connect "next-osmium"
 --   CREATE EXTENSION IF NOT EXISTS pgcrypto;
 --   CREATE EXTENSION IF NOT EXISTS citext;
---   GRANT USAGE ON SCHEMA public TO osmium;
 -- ============================================================================
