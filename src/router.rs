@@ -1,5 +1,5 @@
 use axum::{
-    Router, middleware,
+    Router, extract::DefaultBodyLimit, middleware,
     routing::{delete, get, patch, post},
 };
 
@@ -511,7 +511,11 @@ pub fn build_router(state: AppState) -> Router {
             "/{file_id}/content",
             get(files::download_file_content).put(files::replace_file_content),
         )
-        .route("/{file_id}/signed-url", get(files::get_signed_download_url));
+        .route("/{file_id}/signed-url", get(files::get_signed_download_url))
+        // File uploads (POST / and PUT /{file_id}/content) carry the raw binary in
+        // the request body. Raise the limit above axum's 2 MB default to
+        // FILE_MAX_UPLOAD_BYTES; the handlers still enforce that ceiling exactly.
+        .layer(DefaultBodyLimit::max(files::max_upload_bytes() as usize));
 
     let publication_routes = Router::new()
         .route(
