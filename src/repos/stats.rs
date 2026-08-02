@@ -545,22 +545,30 @@ pub async fn list_online_controllers(
     // (logout_at is null) with a currently-active position (ended_at is null).
     // Sessions/activations are the post-0017 model that the stats sync writes;
     // the old `controller_positions` table it replaced is no longer populated.
+    //
+    // One row per controller: `distinct on (cid)` keeps their primary active
+    // position, falling back to the earliest active one if none is flagged
+    // primary (so a controller is never dropped). Outer query re-sorts by start.
     sqlx::query_as::<_, crate::models::OnlineControllerItem>(
         r#"
-        select
-            s.cid,
-            coalesce(u.display_name, s.real_name, s.cid::text) as display_name,
-            coalesce(m.rating, s.user_rating) as rating,
-            coalesce(a.default_callsign, a.position_name) as position,
-            a.started_at as start
-        from stats.controller_sessions s
-        join stats.controller_activations a
-            on a.session_id = s.id and a.ended_at is null
-        left join identity.users u on u.id = s.user_id
-        left join org.memberships m on m.user_id = u.id
-        where s.logout_at is null
-          and s.environment = 'live'
-        order by a.started_at asc
+        select cid, display_name, rating, position, start
+        from (
+            select distinct on (s.cid)
+                s.cid,
+                coalesce(u.display_name, s.real_name, s.cid::text) as display_name,
+                coalesce(m.rating, s.user_rating) as rating,
+                coalesce(a.default_callsign, a.position_name) as position,
+                a.started_at as start
+            from stats.controller_sessions s
+            join stats.controller_activations a
+                on a.session_id = s.id and a.ended_at is null
+            left join identity.users u on u.id = s.user_id
+            left join org.memberships m on m.user_id = u.id
+            where s.logout_at is null
+              and s.environment = 'live'
+            order by s.cid, a.is_primary desc, a.started_at asc
+        ) picked
+        order by start asc
         "#,
     )
     .fetch_all(pool)
