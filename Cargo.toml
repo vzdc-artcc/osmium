@@ -61,7 +61,7 @@ urlencoding = "2.1.3"
 # FAA preferred-routes ingest (Worker B) — unzip the NASR PFR CSV bundle. Only the
 # deflate codec is needed; default features (bzip2/zstd/aes) are disabled to keep
 # the dependency surface minimal.
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+zip = { version = "3.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tower = { version = "0.5.2", features = ["util"] }
