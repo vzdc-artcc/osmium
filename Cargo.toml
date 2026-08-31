@@ -53,7 +53,7 @@ maud = "0.27.0"
 # Inlines the email templates' <style> class rules onto elements so email clients
 # that strip <style> (Gmail/Outlook) still render the brand colors. default-features
 # off — we never load remote stylesheets during render.
-css-inline = { version = "0.16", default-features = false }
+css-inline = { version = "0.21", default-features = false }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 base64 = "0.22.1"
