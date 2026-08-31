@@ -56,7 +56,7 @@ maud = "0.27.0"
 css-inline = { version = "0.16", default-features = false }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
-base64 = "0.22.1"
+base64 = "0.23.0"
 urlencoding = "2.1.3"
 # FAA preferred-routes ingest (Worker B) — unzip the NASR PFR CSV bundle. Only the
 # deflate codec is needed; default features (bzip2/zstd/aes) are disabled to keep
