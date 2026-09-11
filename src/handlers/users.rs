@@ -196,7 +196,8 @@ pub async fn get_staff_position_holders(
     responses(
         (status = 200, description = "Visitor roster membership upserted", body = VisitArtccResponse),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks users.visit_artcc.request")
     )
 )]
 pub async fn visit_artcc(
@@ -268,6 +269,7 @@ pub async fn visit_artcc(
         (status = 200, description = "Current user refreshed from VATUSA", body = ManualVatusaRefreshResponseBody),
         (status = 400, description = "Invalid request"),
         (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks users.vatusa_refresh.self.request"),
         (status = 503, description = "VATUSA or database unavailable")
     )
 )]
@@ -343,7 +345,8 @@ pub async fn refresh_my_vatusa(
     tag = "users",
     responses(
         (status = 200, description = "Current user's visitor application, or null when absent", body = Option<VisitorApplicationItem>),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks users.visitor_applications.self.read")
     )
 )]
 pub async fn get_my_visitor_application(
@@ -376,7 +379,8 @@ pub async fn get_my_visitor_application(
     responses(
         (status = 200, description = "Visitor application submitted", body = VisitorApplicationItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks users.visitor_applications.self.request")
     )
 )]
 pub async fn create_visitor_application(
@@ -452,6 +456,7 @@ pub async fn create_visitor_application(
     responses(
         (status = 200, description = "Feedback for a user", body = UserFeedbackListResponse),
         (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Own feedback needs feedback.items_self.read; someone else's needs users.directory_private.read"),
         (status = 404, description = "User not found")
     )
 )]
@@ -474,7 +479,7 @@ pub async fn get_user_feedback(
             &state,
             Some(viewer),
             None,
-            PermissionPath::from_segments(["feedback", "items", "self"], PermissionAction::Read),
+            PermissionPath::from_segments(["feedback", "items_self"], PermissionAction::Read),
         )
         .await?;
     } else {

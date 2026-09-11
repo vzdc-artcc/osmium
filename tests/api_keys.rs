@@ -175,7 +175,7 @@ async fn service_account_without_integrations_stats_update_cannot_list_discord_c
     let bearer_response = app
         .bearer_request("GET", "/api/v1/admin/integrations/discord/configs", &secret)
         .await;
-    assert_status(&bearer_response, StatusCode::UNAUTHORIZED);
+    assert_status(&bearer_response, StatusCode::FORBIDDEN);
 
     app.cleanup().await;
 }
@@ -280,6 +280,85 @@ async fn api_key_lifecycle_works_end_to_end() {
         .bearer_request("GET", "/api/v1/auth/service-account/me", &secret)
         .await;
     assert_status(&revoked_bearer_response, StatusCode::UNAUTHORIZED);
+
+    app.cleanup().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn creating_a_key_with_a_permission_the_creator_lacks_is_forbidden() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let creator = app
+        .create_user(10000041, "Key Creator Without Grant", &["api_keys.create"])
+        .await;
+
+    let response = app
+        .json_request(
+            "POST",
+            "/api/v1/api-keys",
+            Some(&creator.session_token),
+            Some(json!({
+                "name": "Overreaching Key",
+                "permissions": {
+                    "auth": {
+                        "profile": ["read"]
+                    }
+                }
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
+
+    app.cleanup().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn updating_someone_elses_key_without_permission_is_forbidden() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let creator = app
+        .create_user(
+            10000042,
+            "Key Owner",
+            &["api_keys.create", "auth.profile.read"],
+        )
+        .await;
+    let bystander = app.create_user(10000043, "Bystander", &[]).await;
+
+    let create_response = app
+        .json_request(
+            "POST",
+            "/api/v1/api-keys",
+            Some(&creator.session_token),
+            Some(json!({
+                "name": "Owned Key",
+                "permissions": {
+                    "auth": {
+                        "profile": ["read"]
+                    }
+                }
+            })),
+        )
+        .await;
+    assert_status(&create_response, StatusCode::CREATED);
+    let create_body: Value = json_body(create_response).await;
+    let key_id = create_body["key"]["id"].as_str().unwrap().to_string();
+
+    let response = app
+        .json_request(
+            "PATCH",
+            &format!("/api/v1/api-keys/{key_id}"),
+            Some(&bystander.session_token),
+            Some(json!({ "name": "Hijacked" })),
+        )
+        .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
 
     app.cleanup().await;
 }

@@ -89,6 +89,59 @@ async fn file_upload_download_and_cdn_visibility_work() {
         .await;
     assert_status(&anonymous_private_response, StatusCode::UNAUTHORIZED);
 
+    // A different, authenticated user who holds the read permissions but has
+    // no ownership, role, or direct grant on this specific private file is
+    // authenticated-but-not-allowed, not unauthenticated.
+    let bystander = app
+        .create_user(
+            10000032,
+            "File Bystander",
+            &["files.assets.read", "files.content.read"],
+        )
+        .await;
+
+    let bystander_metadata_response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/files/{private_file_id}"),
+            Some(&bystander.session_token),
+            None,
+        )
+        .await;
+    assert_status(&bystander_metadata_response, StatusCode::FORBIDDEN);
+
+    let bystander_content_response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/files/{private_file_id}/content"),
+            Some(&bystander.session_token),
+            None,
+        )
+        .await;
+    assert_status(&bystander_content_response, StatusCode::FORBIDDEN);
+
+    // Same bystander, updating metadata or access policy on someone else's
+    // file without the update permissions.
+    let bystander_metadata_update_response = app
+        .json_request(
+            "PATCH",
+            &format!("/api/v1/files/{private_file_id}"),
+            Some(&bystander.session_token),
+            Some(json!({ "filename": "hijacked.txt" })),
+        )
+        .await;
+    assert_status(&bystander_metadata_update_response, StatusCode::FORBIDDEN);
+
+    let bystander_policy_update_response = app
+        .json_request(
+            "PATCH",
+            &format!("/api/v1/files/{private_file_id}"),
+            Some(&bystander.session_token),
+            Some(json!({ "is_public": true })),
+        )
+        .await;
+    assert_status(&bystander_policy_update_response, StatusCode::FORBIDDEN);
+
     app.cleanup().await;
 }
 

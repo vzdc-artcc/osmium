@@ -35,7 +35,7 @@ use crate::{
     tag = "data-export",
     responses(
         (status = 200, description = "The caller's personal-data export", body = DataExportDocument),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")
     )
 )]
 pub async fn export_my_data(
@@ -95,7 +95,8 @@ pub async fn export_my_data(
     tag = "data-export",
     responses(
         (status = 200, description = "Every on-roster controller's export document", body = MassDataExportDocument),
-        (status = 401, description = "Not authenticated or missing permission"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks users.data_export.read"),
         (status = 429, description = "Rate limited")
     )
 )]

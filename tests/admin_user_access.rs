@@ -66,7 +66,7 @@ async fn actor_cannot_add_permission_outside_their_own_scope() {
             })),
         )
         .await;
-    assert_status(&response, StatusCode::UNAUTHORIZED);
+    assert_status(&response, StatusCode::FORBIDDEN);
 
     let direct_count: i64 = sqlx::query_scalar(
         "select count(*) from access.user_permissions up join identity.users u on u.id = up.user_id where u.cid = $1",
@@ -169,7 +169,7 @@ async fn actor_cannot_remove_permission_outside_their_own_scope() {
             })),
         )
         .await;
-    assert_status(&response, StatusCode::UNAUTHORIZED);
+    assert_status(&response, StatusCode::FORBIDDEN);
 
     let still_granted: bool = sqlx::query_scalar(
         "select exists(select 1 from access.user_permissions up join identity.users u on u.id = up.user_id where u.cid = $1 and up.permission_name = 'auth.profile.read')",

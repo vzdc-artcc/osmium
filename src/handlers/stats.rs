@@ -462,7 +462,7 @@ pub async fn list_controller_events(
     tag = "stats",
     responses(
         (status = 200, description = "Statistics prefixes", body = StatisticsPrefixes),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks stats.prefixes.read"),
         (status = 404, description = "Statistics prefixes not configured")
     )
 )]
@@ -488,7 +488,7 @@ pub async fn get_statistics_prefixes(
     responses(
         (status = 200, description = "Statistics prefixes updated", body = StatisticsPrefixes),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks stats.prefixes.update")
     )
 )]
 pub async fn update_statistics_prefixes(

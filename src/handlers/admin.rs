@@ -51,7 +51,7 @@ const DEFAULT_VATUSA_FACILITY_ID: &str = "ZDC";
     tag = "admin",
     responses(
         (status = 200, description = "Effective access for the current staff user", body = AclDebugBody),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks access.self.read")
     )
 )]
 pub async fn acl_debug(
@@ -79,7 +79,7 @@ pub async fn acl_debug(
     ),
     responses(
         (status = 200, description = "Access details for a user", body = UserAccessBody),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks access.users.read"),
         (status = 404, description = "User not found")
     )
 )]
@@ -106,7 +106,7 @@ pub async fn get_user_access(
     tag = "admin",
     responses(
         (status = 200, description = "Assignable roles and permissions", body = AccessCatalogBody),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks access.catalog.read")
     )
 )]
 pub async fn get_access_catalog(
@@ -127,7 +127,7 @@ pub async fn get_access_catalog(
     params(ListAuditLogsQuery),
     responses(
         (status = 200, description = "Audit log rows", body = AuditLogListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks audit.logs.read")
     )
 )]
 pub async fn list_audit_logs(
@@ -218,7 +218,7 @@ pub async fn list_audit_logs(
     responses(
         (status = 200, description = "Updated controller status", body = SetControllerStatusBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update"),
         (status = 404, description = "User not found")
     )
 )]
@@ -306,7 +306,7 @@ pub async fn set_user_controller_status(
     ),
     responses(
         (status = 200, description = "User's self-service opt-out flags", body = UserFlagsBody),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.flags.read"),
         (status = 404, description = "User not found")
     )
 )]
@@ -337,7 +337,7 @@ pub async fn get_user_flags(
     responses(
         (status = 200, description = "Updated opt-out flags", body = UserFlagsBody),
         (status = 400, description = "Invalid request (empty reason)"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.flags.update"),
         (status = 404, description = "User not found")
     )
 )]
@@ -407,6 +407,7 @@ pub async fn update_user_flags(
         (status = 200, description = "Updated profile", body = MeProfileBody),
         (status = 400, description = "Invalid request"),
         (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks users.flags.update"),
         (status = 404, description = "User not found")
     )
 )]
@@ -479,7 +480,7 @@ pub async fn admin_update_user_profile(
     responses(
         (status = 200, description = "Reassigned operating initials", body = UpdateOperatingInitialsResponse),
         (status = 400, description = "Invalid request, or initials already in use"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.operating_initials.update"),
         (status = 404, description = "User not found")
     )
 )]
@@ -550,7 +551,7 @@ pub async fn reassign_user_operating_initials(
     responses(
         (status = 200, description = "Staff positions after the change", body = StaffPositionsResponse),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.staff_positions.update"),
         (status = 404, description = "User not found")
     )
 )]
@@ -589,7 +590,7 @@ pub async fn assign_staff_position(
     responses(
         (status = 200, description = "Staff positions after the change", body = StaffPositionsResponse),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.staff_positions.update"),
         (status = 404, description = "User not found")
     )
 )]
@@ -679,7 +680,7 @@ async fn set_staff_position_for_cid(
     responses(
         (status = 200, description = "User refreshed from VATUSA", body = ManualVatusaRefreshResponseBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.vatusa_refresh.request"),
         (status = 503, description = "VATUSA or database unavailable")
     )
 )]
@@ -756,7 +757,7 @@ pub async fn refresh_user_vatusa(
     responses(
         (status = 200, description = "Visitor applications", body = VisitorApplicationListResponse),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.visitor_applications.read")
     )
 )]
 pub async fn list_visitor_applications(
@@ -813,7 +814,7 @@ pub async fn list_visitor_applications(
     responses(
         (status = 200, description = "Visitor application updated", body = VisitorApplicationItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.visitor_applications.decide"),
         (status = 404, description = "Visitor application or user not found")
     )
 )]
@@ -987,7 +988,7 @@ pub async fn get_user_overview(
     ),
     responses(
         (status = 200, description = "A user's durable request IP history (spec 011)", body = crate::repos::ip_request_log::IpRequestLogListResponse),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.directory_private.read"),
         (status = 404, description = "User not found")
     )
 )]
@@ -1030,7 +1031,7 @@ pub async fn get_user_ip_history(
     params(("cid" = i64, Path, description = "VATSIM CID")),
     responses(
         (status = 200, description = "A user's active auth sessions (metadata only, no tokens)", body = UserSessionListResponse),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.sessions.read"),
         (status = 404, description = "User not found")
     )
 )]
@@ -1058,7 +1059,7 @@ pub async fn list_user_sessions(
     ),
     responses(
         (status = 200, description = "Session revoked; returns the remaining active sessions", body = UserSessionListResponse),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.sessions.delete"),
         (status = 404, description = "User or session not found")
     )
 )]
@@ -1102,7 +1103,7 @@ pub async fn revoke_user_session(
     params(("cid" = i64, Path, description = "VATSIM CID")),
     responses(
         (status = 200, description = "All the user's sessions revoked; returns the (now empty) active list", body = UserSessionListResponse),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.sessions.delete"),
         (status = 404, description = "User not found")
     )
 )]
@@ -1250,7 +1251,8 @@ async fn sync_approved_visitor_to_vatusa(cid: i64) -> Result<(), ApiError> {
     responses(
         (status = 200, description = "Updated user access", body = UserAccessBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks access.users.update, or attempted to grant/revoke a permission or role outside the actor's own effective set"),
         (status = 404, description = "User not found")
     )
 )]
@@ -1397,7 +1399,7 @@ async fn validate_permission_changes_are_within_actor_scope(
 
     for changed in requested_set.symmetric_difference(&existing_set) {
         if !actor_set.contains(changed) {
-            return Err(ApiError::Unauthorized);
+            return Err(ApiError::Forbidden);
         }
     }
 

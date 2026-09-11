@@ -57,7 +57,7 @@ pub struct ApiMessageBody {
     responses(
         (status = 201, description = "Incident created", body = IncidentItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks feedback.items.create")
     )
 )]
 pub async fn create_incident(
@@ -124,7 +124,7 @@ pub async fn create_incident(
     params(ListIncidentsQuery),
     responses(
         (status = 200, description = "Incidents involving the current user", body = IncidentListResponse),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks feedback.items_self.read")
     )
 )]
 pub async fn list_my_incidents(
@@ -168,7 +168,7 @@ pub async fn list_my_incidents(
     params(ListIncidentsQuery),
     responses(
         (status = 200, description = "Incident list for staff review", body = IncidentListResponse),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks feedback.items.decide")
     )
 )]
 pub async fn admin_list_incidents(
@@ -207,7 +207,7 @@ pub async fn admin_list_incidents(
     ),
     responses(
         (status = 200, description = "Incident detail", body = IncidentItem),
-        (status = 401, description = "Not authenticated"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks feedback.items.decide"),
         (status = 404, description = "Incident not found")
     )
 )]
@@ -235,7 +235,7 @@ pub async fn admin_get_incident(
     responses(
         (status = 200, description = "Updated incident", body = IncidentItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks feedback.items.decide"),
         (status = 404, description = "Incident not found")
     )
 )]

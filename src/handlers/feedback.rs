@@ -32,7 +32,7 @@ use crate::{
     responses(
         (status = 201, description = "Feedback created", body = FeedbackItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks feedback.items.create"),
         (status = 404, description = "Target user not found")
     )
 )]
@@ -109,7 +109,8 @@ pub async fn create_feedback(
     params(FeedbackListQuery),
     responses(
         (status = 200, description = "Feedback list", body = FeedbackListResponse),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks feedback.items.read and feedback.items_self.read")
     )
 )]
 pub async fn list_feedback(
@@ -130,12 +131,12 @@ pub async fn list_feedback(
         PermissionAction::Read,
     ));
     let can_read_self = permissions.contains(&PermissionPath::from_segments(
-        ["feedback", "items", "self"],
+        ["feedback", "items_self"],
         PermissionAction::Read,
     ));
 
     if !can_read_all && !can_read_self {
-        return Err(ApiError::Unauthorized);
+        return Err(ApiError::Forbidden);
     }
 
     let pagination =
@@ -265,7 +266,7 @@ pub async fn get_feedback(
     responses(
         (status = 200, description = "Feedback decision applied", body = FeedbackItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks feedback.items.decide"),
         (status = 404, description = "Feedback record not found")
     )
 )]

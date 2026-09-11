@@ -197,7 +197,7 @@ async fn assignment_request_self_cancel_and_admin_delete_work() {
             None,
         )
         .await;
-    assert_status(&unauthorized_delete_response, StatusCode::UNAUTHORIZED);
+    assert_status(&unauthorized_delete_response, StatusCode::FORBIDDEN);
 
     // ...but staff holding the admin delete permission can.
     let admin_delete_response = app
@@ -331,7 +331,7 @@ async fn assignment_request_manual_creation_requires_create_permission() {
             Some(json!({"student_id": student.id})),
         )
         .await;
-    assert_status(&unauthorized_response, StatusCode::UNAUTHORIZED);
+    assert_status(&unauthorized_response, StatusCode::FORBIDDEN);
 
     // Staff holding the create permission can, and can backdate submitted_at.
     let backdated = "2024-01-15T12:00:00Z";
@@ -469,7 +469,7 @@ async fn release_request_manual_creation_requires_create_permission() {
             Some(json!({"student_id": student.id})),
         )
         .await;
-    assert_status(&unauthorized_response, StatusCode::UNAUTHORIZED);
+    assert_status(&unauthorized_response, StatusCode::FORBIDDEN);
 
     // The same trainer can still submit for themselves (self-request permission only).
     let self_response = app

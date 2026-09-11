@@ -68,7 +68,7 @@ pub struct StartImpersonationRequest {
     tag = "auth",
     responses(
         (status = 200, description = "Current authenticated user session", body = MeBody),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")
     )
 )]
 pub async fn me(
@@ -92,7 +92,7 @@ pub async fn me(
     responses(
         (status = 200, description = "Updated current user profile", body = MeBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update")
     )
 )]
 pub async fn patch_me(
@@ -151,7 +151,7 @@ pub async fn patch_me(
     tag = "auth",
     responses(
         (status = 200, description = "Current user's TeamSpeak UIDs", body = [TeamSpeakUidBody]),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.teamspeak_uids.read")
     )
 )]
 pub async fn list_my_teamspeak_uids(
@@ -176,7 +176,7 @@ pub async fn list_my_teamspeak_uids(
     request_body(content = TeamSpeakLookupRequest, description = "TeamSpeak client UID to resolve to a controller"),
     responses(
         (status = 200, description = "Controller identity + live position for the UID", body = TeamSpeakLookupResponse),
-        (status = 401, description = "Not authenticated"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.teamspeak_uids.read"),
         (status = 404, description = "No controller linked to that UID")
     )
 )]
@@ -204,7 +204,7 @@ pub async fn lookup_teamspeak_controller(
     responses(
         (status = 200, description = "Added TeamSpeak UID", body = TeamSpeakUidBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.teamspeak_uids.create")
     )
 )]
 pub async fn create_my_teamspeak_uid(
@@ -238,7 +238,7 @@ pub async fn create_my_teamspeak_uid(
     responses(
         (status = 204, description = "Deleted TeamSpeak UID"),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.teamspeak_uids.delete")
     )
 )]
 pub async fn delete_my_teamspeak_uid(
@@ -662,7 +662,7 @@ async fn record_impersonation_audit(
     tag = "auth",
     responses(
         (status = 204, description = "Session revoked"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.sessions.delete")
     )
 )]
 pub async fn logout(
