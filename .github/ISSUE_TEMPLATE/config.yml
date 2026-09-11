@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Issue guidelines
+    url: https://github.com/vzdc-artcc/osmium/blob/master/.github/ISSUE_GUIDELINES.md
+    about: How issues are structured, labelled, and tracked on the board. Read this before filing by hand.
+  - name: Security vulnerability
+    url: https://github.com/vzdc-artcc/osmium/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue for one.
+  - name: Website bug or request
+    url: https://github.com/vzdc-artcc/website/issues/new/choose
+    about: For the vZDC website itself. This repo is the API behind it.

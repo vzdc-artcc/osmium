@@ -346,7 +346,39 @@ outage take a request path or a worker loop down.
 
 ---
 
-## 11. Git and PR workflow
+## 11. Issue tracking
+
+Work is tracked as GitHub issues on `vzdc-artcc/osmium` and on the shared
+`Osmium / Website` board (project **#7**, owner `vzdc-artcc`). All interaction
+goes through the `gh` CLI.
+
+**`.github/ISSUE_GUIDELINES.md` is binding, and it is not optional reading
+before you file, comment on, or pick up an issue.** It covers the title and body
+structure, the four-comment budget, the `#123 [summary] (Status)` reference
+format, the eleven board columns and which three an agent may set, the label
+taxonomy, the four tests a follow-up must pass, and how to search for duplicates.
+It is not restated here.
+
+The four things most often got wrong:
+
+1. **Filing is two steps.** `gh issue create` does not put the issue on the
+   board, and `gh project item-add` leaves its Status empty, which puts it in no
+   column at all. Add it and set `Triaging`, then read the status back — both
+   commands print nothing on success, so silence is not evidence.
+2. **Priority is never yours to set.** Propose a grade, let the maintainer
+   choose.
+3. **A defect you introduced is yours to fix now**, on this branch, whatever its
+   grade. Follow-ups are only for pre-existing defects outside the issue's
+   logical scope that are not already filed.
+4. **No AI attribution in issue comments either.** Comments post as the account
+   owner and read as written by them.
+
+Non-developers file through the forms in `.github/ISSUE_TEMPLATE/`, which
+produce a conforming issue without anyone having to read the guidelines first.
+
+---
+
+## 12. Git and PR workflow
 
 - Work happens on a branch. Do not commit directly to `master`.
 - Do not create or switch branches on the user's behalf without being asked.
@@ -365,10 +397,13 @@ Image publishing: `master` publishes `ghcr.io/vzdc-artcc/osmium:latest` and
 
 ---
 
-## 12. Read more
+## 13. Read more
 
 | Topic | File |
 | --- | --- |
+| Issue guidelines and the board | `.github/ISSUE_GUIDELINES.md` |
+| Issue forms | `.github/ISSUE_TEMPLATE/` |
+| Label taxonomy | `.github/labels.yml` |
 | Local development | `docs/getting-started/local-development.md` |
 | Configuration | `docs/getting-started/configuration.md` |
 | Migrations | `docs/getting-started/migrations.md` |

@@ -1,0 +1,123 @@
+name: Bug report
+description: Something in the API or a background job behaves wrong
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please search open **and closed** issues first —
+        a closed duplicate usually means the question has already been answered.
+
+        Give the issue a title that is a sentence describing the defect, not a
+        component name. `Roster sync drops visiting controllers on a VATUSA 502`,
+        not `Roster sync`.
+
+  - type: input
+    id: reporter-cid
+    attributes:
+      label: Your VATSIM CID
+      description: So we can reach you on Discord if we need more detail.
+      placeholder: "1234567"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: The behaviour you actually saw. Be concrete.
+      placeholder: |
+        Revoking an API key does not take effect immediately. The key keeps
+        authenticating successfully for about a minute after the revoke returns 204.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-should-happen
+    attributes:
+      label: What should happen instead
+      description: Do not make us infer this from the complaint.
+      placeholder: |
+        The first request after the revoke should be rejected with 401.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How to reproduce
+      description: >
+        Numbered steps a stranger can follow. Give route paths, not hostnames —
+        `POST /api/v1/api-keys`, not `https://api.vzdc.org/...`.
+      placeholder: |
+        1. POST /api/v1/api-keys as a user holding api_keys.create, keep the secret
+        2. GET /api/v1/me with `Authorization: Bearer <secret>` — 200
+        3. DELETE /api/v1/api-keys/{id} — 204
+        4. Repeat step 2 immediately — still 200, expected 401
+    validations:
+      required: true
+
+  - type: textarea
+    id: actor
+    attributes:
+      label: Who was signed in
+      description: >
+        Osmium's behaviour branches on permissions constantly, so this matters.
+        Say which role or permissions the actor held, or that it was a service
+        account or API key.
+      placeholder: |
+        A normal user holding only the baseline USER role, plus api_keys.create.
+        Also reproduced as SERVER_ADMIN.
+    validations:
+      required: true
+
+  - type: textarea
+    id: response
+    attributes:
+      label: Response or error output
+      description: >
+        Paste the actual status code and body, and any relevant log lines. This
+        is automatically formatted as code, no backticks needed.
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where did you see it
+      options:
+        - Production
+        - Dev / staging
+        - Local development
+    validations:
+      required: true
+
+  - type: input
+    id: when
+    attributes:
+      label: When did it happen
+      description: >
+        Approximate date and time with a timezone. We need this to find the
+        request in the logs.
+      placeholder: "2026-09-10 14:20 UTC"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Anything else
+      description: Record IDs, CIDs involved, how often it happens, anything you already ruled out.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched open and closed issues and did not find this one
+          required: true
+        - label: I have described what should happen, not only what does happen
+          required: true

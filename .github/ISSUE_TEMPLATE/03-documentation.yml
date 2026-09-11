@@ -1,0 +1,61 @@
+name: Documentation
+description: Something in the docs is wrong, missing, or out of date
+labels: ["type:documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This covers the narrative docs under `docs/`, the OpenAPI reference at
+        `/docs/api/v1`, and the README.
+
+        Remember that a markdown file under `docs/` is only served once it is
+        registered in `DOC_PAGES` in `src/docs/markdown_site.rs` — a page that
+        404s may be a missing registration rather than a missing file.
+
+  - type: input
+    id: page
+    attributes:
+      label: Which page
+      description: A path in the repo, or the served docs URL.
+      placeholder: "docs/architecture/auth-and-access.md, or /docs/api/api-keys"
+    validations:
+      required: true
+
+  - type: textarea
+    id: says
+    attributes:
+      label: What it currently says
+      description: Quote the passage. This is automatically formatted as code.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: should-say
+    attributes:
+      label: What is actually true
+      description: >
+        The correct behaviour, and how you know — a route, a function, a
+        migration, or a response you observed.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem
+      options:
+        - Wrong — it states something false
+        - Out of date — it was true once
+        - Missing — the behaviour is undocumented
+        - Unclear — it is correct but cannot be followed
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched open and closed issues and did not find this one
+          required: true
