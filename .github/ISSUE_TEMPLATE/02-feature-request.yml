@@ -1,0 +1,97 @@
+name: Feature request
+description: A new capability, an endpoint, or an enhancement to an existing one
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search open **and closed** issues first, and check the board —
+        this may already be planned.
+
+        Give the issue a title that is a sentence describing the outcome, not
+        a component name. `Expose solo certification expiry on the roster endpoint`,
+        not `Solo certs`.
+
+  - type: input
+    id: reporter-cid
+    attributes:
+      label: Your VATSIM CID
+      description: So we can reach you on Discord if we need more detail.
+      placeholder: "1234567"
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What should the system do
+      description: The outcome you want, described as behaviour rather than as an implementation.
+      placeholder: |
+        The roster endpoint should include each controller's solo certification
+        expiry date, so the website can show it without a second request per row.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it needed
+      description: >
+        What situation makes this necessary, who it affects, and what people do
+        today instead.
+      placeholder: |
+        Training staff currently open each controller individually to check whether
+        a solo is about to lapse. With 24 controllers on the roster that is 24 page
+        loads a week, and expiries get missed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: consumers
+    attributes:
+      label: Who consumes it
+      description: >
+        Osmium is a shared backend. Say which clients need this — the website,
+        a bot, an admin surface, a service account, or something not built yet.
+      placeholder: |
+        The website roster page. A Discord bot reminder job would use the same field.
+    validations:
+      required: true
+
+  - type: textarea
+    id: access
+    attributes:
+      label: Who should be allowed to see or do this
+      description: >
+        Access here is always an explicit permission grant. Say who should have
+        it, even roughly — "any signed-in controller", "training staff only",
+        "server admin only".
+      placeholder: |
+        Anyone who can already read the roster. The expiry date is not sensitive.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Other ways to solve this, or how another system does it.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Anything else
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched open and closed issues and did not find this one
+          required: true
+        - label: I have described an outcome, not a preferred implementation
+          required: true

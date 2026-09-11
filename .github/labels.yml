@@ -1,0 +1,105 @@
+# Canonical label set for vzdc-artcc/osmium.
+#
+# Synced by .github/workflows/labels.yml on push to master. Add labels here, not
+# through the GitHub UI, or the next sync run will not know about them.
+#
+# skip-delete is on in the workflow, so labels absent from this file are left
+# alone rather than removed. That preserves GitHub's default labels on
+# historical issues. Those defaults are legacy — do not apply them to new work.
+
+# --- Type: what is it? ---
+- name: "type:bug"
+  color: d73a4a
+  description: Behaves wrong
+- name: "type:feature"
+  color: a2eeef
+  description: New capability or enhancement
+- name: "type:chore"
+  color: fef2c0
+  description: Tooling, deps, config, housekeeping
+- name: "type:documentation"
+  color: 0075ca
+  description: Docs, OpenAPI, or specs
+
+# --- Area: which part of osmium? ---
+- name: "area:access"
+  color: 5319e7
+  description: Identity, auth, permissions, roles, API keys, audit, impersonation
+- name: "area:roster"
+  color: 0e8a16
+  description: Controllers, certifications, LOAs, solo certs, staff positions
+- name: "area:training"
+  color: 1f77b4
+  description: Assignments, requests, sessions, appointments, progressions
+- name: "area:events"
+  color: 17becf
+  description: Events, positions, staffing, event ops
+- name: "area:feedback"
+  color: e99695
+  description: Controller feedback and incident reports
+- name: "area:publications"
+  color: b57edc
+  description: Publications, files, and CDN delivery
+- name: "area:stats"
+  color: fbca04
+  description: Statistics and per-environment connection sync
+- name: "area:email"
+  color: d4a5a5
+  description: Transactional email, templates, preferences, outbox
+- name: "area:integrations"
+  color: 9146ff
+  description: VATSIM, VATUSA, Discord, TeamSpeak, FAA routes
+- name: "area:jobs"
+  color: 2ea043
+  description: Background workers and scheduled sync
+- name: "area:api"
+  color: c5def5
+  description: Routing, OpenAPI, docs site, pagination, error contract
+- name: "area:database"
+  color: 7057ff
+  description: Schemas, migrations, views, query layer
+- name: "area:infra"
+  color: e4e669
+  description: Build, CI, Docker, deploy, tooling
+
+# --- Priority: set by the maintainer, never by an agent ---
+- name: "priority:critical"
+  color: 7c0000
+  description: Production broken or data at risk
+- name: "priority:high"
+  color: b60205
+  description: Major or blocking; next up
+- name: "priority:medium"
+  color: fbca04
+  description: Scheduled, not urgent
+- name: "priority:low"
+  color: c2e0c6
+  description: Minor; opportunistic
+- name: "priority:trivial"
+  color: ededed
+  description: Nitpick
+
+# --- Modifiers ---
+- name: "technical-debt"
+  color: d4c5f9
+  description: Pre-existing defect, filed per the four scope tests
+- name: "blocked-by-code"
+  color: 5319e7
+  description: Parked; needs an unbuilt subsystem or another branch
+- name: "good first issue"
+  color: 7057ff
+  description: Good for newcomers
+- name: "help wanted"
+  color: 008672
+  description: Extra attention is needed
+
+# --- Dependabot ---
+- name: "dependencies"
+  color: 0366d6
+  description: Dependency updates
+- name: "rust"
+  color: dea584
+  description: Rust or Cargo changes
+- name: "github_actions"
+  color: 000000
+  description: GitHub Actions workflow changes
