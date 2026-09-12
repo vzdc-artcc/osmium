@@ -494,7 +494,7 @@ pub async fn import_file_from_url(
     responses(
         (status = 200, description = "File metadata", body = FileAsset),
         (status = 401, description = "Not authenticated"),
-        (status = 403, description = "Not public, owned, role-granted, or directly granted to the caller, and caller lacks files.assets.read"),
+        (status = 403, description = "Lacks files.assets.read, checked before ownership, public status, or a role grant, none of which substitute for holding it"),
         (status = 404, description = "File not found")
     )
 )]
@@ -526,7 +526,7 @@ pub async fn get_file_metadata(
         (status = 200, description = "File content stream"),
         (status = 206, description = "Partial file content"),
         (status = 401, description = "Not authenticated"),
-        (status = 403, description = "Not public, owned, role-granted, or directly granted to the caller, and caller lacks files.content.read"),
+        (status = 403, description = "Lacks files.content.read, checked before ownership, public status, or a role grant, none of which substitute for holding it"),
         (status = 404, description = "File not found")
     )
 )]
@@ -572,7 +572,7 @@ pub async fn download_file_content(
     responses(
         (status = 200, description = "Signed download URL", body = SignedUrlResponse),
         (status = 401, description = "Not authenticated"),
-        (status = 403, description = "Not public, owned, role-granted, or directly granted to the caller, and caller lacks files.content.read"),
+        (status = 403, description = "Lacks files.content.read, checked before ownership, public status, or a role grant, none of which substitute for holding it"),
         (status = 404, description = "File not found")
     )
 )]
@@ -644,7 +644,7 @@ pub async fn get_signed_download_url(
         (status = 200, description = "CDN file download"),
         (status = 206, description = "Partial CDN file download"),
         (status = 401, description = "Not authenticated"),
-        (status = 403, description = "Not public, owned, role-granted, or directly granted to the caller, and caller lacks files.content.read"),
+        (status = 403, description = "Lacks files.content.read, checked before ownership, public status, or a role grant, none of which substitute for holding it"),
         (status = 404, description = "File not found")
     )
 )]
