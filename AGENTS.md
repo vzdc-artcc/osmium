@@ -217,6 +217,19 @@ mutation surface are refused with `403`. Durable audit rows are attributed to
 the **impersonator**, never the impersonated user — `resolve_audit_actor` does
 this via `audit_actor_user_id()`. Do not bypass it.
 
+**`access.user_permissions` rows are not all grants.** `granted = false` is a
+real, load-bearing deny-override — `access.v_effective_user_permissions`
+subtracts it from role-derived permissions, so it can turn off a permission a
+role would otherwise hand a user. Any function that provisions or tops up a
+user's permissions (a never-logged-in account, a demoted role, a baseline
+reseed) must not blanket-delete a user's existing rows to do it, or it silently
+converts an explicit deny into a grant. `access_repo::grant_missing_permissions`
+already does this correctly — additive, `ON CONFLICT DO NOTHING`, written
+specifically to preserve an explicit revoke — and is the pattern to reuse
+before reaching for `replace_user_permissions`, which is a full reset and
+correct only where a full reset is actually intended (a fresh signup, a role
+demotion with nothing else to preserve).
+
 ---
 
 ## 7. Database and migrations
