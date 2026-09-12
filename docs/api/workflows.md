@@ -32,6 +32,9 @@ Self-service routes:
 - `GET /api/v1/sua/{mission_id}` (public, no auth required — `mission_id` may be the internal id or the human-readable `mission_number`)
 - `DELETE /api/v1/sua/{mission_id}`
 - `GET /api/v1/sua/upcoming` (public, no auth required)
+- `GET /api/v1/roster-certifications` (public, no auth required — same data as the admin list below minus LOA status; backs the signed-out roster pages)
+- `GET /api/v1/certification-types` (public, no auth required — same reference catalog as the admin list below)
+- `GET /api/v1/solo-certifications` (public, no auth required — narrower response than the admin list below; drops `id`, `user_id`, and `granted_by_actor_id`)
 
 Administrative routes:
 
@@ -41,6 +44,7 @@ Administrative routes:
 - `GET /api/v1/admin/loa`
 - `PATCH /api/v1/admin/loa/{loa_id}/decision`
 - `POST /api/v1/admin/loa/expire-run`
+- `GET /api/v1/admin/roster-certifications`
 - `GET /api/v1/admin/solo-certifications`
 - `POST /api/v1/admin/solo-certifications`
 - `PATCH /api/v1/admin/solo-certifications/{solo_id}`
@@ -82,6 +86,7 @@ Example create body:
 - `PATCH /api/v1/admin/certification-types/order` accepts `{ "items": [{ "id", "order" }] }` and rewrites `sort_order`
 - `POST /api/v1/users/{cid}/certifications` bulk-saves a controller's grid: `{ "certifications": [{ "certification_type_id", "certification_option" }], "dossier_message" }`. Each entry upserts on `(user_id, certification_type_id)`; a non-empty `dossier_message` is required and written to the controller's dossier
 - roster sync auto-grants `UNRESTRICTED` for every `auto_assign_unrestricted` type to controllers rated S1+ who do not already hold a non-`NONE` option for it
+- `GET /api/v1/roster-certifications`, `GET /api/v1/certification-types`, and `GET /api/v1/solo-certifications` are public reads for the signed-out roster pages, alongside their admin-gated equivalents above — same repo calls, no session required. `roster-certifications` drops the admin response's `has_approved_loa` field (LOA status is staff-only elsewhere); `solo-certifications` drops `id`, `user_id`, and `granted_by_actor_id`
 
 ## Solo Certification Notes
 

@@ -663,6 +663,18 @@ pub fn build_router(state: AppState) -> Router {
             get(users::get_staff_position_holders),
         )
         .route(
+            "/roster-certifications",
+            get(org::list_roster_certifications_public),
+        )
+        .route(
+            "/certification-types",
+            get(org::list_certification_types_public),
+        )
+        .route(
+            "/solo-certifications",
+            get(org::list_solo_certifications_public),
+        )
+        .route(
             "/users/{cid}/solo-certifications",
             get(org::get_user_solo_certifications),
         )

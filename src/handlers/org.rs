@@ -30,10 +30,12 @@ use crate::{
         CreateStaffingRequestRequest, CreateSuaRequest, DecideLoaRequest, JobDetailResponse,
         JobRunItem, JobRunResponse, JobStatusItem, ListLoasQuery, ListSoloCertificationsQuery,
         ListStaffingRequestsQuery, ListSuaQuery, LoaItem, LoaListResponse, PaginationMeta,
-        PaginationQuery, PublicSuaMissionItem, PurgeCandidateItem, PurgeCandidatesQuery,
-        PurgeCandidatesResponse, RosterCertificationsResponse, SaveCertificationsRequest,
-        SoloCertificationItem, SoloCertificationListResponse, StaffingRequestItem,
-        StaffingRequestListResponse, SuaBlockItem, SuaListResponse, UpcomingSuaMissionsResponse,
+        PaginationQuery, PublicRosterCertificationItem, PublicRosterCertificationsResponse,
+        PublicSoloCertificationItem, PublicSoloCertificationListResponse, PublicSuaMissionItem,
+        PurgeCandidateItem, PurgeCandidatesQuery, PurgeCandidatesResponse,
+        RosterCertificationsResponse, SaveCertificationsRequest, SoloCertificationItem,
+        SoloCertificationListResponse, StaffingRequestItem, StaffingRequestListResponse,
+        SuaBlockItem, SuaListResponse, UpcomingSuaMissionsResponse,
         UpdateCertificationTypeOrderRequest, UpdateLoaRequest, UpdateSoloCertificationRequest,
     },
     repos::{
@@ -445,6 +447,44 @@ pub async fn list_certification_types(
     Ok(ApiJson::new(CertificationTypeListResponse { items }, time))
 }
 
+/// Public read for the signed-out roster pages, alongside the admin-gated
+/// list above — same data, same repo call, no session required. Roster
+/// certification badges and solo endorsements are public by policy, like the
+/// roster membership list itself; only the admin write side stays gated. LOA
+/// status is dropped through a narrower response type — see
+/// `PublicRosterCertificationItem`.
+#[utoipa::path(get, path = "/api/v1/roster-certifications", tag = "workflows", responses((status = 200, description = "Per-controller roster cert/solo summary", body = PublicRosterCertificationsResponse)))]
+pub async fn list_roster_certifications_public(
+    State(state): State<AppState>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<PublicRosterCertificationsResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let items = certifications::list_roster_certifications(pool).await?;
+    Ok(ApiJson::new(
+        PublicRosterCertificationsResponse {
+            items: items
+                .into_iter()
+                .map(PublicRosterCertificationItem::from)
+                .collect(),
+        },
+        time,
+    ))
+}
+
+/// Public read for the signed-out roster pages, alongside the admin-gated
+/// list above — same data, same repo call, no session required. Reference
+/// catalog data (type names and allowed options), needed to label the
+/// roster's certification badges meaningfully.
+#[utoipa::path(get, path = "/api/v1/certification-types", tag = "workflows", responses((status = 200, description = "Certification types with allowed options", body = CertificationTypeListResponse)))]
+pub async fn list_certification_types_public(
+    State(state): State<AppState>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<CertificationTypeListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let items = certifications::list_certification_types(pool).await?;
+    Ok(ApiJson::new(CertificationTypeListResponse { items }, time))
+}
+
 #[utoipa::path(post, path = "/api/v1/admin/certification-types", tag = "workflows", request_body = CreateOrUpdateCertificationTypeRequest, responses((status = 200, description = "Created or updated certification type", body = CertificationTypeItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Certification type not found"), (status = 409, description = "Removing an option a lesson still grants")))]
 pub async fn create_or_update_certification_type(
     State(state): State<AppState>,
@@ -684,6 +724,42 @@ pub async fn admin_list_solo_certifications(
     Ok(ApiJson::new(
         SoloCertificationListResponse {
             items,
+            pagination: meta,
+        },
+        time,
+    ))
+}
+
+/// Public read for the signed-out roster pages, alongside the admin-gated
+/// list above — same repo call, no session required, but through a
+/// narrower response type: the admin list carries `id`, `user_id`, and
+/// `granted_by_actor_id`, none of which belong in a signed-out response.
+#[utoipa::path(get, path = "/api/v1/solo-certifications", tag = "workflows", params(ListSoloCertificationsQuery), responses((status = 200, description = "Solo certification list", body = PublicSoloCertificationListResponse)))]
+pub async fn list_solo_certifications_public(
+    State(state): State<AppState>,
+    Query(query): Query<ListSoloCertificationsQuery>,
+    time: ResponseTimeContext,
+) -> Result<ApiJson<PublicSoloCertificationListResponse>, ApiError> {
+    let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let (items, total) = solo_certs::list_solo_certifications(
+        pool,
+        query.cid,
+        query.cid,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
+
+    let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
+    Ok(ApiJson::new(
+        PublicSoloCertificationListResponse {
+            items: items
+                .into_iter()
+                .map(PublicSoloCertificationItem::from)
+                .collect(),
             pagination: meta,
         },
         time,
