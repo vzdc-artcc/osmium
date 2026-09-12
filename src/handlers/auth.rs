@@ -816,10 +816,19 @@ pub(crate) const BASELINE_SELF_SERVICE_PERMISSIONS: &[&str] = &[
     "events.positions.self.request",
 ];
 
-/// Seeds baseline permissions once — for a newly-created user, a demoted former
-/// server admin, or any account that otherwise holds no direct permission yet —
-/// and keeps the `OSMIUM_SERVER_ADMIN_CID` role sync idempotent on every login.
-/// Public for the same integration-test reason as [`bootstrap_login_user`].
+/// Resets a newly-created user or a demoted former server admin to exactly the
+/// baseline, and additively tops up *every* login — new or returning — with
+/// any baseline permission the account is still missing. The top-up
+/// (`grant_missing_permissions`, `ON CONFLICT DO NOTHING`) never disturbs an
+/// existing row, so an admin's later grant or explicit revoke always
+/// survives. Being unconditional, it also sidesteps having to derive "was
+/// this account ever fully seeded" from the current shape of
+/// `access.user_permissions` — a question that shape can't answer correctly,
+/// since an admin granting or revoking a single permission before an
+/// account's first real login changes it without changing whether the rest
+/// of the baseline is still owed. Also keeps the `OSMIUM_SERVER_ADMIN_CID`
+/// role sync idempotent on every login. Public for the same integration-test
+/// reason as [`bootstrap_login_user`].
 pub async fn ensure_user_login_access(
     pool: &sqlx::PgPool,
     user_id: &str,
@@ -858,32 +867,19 @@ pub async fn ensure_user_login_access(
         // login would repair (the revoke would then be a no-op, so the demotion
         // is never re-detected). Sharing one transaction makes the failure mode
         // "keep SERVER_ADMIN, retry next login" instead.
-        // A row created ahead of a real login (e.g. ported by db-migrator) makes
-        // `was_new_user` false forever — the identity.users insert already
-        // happened, so every future login takes the ON CONFLICT path. Such an
-        // account holds no direct permissions until this check catches it: read
-        // outside the transaction below since it only gates whether to seed, not
-        // what gets written.
-        let has_no_direct_permissions =
-            access_repo::fetch_user_direct_permission_names(pool, user_id)
-                .await?
-                .is_empty();
-
         let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
 
         // No-op (zero rows) for users who never held the role.
         let demoted = access_repo::revoke_server_admin(&mut tx, user_id).await?;
 
-        // Seed baseline self-service permissions when the identity.users row is
-        // first created (was_new_user), when we just demoted a former server
-        // admin — whose only access was the now-removed role — or when the
-        // account (new or pre-existing) currently holds no direct permission at
-        // all, so it's brought up to the same floor a new signup gets. Any other
-        // returning user — one who already holds the baseline, an admin grant,
-        // or both — leaves access.user_permissions untouched, so admin-granted
-        // permissions (via the staff permissions editor) survive across logins
-        // instead of being wiped back to the baseline each time.
-        if was_new_user || demoted || has_no_direct_permissions {
+        // Reset to exactly the baseline when the identity.users row is first
+        // created, or when we just demoted a former server admin — whose only
+        // access was the now-removed role. Both start from zero direct
+        // permissions, so a full replace and an additive top-up would have
+        // the same effect here; replace is used anyway so a demotion always
+        // lands on a clean, fully-known state rather than whatever the
+        // additive top-up below happens to fill in.
+        if was_new_user || demoted {
             access_repo::replace_user_permissions(
                 &mut tx,
                 user_id,
@@ -897,6 +893,15 @@ pub async fn ensure_user_login_access(
 
         tx.commit().await.map_err(|_| ApiError::Internal)?;
 
+        // Every login, not just the two cases above, additively tops up any
+        // baseline permission the account is still missing — a pre-existing
+        // account that never went through either branch (a db-migrator row,
+        // most commonly) or one an admin partially provisioned before its
+        // first real login. A no-op for a returning user who already holds
+        // the full baseline.
+        access_repo::grant_missing_permissions(pool, user_id, BASELINE_SELF_SERVICE_PERMISSIONS)
+            .await?;
+
         if demoted {
             tracing::info!(
                 user_id,
@@ -905,12 +910,6 @@ pub async fn ensure_user_login_access(
             );
         } else if was_new_user {
             tracing::info!(user_id, cid, "baseline login access seeded for new user");
-        } else if has_no_direct_permissions {
-            tracing::info!(
-                user_id,
-                cid,
-                "baseline login access seeded for a pre-existing account with no direct permissions"
-            );
         }
 
         Ok(())

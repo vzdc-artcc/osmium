@@ -143,6 +143,118 @@ async fn baseline_is_seeded_for_a_pre_existing_user_with_zero_permissions() {
     app.cleanup().await;
 }
 
+/// A pre-existing account holding only an explicit admin revoke (`granted =
+/// false`, no `granted = true` rows at all) must keep that revoke on login —
+/// seeding the rest of the baseline must never flip it back to `true`.
+#[tokio::test(flavor = "current_thread")]
+async fn login_does_not_flip_an_explicit_deny_row_back_to_granted() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let cid = 10000306i64;
+
+    let user_id: String = sqlx::query_scalar(
+        "insert into identity.users (id, cid, email, full_name, display_name)
+         values (gen_random_uuid()::text, $1, $2, $3, $3)
+         returning id",
+    )
+    .bind(cid)
+    .bind(format!("migrated-cid-{cid}@example.invalid"))
+    .bind(format!("Migrated CID {cid}"))
+    .fetch_one(&app.pool)
+    .await
+    .expect("simulate a pre-existing migrated user row");
+
+    sqlx::query(
+        "insert into access.user_permissions (user_id, permission_name, granted)
+         values ($1, 'auth.profile.update', false)",
+    )
+    .bind(&user_id)
+    .execute(&app.pool)
+    .await
+    .expect("simulate an explicit admin revoke");
+
+    login_as(&app, cid).await;
+
+    let granted: bool = sqlx::query_scalar(
+        "select granted from access.user_permissions where user_id = $1 and permission_name = 'auth.profile.update'",
+    )
+    .bind(&user_id)
+    .fetch_one(&app.pool)
+    .await
+    .expect("fetch the revoked row after login");
+    assert!(!granted, "an explicit admin revoke must survive login");
+
+    let perms_after: Vec<String> = sqlx::query_scalar(
+        "select permission_name from access.user_permissions where user_id = $1 and granted = true",
+    )
+    .bind(&user_id)
+    .fetch_all(&app.pool)
+    .await
+    .expect("fetch granted permissions after login");
+    assert!(
+        perms_after.contains(&"feedback.items.create".to_string()),
+        "the rest of the baseline must still be topped up"
+    );
+
+    app.cleanup().await;
+}
+
+/// An account an admin partially provisions before its first real login (one
+/// baseline permission granted, the rest missing) must still get the rest of
+/// the baseline on that first login — the same 403 wall osmium#87 reports,
+/// reached through a different door than a currently-zero-permission account.
+#[tokio::test(flavor = "current_thread")]
+async fn login_tops_up_an_account_an_admin_partially_provisioned_before_first_login() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let cid = 10000307i64;
+
+    let user_id: String = sqlx::query_scalar(
+        "insert into identity.users (id, cid, email, full_name, display_name)
+         values (gen_random_uuid()::text, $1, $2, $3, $3)
+         returning id",
+    )
+    .bind(cid)
+    .bind(format!("migrated-cid-{cid}@example.invalid"))
+    .bind(format!("Migrated CID {cid}"))
+    .fetch_one(&app.pool)
+    .await
+    .expect("simulate a pre-existing migrated user row");
+
+    sqlx::query(
+        "insert into access.user_permissions (user_id, permission_name, granted)
+         values ($1, 'auth.profile.read', true)",
+    )
+    .bind(&user_id)
+    .execute(&app.pool)
+    .await
+    .expect("simulate an admin grant made before the account's first login");
+
+    login_as(&app, cid).await;
+
+    let perms_after: Vec<String> = sqlx::query_scalar(
+        "select permission_name from access.user_permissions where user_id = $1 and granted = true order by permission_name",
+    )
+    .bind(&user_id)
+    .fetch_all(&app.pool)
+    .await
+    .expect("fetch granted permissions after login");
+
+    assert!(perms_after.contains(&"auth.profile.read".to_string()));
+    assert!(
+        perms_after.contains(&"feedback.items.create".to_string()),
+        "an account with a single pre-existing grant must still get the rest of the baseline on its first login"
+    );
+
+    app.cleanup().await;
+}
+
 /// OSMIUM_SERVER_ADMIN_CID sync is idempotent and must keep working
 /// unconditionally on every login, independent of the was_new_user change.
 #[tokio::test(flavor = "current_thread")]
