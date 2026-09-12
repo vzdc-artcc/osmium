@@ -78,12 +78,14 @@ pub use org::{
     CreateStaffingRequestRequest, CreateSuaAirspaceRequest, CreateSuaRequest, DecideLoaRequest,
     JobDetailResponse, JobRunItem, JobRunResponse, JobStatusItem, ListLoasQuery,
     ListSoloCertificationsQuery, ListStaffingRequestsQuery, ListSuaQuery, LoaItem, LoaListResponse,
-    PublicSuaMissionItem, PurgeCandidateItem, PurgeCandidatesQuery, PurgeCandidatesResponse,
-    RosterCertOption, RosterCertificationItem, RosterCertificationsResponse, RosterSolo,
-    SaveCertificationEntry, SaveCertificationsRequest, SoloCertificationItem,
-    SoloCertificationListResponse, StaffingRequestItem, StaffingRequestListResponse,
-    SuaAirspaceItem, SuaBlockItem, SuaListResponse, UpcomingSuaMissionsResponse,
-    UpdateCertificationTypeOrderRequest, UpdateLoaRequest, UpdateSoloCertificationRequest,
+    PublicRosterCertificationItem, PublicRosterCertificationsResponse, PublicSoloCertificationItem,
+    PublicSoloCertificationListResponse, PublicSuaMissionItem, PurgeCandidateItem,
+    PurgeCandidatesQuery, PurgeCandidatesResponse, RosterCertOption, RosterCertificationItem,
+    RosterCertificationsResponse, RosterSolo, SaveCertificationEntry, SaveCertificationsRequest,
+    SoloCertificationItem, SoloCertificationListResponse, StaffingRequestItem,
+    StaffingRequestListResponse, SuaAirspaceItem, SuaBlockItem, SuaListResponse,
+    UpcomingSuaMissionsResponse, UpdateCertificationTypeOrderRequest, UpdateLoaRequest,
+    UpdateSoloCertificationRequest,
 };
 pub use pagination::{PaginationMeta, PaginationQuery, ResolvedPagination};
 pub use stats::{

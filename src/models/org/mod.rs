@@ -133,6 +133,32 @@ pub struct RosterCertificationsResponse {
     pub items: Vec<RosterCertificationItem>,
 }
 
+/// Public roster read of a controller's cert summary — drops `has_approved_loa`.
+/// LOA status is treated as staff-only elsewhere (`has_active_approved_loa` in
+/// `list_purge_candidates`, gated by `RequirePermission<UsersControllerStatusUpdate>`),
+/// so it doesn't belong in a signed-out response even though the cert/solo data does.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PublicRosterCertificationItem {
+    pub cid: i64,
+    pub certifications: Vec<RosterCertOption>,
+    pub solos: Vec<RosterSolo>,
+}
+
+impl From<RosterCertificationItem> for PublicRosterCertificationItem {
+    fn from(item: RosterCertificationItem) -> Self {
+        Self {
+            cid: item.cid,
+            certifications: item.certifications,
+            solos: item.solos,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PublicRosterCertificationsResponse {
+    pub items: Vec<PublicRosterCertificationItem>,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateOrUpdateCertificationTypeRequest {
     /// Present = update that type; absent = create a new type.
@@ -211,6 +237,42 @@ pub struct ListSoloCertificationsQuery {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SoloCertificationListResponse {
     pub items: Vec<SoloCertificationItem>,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
+}
+
+/// Public roster read of a solo endorsement — drops `id`, `user_id`, and
+/// `granted_by_actor_id`, none of which belong in a signed-out response.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PublicSoloCertificationItem {
+    pub certification_type_id: String,
+    pub position: String,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub expires: DateTime<Utc>,
+    #[serde(serialize_with = "crate::time::serialize_datetime")]
+    pub granted_at: DateTime<Utc>,
+    pub cid: Option<i64>,
+    pub display_name: Option<String>,
+    pub certification_type_name: Option<String>,
+}
+
+impl From<SoloCertificationItem> for PublicSoloCertificationItem {
+    fn from(item: SoloCertificationItem) -> Self {
+        Self {
+            certification_type_id: item.certification_type_id,
+            position: item.position,
+            expires: item.expires,
+            granted_at: item.granted_at,
+            cid: item.cid,
+            display_name: item.display_name,
+            certification_type_name: item.certification_type_name,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PublicSoloCertificationListResponse {
+    pub items: Vec<PublicSoloCertificationItem>,
     #[serde(flatten)]
     pub pagination: crate::models::PaginationMeta,
 }

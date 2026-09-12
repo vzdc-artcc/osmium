@@ -23,6 +23,9 @@ Public-by-policy routes:
 - `GET /api/v1/users/{cid}` (same private-field caveat as above)
 - `GET /api/v1/users/{cid}/staff-positions` (display-only roster tags, never permissions)
 - `GET /api/v1/staff-positions/{position}/holders` (public; display-only list of controllers holding a staff position, e.g. all ATM holders — backs admin-menu headers)
+- `GET /api/v1/roster-certifications` (public sibling of the admin list below — same data minus LOA status, via `PublicRosterCertificationItem`; backs the signed-out roster pages)
+- `GET /api/v1/certification-types` (public sibling of the admin list below — reference catalog, no restricted fields)
+- `GET /api/v1/solo-certifications` (public sibling of the admin list below — narrower `PublicSoloCertificationItem`, drops `id`/`user_id`/`granted_by_actor_id`)
 - `POST /api/v1/captcha/verify`
 
 Permission-gated routes:
