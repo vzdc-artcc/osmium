@@ -84,6 +84,65 @@ async fn baseline_seeded_once_and_admin_grants_survive_later_logins() {
     app.cleanup().await;
 }
 
+/// A row created ahead of a real login (the shape a legacy-data migration
+/// leaves behind) makes `was_new_user` false on that user's first real login,
+/// since the identity.users insert already happened — the login only ever
+/// takes the ON CONFLICT path. Such an account must still get the baseline,
+/// or every self-service action stays 403 forever (osmium#87).
+#[tokio::test(flavor = "current_thread")]
+async fn baseline_is_seeded_for_a_pre_existing_user_with_zero_permissions() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let cid = 10000305i64;
+
+    let user_id: String = sqlx::query_scalar(
+        "insert into identity.users (id, cid, email, full_name, display_name)
+         values (gen_random_uuid()::text, $1, $2, $3, $3)
+         returning id",
+    )
+    .bind(cid)
+    .bind(format!("migrated-cid-{cid}@example.invalid"))
+    .bind(format!("Migrated CID {cid}"))
+    .fetch_one(&app.pool)
+    .await
+    .expect("simulate a pre-existing migrated user row");
+
+    let perms_before: Vec<String> = sqlx::query_scalar(
+        "select permission_name from access.user_permissions where user_id = $1",
+    )
+    .bind(&user_id)
+    .fetch_all(&app.pool)
+    .await
+    .expect("fetch permissions before login");
+    assert!(
+        perms_before.is_empty(),
+        "row must start with no permissions"
+    );
+
+    // Real login path: upsert_login_user takes the ON CONFLICT branch since the
+    // row already exists, so was_new_user comes back false here.
+    login_as(&app, cid).await;
+
+    let perms_after: Vec<String> = sqlx::query_scalar(
+        "select permission_name from access.user_permissions where user_id = $1 order by permission_name",
+    )
+    .bind(&user_id)
+    .fetch_all(&app.pool)
+    .await
+    .expect("fetch permissions after login");
+
+    assert!(
+        perms_after.contains(&"auth.profile.read".to_string()),
+        "a pre-existing account with no permissions must be seeded to the baseline on login"
+    );
+    assert!(perms_after.contains(&"feedback.items.create".to_string()));
+
+    app.cleanup().await;
+}
+
 /// OSMIUM_SERVER_ADMIN_CID sync is idempotent and must keep working
 /// unconditionally on every login, independent of the was_new_user change.
 #[tokio::test(flavor = "current_thread")]
