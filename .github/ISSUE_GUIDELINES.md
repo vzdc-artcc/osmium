@@ -128,6 +128,7 @@ re-reads.
 | Spec correction | the issue states something false | 400 characters |
 | Verification notes | the work is ready to check | 1,200 characters |
 | Failure response | verification failed and you fixed it | 1,200 characters |
+| Verification failed | you tested someone else's work and it needs rework | 1,200 characters |
 
 Count before you post. If you are over, the fix is never to compress prose into
 denser prose. It is to move material into the PR.
@@ -200,6 +201,27 @@ notes is worth far more than a long set sprinkled with plausible inaccuracies.
 migration (they run on startup, so say whether a rollback is possible), a new
 env var, a permission seeded that existing users will not hold until they log in
 again, or a job interval change. Say which, or say "nothing".
+
+### Verification failed
+
+The counterpart to Verification notes, posted by whoever tested the work rather
+than whoever built it. Same grounding rules apply: real file, real line, real
+observed behavior — not "the tests look incomplete" or "this seems risky".
+
+```text
+Held for rework — <n> item(s), no <what you ruled out, e.g. "security or test
+regressions"> found.
+
+1. <file:line> — <what's wrong, in one or two sentences>
+2. <file:line> — <what's wrong>
+
+<one line naming anything you verified is NOT a problem, if the issue or PR
+raised the question — e.g. a stated cross-repo check that turned out to be a
+no-op>
+```
+
+Move the issue to `Returned` in the same round as this comment, not before it —
+a status change with no comment attached tells the next reader nothing about why.
 
 ---
 
@@ -374,6 +396,10 @@ authorship with the diff, not from memory: if the line appears in
 Fail any one and there is no issue. A defect in scope gets fixed here; a
 non-defect gets left alone and named in your report. Qualifying issues carry
 `technical-debt` and reference the parent (`Relates to #123` in the body).
+
+**No `priority:` label on a follow-up you file, same as any other issue.** §8's
+"never set the priority yourself" applies here too — a follow-up found mid-work
+is still not yours to grade. Leave the label off; the maintainer adds it.
 
 **Test 3 has a tell you will otherwise talk yourself past: does it block *this*
 branch?** A defect standing between your work and a merge is not outside the

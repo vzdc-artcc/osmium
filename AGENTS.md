@@ -262,6 +262,25 @@ One Postgres database, per-domain schemas: `identity`, `access`, `org`,
 
 **A route is not complete if its docs were not updated in the same change.**
 
+**A change to shared behavior is not complete until every page describing that
+behavior agrees, not just the route's own `docs/api/` page.** A fix that changes
+what a whole class of routes returns (an error-code convention, a pagination
+default, a timestamp format) can leave it correctly documented on the route page
+and still wrong on an architecture or reference page that describes the same
+thing more generally — `docs/architecture/*.md` in particular states failure
+modes and conventions as system-wide facts. Grep the rest of `docs/` for the old
+behavior before calling a cross-cutting change done.
+
+**A `#[utoipa::path]` failure-case description states the actual logic, not a
+template phrase.** When a 401/403 case is data-dependent (ownership, a public
+flag, a role grant, in addition to a coarse permission), say precisely how those
+combine — AND or OR — rather than reusing wording copied from a sibling route.
+`user_can_access_file`-style checks that require the coarse permission
+unconditionally, before ownership is ever consulted, are described wrong by a
+phrase like "not owned ... and lacks the permission", which reads as requiring
+both to fail together rather than the permission alone being sufficient to deny.
+Trace the function before writing the sentence.
+
 Two more conventions worth knowing:
 
 - Errors cross the HTTP boundary only as `ApiError`. Its `IntoResponse` maps to
