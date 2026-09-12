@@ -300,6 +300,108 @@ async fn session_crud_lifecycle_and_pi_full_replace_contract() {
     app.cleanup().await;
 }
 
+/// Regression (website#171): editing a session must never reassign who
+/// trained the student. `instructor_id` is set once, at creation, and
+/// `update_session_row`'s SQL deliberately has no `instructor_id` column in
+/// its SET list — this proves that holds end-to-end through the API, not
+/// just by reading the query, so a later refactor that starts passing the
+/// editor's id into the update can't silently reintroduce the bug.
+#[tokio::test(flavor = "current_thread")]
+async fn updating_a_session_does_not_reassign_the_instructor() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let instructor = app
+        .create_user(
+            10000098,
+            "Original Instructor",
+            &[
+                "training.sessions.create",
+                "training.sessions.read",
+                "training.lessons.create",
+            ],
+        )
+        .await;
+    let editor = app
+        .create_user(
+            10000099,
+            "Later Editor",
+            &["training.sessions.update", "training.sessions.read"],
+        )
+        .await;
+    let student = app.create_user(10000100, "Regression Student", &[]).await;
+
+    let create_lesson_response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/lessons",
+            Some(&instructor.session_token),
+            Some(json!({
+                "identifier": "GND1",
+                "location": 1,
+                "name": "Ground Basics",
+                "description": "desc",
+                "position": "GND",
+                "facility": "PCT",
+                "duration": 60,
+                "trainee_preparation": null,
+                "instructor_only": false,
+                "notify_instructor_on_pass": false,
+                "release_request_on_pass": false
+            })),
+        )
+        .await;
+    assert_status(&create_lesson_response, StatusCode::CREATED);
+    let lesson: Value = json_body(create_lesson_response).await;
+    let lesson_id = lesson["id"].as_str().unwrap().to_string();
+
+    let create_session_response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/sessions",
+            Some(&instructor.session_token),
+            Some(json!({
+                "student_id": student.id,
+                "start": "2024-01-15T18:00:00Z",
+                "end": "2024-01-15T19:00:00Z",
+                "tickets": [{"lesson_id": lesson_id, "passed": true, "scores": []}]
+            })),
+        )
+        .await;
+    assert_status(&create_session_response, StatusCode::CREATED);
+    let created: Value = json_body(create_session_response).await;
+    let session_id = created["session"]["id"].as_str().unwrap().to_string();
+    assert_eq!(created["session"]["instructor_id"], instructor.id);
+
+    // A different staff member, who did not run the session, edits an
+    // unrelated field.
+    let update_response = app
+        .json_request(
+            "PATCH",
+            &format!("/api/v1/training/sessions/{session_id}"),
+            Some(&editor.session_token),
+            Some(json!({
+                "student_id": student.id,
+                "start": "2024-01-15T18:00:00Z",
+                "end": "2024-01-15T19:00:00Z",
+                "additional_comments": "updated by someone else",
+                "tickets": [{"lesson_id": lesson_id, "passed": true, "scores": []}]
+            })),
+        )
+        .await;
+    assert_status(&update_response, StatusCode::OK);
+    let updated: Value = json_body(update_response).await;
+    assert_eq!(
+        updated["session"]["instructor_id"], instructor.id,
+        "editing a session must not reassign the instructor to the editor"
+    );
+    assert_eq!(updated["session"]["instructor_name"], "Original Instructor");
+
+    app.cleanup().await;
+}
+
 /// Regression: `sort_field=end` must produce valid SQL. `end` is a reserved SQL
 /// keyword, so the ORDER BY column has to be quoted (`ts."end"`); the unquoted
 /// `ts.end` it once used is a syntax error that made the whole list endpoint 500.
