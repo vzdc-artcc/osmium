@@ -872,13 +872,13 @@ pub async fn ensure_user_login_access(
         // No-op (zero rows) for users who never held the role.
         let demoted = access_repo::revoke_server_admin(&mut tx, user_id).await?;
 
-        // Reset to exactly the baseline when the identity.users row is first
-        // created, or when we just demoted a former server admin — whose only
-        // access was the now-removed role. Both start from zero direct
-        // permissions, so a full replace and an additive top-up would have
-        // the same effect here; replace is used anyway so a demotion always
-        // lands on a clean, fully-known state rather than whatever the
-        // additive top-up below happens to fill in.
+        // Reset every *granted* permission to exactly the baseline when the
+        // identity.users row is first created, or when we just demoted a
+        // former server admin — whose only granted access was the
+        // now-removed role. replace_user_permissions leaves any explicit
+        // deny row alone either way, so this can't re-grant one even though
+        // it resets the rest of the account's direct grants to a clean,
+        // fully-known state.
         if was_new_user || demoted {
             access_repo::replace_user_permissions(
                 &mut tx,
@@ -893,15 +893,6 @@ pub async fn ensure_user_login_access(
 
         tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-        // Every login, not just the two cases above, additively tops up any
-        // baseline permission the account is still missing — a pre-existing
-        // account that never went through either branch (a db-migrator row,
-        // most commonly) or one an admin partially provisioned before its
-        // first real login. A no-op for a returning user who already holds
-        // the full baseline.
-        access_repo::grant_missing_permissions(pool, user_id, BASELINE_SELF_SERVICE_PERMISSIONS)
-            .await?;
-
         if demoted {
             tracing::info!(
                 user_id,
@@ -910,6 +901,28 @@ pub async fn ensure_user_login_access(
             );
         } else if was_new_user {
             tracing::info!(user_id, cid, "baseline login access seeded for new user");
+        }
+
+        // Every login, not just the two cases above, additively tops up any
+        // baseline permission the account is still missing — a pre-existing
+        // account that never went through either branch (a db-migrator row,
+        // most commonly) or one an admin partially provisioned before its
+        // first real login. A no-op for a returning user who already holds
+        // the full baseline. Best-effort like the two logged cases above are
+        // not: they already committed by this point, so failing the whole
+        // login over a transient error in this unconditional top-up would
+        // turn every login into a single point of failure for something that
+        // self-heals on the next one.
+        if let Err(error) =
+            access_repo::grant_missing_permissions(pool, user_id, BASELINE_SELF_SERVICE_PERMISSIONS)
+                .await
+        {
+            tracing::error!(
+                ?error,
+                user_id,
+                cid,
+                "baseline permission top-up failed on login"
+            );
         }
 
         Ok(())
