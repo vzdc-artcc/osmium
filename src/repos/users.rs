@@ -823,6 +823,36 @@ pub async fn upsert_login_membership(
     .map_err(|_| ApiError::Internal)
 }
 
+#[derive(sqlx::FromRow)]
+pub struct MembershipMissingInitialsRow {
+    pub user_id: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub display_name: String,
+}
+
+/// Rows on the active roster (`HOME`/`VISITOR`) with no operating initials —
+/// the population `ensure_operating_initials`'s two triggers (login,
+/// admin controller-status change) never reached, most commonly a
+/// legacy-migration row nobody has logged into osmium since. Backing query
+/// for the one-time startup backfill in `crate::backfill_operating_initials`.
+pub async fn fetch_active_memberships_missing_operating_initials(
+    pool: &PgPool,
+) -> Result<Vec<MembershipMissingInitialsRow>, ApiError> {
+    sqlx::query_as::<_, MembershipMissingInitialsRow>(
+        r#"
+        select u.id as user_id, u.first_name, u.last_name, u.display_name
+        from org.memberships m
+        join identity.users u on u.id = m.user_id
+        where m.controller_status in ('HOME', 'VISITOR')
+          and m.operating_initials is null
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn ensure_operating_initials(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
