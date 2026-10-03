@@ -145,14 +145,14 @@ Permission-gated routes:
 - `GET /api/v1/users/{cid}/progression` -> self `auth.profile.read`, otherwise `training.lessons.read`
 - `POST /api/v1/users/{cid}/progression/complete` -> self `auth.profile.update` (honors the `no_force_progression_finish` opt-out flag), otherwise `training.lessons.update`
 - `GET /api/v1/users/{cid}/event-positions` -> self `auth.profile.read`, otherwise `users.directory.read`
-- `POST /api/v1/users/refresh-vatusa` -> `users.vatusa_refresh.self.request`
+- `POST /api/v1/users/refresh-vatusa` -> `users.vatusa_refresh_self.request`
 - `POST /api/v1/users/visit-artcc` -> `users.visit_artcc.request`
-- `GET /api/v1/users/visitor-application` -> `users.visitor_applications.self.read`
-- `POST /api/v1/users/visitor-application` -> `users.visitor_applications.self.request`
+- `GET /api/v1/users/visitor-application` -> `users.visitor_applications_self.read`
+- `POST /api/v1/users/visitor-application` -> `users.visitor_applications_self.request`
 - `POST /api/v1/events` -> `events.items.create`
 - `PATCH /api/v1/events/{event_id}` -> `events.items.update`
 - `DELETE /api/v1/events/{event_id}` -> `events.items.delete`
-- `POST /api/v1/events/{event_id}/positions` -> `events.positions.self.request` (also requires `events.positions.assign` if `user_id` targets a different user — admin manual-add)
+- `POST /api/v1/events/{event_id}/positions` -> `events.positions_self.request` (also requires `events.positions.assign` if `user_id` targets a different user — admin manual-add)
 - `GET /api/v1/events/{event_id}/ops-plan` -> public-by-policy
 - `PATCH /api/v1/events/{event_id}/ops-plan` -> `events.items.update`
 - `GET /api/v1/events/{event_id}/tmis` -> public-by-policy
@@ -186,7 +186,7 @@ Permission-gated routes:
 - `POST /api/v1/files` -> `files.assets.create` and `files.content.create`
 - `POST /api/v1/files/import` -> `files.assets.create` and `files.content.create`
 - `GET /api/v1/files/{file_id}` -> `files.assets.read`
-- `PATCH /api/v1/files/{file_id}` -> `files.assets.update` for metadata, `files.assets.policy.update` for policy
+- `PATCH /api/v1/files/{file_id}` -> `files.assets.update` for metadata, `files.assets_policy.update` for policy
 - `DELETE /api/v1/files/{file_id}` -> `files.assets.delete`
 - `GET /api/v1/files/{file_id}/content` -> `files.content.read`
 - `PUT /api/v1/files/{file_id}/content` -> `files.content.update`
@@ -224,13 +224,13 @@ Permission-gated routes:
 - `PATCH /api/v1/training/sessions/{session_id}` -> `training.sessions.update`
 - `DELETE /api/v1/training/sessions/{session_id}` -> `training.sessions.delete`
 - `GET /api/v1/training/assignment-requests` -> `training.assignment_requests.read`
-- `POST /api/v1/training/assignment-requests` -> self (omitted/own `student_id`) needs `training.assignment_requests.self.request`; submitting on another student's behalf needs `training.assignment_requests.create`
+- `POST /api/v1/training/assignment-requests` -> self (omitted/own `student_id`) needs `training.assignment_requests_self.request`; submitting on another student's behalf needs `training.assignment_requests.create`
 - `PATCH /api/v1/training/assignment-requests/{request_id}` -> `training.assignment_requests.decide`
 - `DELETE /api/v1/training/assignment-requests/{request_id}` -> self-cancel own `PENDING` request needs no permission; otherwise `training.assignment_requests.delete`
-- `POST /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests.interest.request`
-- `DELETE /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests.interest.delete`
+- `POST /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests_interest.request`
+- `DELETE /api/v1/training/assignment-requests/{request_id}/interest` -> `training.assignment_requests_interest.delete`
 - `GET /api/v1/training/trainer-release-requests` -> `training.release_requests.read`
-- `POST /api/v1/training/trainer-release-requests` -> self (omitted/own `student_id`) needs `training.release_requests.self.request`; submitting on another student's behalf needs `training.release_requests.create`
+- `POST /api/v1/training/trainer-release-requests` -> self (omitted/own `student_id`) needs `training.release_requests_self.request`; submitting on another student's behalf needs `training.release_requests.create`
 - `PATCH /api/v1/training/trainer-release-requests/{request_id}` -> `training.release_requests.decide`
 - `DELETE /api/v1/training/trainer-release-requests/{request_id}` -> self-cancel own `PENDING` request needs no permission; otherwise `training.release_requests.delete`
 - `GET /api/v1/users/{cid}/dossier` -> self `auth.profile.read`, otherwise `training.lessons.read` (confidential entries additionally require `training.dossier_confidential.read`, self included)

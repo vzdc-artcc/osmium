@@ -148,7 +148,7 @@ async fn assignment_request_self_cancel_and_admin_delete_work() {
         .create_user(
             10000077,
             "Request Student",
-            &["training.assignment_requests.self.request"],
+            &["training.assignment_requests_self.request"],
         )
         .await;
     let bystander = app.create_user(10000078, "Request Bystander", &[]).await;
@@ -231,7 +231,7 @@ async fn assignment_request_interest_is_listed_with_trainer_details() {
         .create_user(
             10000082,
             "Interest Student",
-            &["training.assignment_requests.self.request"],
+            &["training.assignment_requests_self.request"],
         )
         .await;
     let trainer = app
@@ -239,8 +239,8 @@ async fn assignment_request_interest_is_listed_with_trainer_details() {
             10000083,
             "Interested Trainer",
             &[
-                "training.assignment_requests.interest.request",
-                "training.assignment_requests.interest.delete",
+                "training.assignment_requests_interest.request",
+                "training.assignment_requests_interest.delete",
             ],
         )
         .await;
@@ -379,7 +379,7 @@ async fn approving_release_request_ends_the_assignment() {
         .create_user(
             10000079,
             "Release Student",
-            &["training.release_requests.self.request"],
+            &["training.release_requests_self.request"],
         )
         .await;
     let trainer = app.create_user(10000080, "Release Trainer", &[]).await;
@@ -452,7 +452,7 @@ async fn release_request_manual_creation_requires_create_permission() {
         .create_user(
             10000088,
             "Release Manual Trainer",
-            &["training.release_requests.self.request"],
+            &["training.release_requests_self.request"],
         )
         .await;
     let student = app

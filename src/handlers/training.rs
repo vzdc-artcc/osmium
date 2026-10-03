@@ -1566,7 +1566,7 @@ pub async fn create_assignment_request(
                 Some(user),
                 None,
                 PermissionPath::from_segments(
-                    ["training", "assignment_requests", "self"],
+                    ["training", "assignment_requests_self"],
                     PermissionAction::Request,
                 ),
             )
@@ -1828,7 +1828,7 @@ pub async fn create_release_request(
                 Some(user),
                 None,
                 PermissionPath::from_segments(
-                    ["training", "release_requests", "self"],
+                    ["training", "release_requests_self"],
                     PermissionAction::Request,
                 ),
             )

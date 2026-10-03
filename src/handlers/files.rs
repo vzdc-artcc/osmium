@@ -1087,7 +1087,7 @@ async fn ensure_can_update_file_policy(
 ) -> Result<(), ApiError> {
     let (_, permissions) = fetch_user_access(state.db.as_ref(), &user.id).await?;
     if permissions.contains(&PermissionPath::from_segments(
-        ["files", "assets", "policy"],
+        ["files", "assets_policy"],
         PermissionAction::Update,
     )) {
         return Ok(());
