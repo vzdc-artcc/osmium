@@ -134,6 +134,20 @@ Separate what you *checked* from what you *assumed*, and name both. Then:
   over input you wrote to match proves only that the two agree. Prefer evidence
   you did not author: a real response body, a query run against the dev
   database, a test that must turn red when you break the code.
+- **What else writes what I just changed?** A write that used to run once and
+  now runs on every login, request, or job tick competes with every other
+  writer of the same rows. List those writers (the permissions editor, a
+  sync job, an admin route) and prove each one's result still survives. If it
+  does not, you have changed what that tool means, and that is the
+  maintainer's call, not a trade-off to record in the PR body.
+- **Does my cause explain every symptom?** When an issue lists several
+  failures, trace each one to the route and gate that produced it, and show
+  the cause reaches every one. A symptom your cause cannot produce, such as a
+  `401` from a route that checks only for a session, means there is another
+  cause. Name it, or scope it out and file it. Do not count it as fixed.
+- **Changing a shared function changes every caller.** Test the new behavior
+  through each caller, not only the one you were fixing. If reverting your
+  change to the function leaves the suite green, it is untested.
 
 When the honest answer is "I do not know yet", that is the finding. Say so.
 
