@@ -71,9 +71,13 @@ pub async fn start_discord_link(
     // Discord redirects to osmium's own callback, which performs the token
     // exchange server-side and then 302s the browser back to `return_url`. The
     // redirect_uri here is osmium's, not the website's.
-    let redirect_uri = std::env::var("DISCORD_REDIRECT_URI").ok();
-    let client_id = std::env::var("DISCORD_CLIENT_ID").ok();
-    let auth_url = if let (Some(client_id), Some(redirect_uri)) = (client_id, redirect_uri.clone())
+    // The secret is only used at the callback, but without it every flow fails
+    // there, so it gates `auth_url` too: clients show "not configured" up front.
+    let redirect_uri = discord_env("DISCORD_REDIRECT_URI");
+    let client_id = discord_env("DISCORD_CLIENT_ID");
+    let client_secret = discord_env("DISCORD_CLIENT_SECRET");
+    let auth_url = if let (Some(client_id), Some(redirect_uri), Some(_)) =
+        (client_id, redirect_uri.clone(), client_secret)
     {
         // redirect_uri must be percent-encoded as a query value (it contains `:`
         // and `/`, and in prod may carry a query string); Discord compares it
@@ -207,11 +211,11 @@ async fn run_discord_link_callback(state: &AppState, query: DiscordLinkCallbackQ
         .get("redirect_uri")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .or_else(|| std::env::var("DISCORD_REDIRECT_URI").ok());
-    let (Some(redirect_uri), Ok(client_id), Ok(client_secret)) = (
+        .or_else(|| discord_env("DISCORD_REDIRECT_URI"));
+    let (Some(redirect_uri), Some(client_id), Some(client_secret)) = (
         redirect_uri,
-        std::env::var("DISCORD_CLIENT_ID"),
-        std::env::var("DISCORD_CLIENT_SECRET"),
+        discord_env("DISCORD_CLIENT_ID"),
+        discord_env("DISCORD_CLIENT_SECRET"),
     ) else {
         return fail(return_url, "server_error");
     };
@@ -1018,6 +1022,20 @@ async fn dispatch_outbound_job(client: &Client, job: &OutboundJobItem) -> Result
     Ok(())
 }
 
+/// Reads a trimmed Discord OAuth setting, treating an empty value as unset: `.env.example`
+/// ships these keys blank, and an empty `client_id` would otherwise produce an
+/// authorize URL Discord rejects instead of the `auth_url: null` clients handle.
+fn discord_env(name: &'static str) -> Option<String> {
+    let value = std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if value.is_none() {
+        tracing::warn!(var = name, "discord linking not configured");
+    }
+    value
+}
+
 async fn exchange_discord_code(
     code: &str,
     redirect_uri: &str,
@@ -1057,24 +1075,28 @@ async fn exchange_discord_code(
         );
         return Err(ApiError::BadRequest);
     }
-    let token_body = token
-        .json::<DiscordTokenResponse>()
-        .await
-        .map_err(|_| ApiError::ServiceUnavailable)?;
+    let token_body = token.json::<DiscordTokenResponse>().await.map_err(|err| {
+        tracing::warn!(error = %err, "discord token response unreadable");
+        ApiError::ServiceUnavailable
+    })?;
 
     let identity = client
         .get("https://discord.com/api/users/@me")
         .bearer_auth(&token_body.access_token)
         .send()
         .await
-        .map_err(|_| ApiError::ServiceUnavailable)?;
+        .map_err(|err| {
+            tracing::warn!(error = %err, "discord identity request failed");
+            ApiError::ServiceUnavailable
+        })?;
     if !identity.status().is_success() {
+        tracing::warn!(status = %identity.status(), "discord identity request rejected");
         return Err(ApiError::BadRequest);
     }
-    identity
-        .json::<DiscordUserIdentity>()
-        .await
-        .map_err(|_| ApiError::ServiceUnavailable)
+    identity.json::<DiscordUserIdentity>().await.map_err(|err| {
+        tracing::warn!(error = %err, "discord identity response unreadable");
+        ApiError::ServiceUnavailable
+    })
 }
 
 async fn ensure_integrations_manage(state: &AppState, user: &CurrentUser) -> Result<(), ApiError> {

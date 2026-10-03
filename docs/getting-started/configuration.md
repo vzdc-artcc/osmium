@@ -65,6 +65,16 @@ Do not mix `localhost` and `127.0.0.1` during the same login flow.
 | --- | --- | --- | --- |
 | `CORS_ALLOWED_ORIGINS` | No | unset | Comma-separated browser origin allowlist. Example: `http://127.0.0.1:3000,https://app.example.org`. If unset, the API does not allow browser origins by default. |
 
+## Discord Account Linking
+
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `DISCORD_CLIENT_ID` | Yes for Discord linking | none | Discord application client id. |
+| `DISCORD_CLIENT_SECRET` | Yes for Discord linking | none | Discord application client secret, used for the server-side code exchange. |
+| `DISCORD_REDIRECT_URI` | Yes for Discord linking | none | osmium's own callback, `<api origin>/api/v1/me/discord/link/callback`, not a website URL. Register this exact URL under OAuth2 redirects in the Discord developer portal. |
+
+An unset or empty value disables linking: `POST /api/v1/me/discord/link/start` returns `auth_url: null` and logs `discord linking not configured` naming the variable. After the callback, the browser is sent back to a `return_url` on an origin listed in `CORS_ALLOWED_ORIGINS`.
+
 ## File Storage and CDN
 
 | Variable | Required | Default | Notes |
