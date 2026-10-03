@@ -423,7 +423,7 @@ pub async fn fetch_controller_totals_aggregate_ranged(
             coalesce(sum(active_seconds) filter (where position_type in ('Delivery', 'ClearanceDelivery', 'Ground', 'Tower', 'Tracon', 'ApproachDeparture', 'Artcc', 'Center')), 0)::float8 / 3600.0 as active_hours,
             coalesce(sum(active_seconds) filter (where position_type in ('Delivery', 'ClearanceDelivery', 'Ground', 'Tower', 'Tracon', 'ApproachDeparture', 'Artcc', 'Center')), 0)::float8 / 3600.0 as total_hours
         from stats.controller_activations
-        where environment = $1 and cid = $2
+        where environment = $1 and cid = $2 and is_primary
           and ($3::timestamptz is null or started_at >= $3)
           and ($4::timestamptz is null or started_at < $4)
         "#,

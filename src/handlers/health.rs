@@ -32,8 +32,6 @@ pub struct StatsSyncHealthBody {
     enabled: bool,
     stale_after_seconds: i64,
     live: StatsSyncEnvironmentHealthBody,
-    sweatbox1: StatsSyncEnvironmentHealthBody,
-    sweatbox2: StatsSyncEnvironmentHealthBody,
 }
 
 #[derive(Serialize)]
@@ -113,16 +111,12 @@ pub async fn ready(State(state): State<AppState>, time: ResponseTimeContext) -> 
             enabled: stats.enabled,
             stale_after_seconds,
             live: environment_health_body(&stats.live, stale_after_seconds),
-            sweatbox1: environment_health_body(&stats.sweatbox1, stale_after_seconds),
-            sweatbox2: environment_health_body(&stats.sweatbox2, stale_after_seconds),
         }
     } else {
         StatsSyncHealthBody {
             enabled: false,
             stale_after_seconds: 300,
             live: poisoned_health_body(),
-            sweatbox1: poisoned_health_body(),
-            sweatbox2: poisoned_health_body(),
         }
     };
 

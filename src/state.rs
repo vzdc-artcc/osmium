@@ -54,27 +54,16 @@ pub type StatsSyncEnvironmentHealth = JobHealthRecord<StatsSyncMetrics>;
 pub struct StatsSyncHealth {
     pub enabled: bool,
     pub live: StatsSyncEnvironmentHealth,
-    pub sweatbox1: StatsSyncEnvironmentHealth,
-    pub sweatbox2: StatsSyncEnvironmentHealth,
 }
 
 impl StatsSyncHealth {
-    pub fn environment_mut(&mut self, environment: &str) -> &mut StatsSyncEnvironmentHealth {
-        match environment {
-            "live" => &mut self.live,
-            "sweatbox1" => &mut self.sweatbox1,
-            "sweatbox2" => &mut self.sweatbox2,
-            _ => &mut self.live,
-        }
+    /// Statistics only sync the live feed, so every environment maps to it.
+    pub fn environment_mut(&mut self, _environment: &str) -> &mut StatsSyncEnvironmentHealth {
+        &mut self.live
     }
 
-    pub fn environment(&self, environment: &str) -> &StatsSyncEnvironmentHealth {
-        match environment {
-            "live" => &self.live,
-            "sweatbox1" => &self.sweatbox1,
-            "sweatbox2" => &self.sweatbox2,
-            _ => &self.live,
-        }
+    pub fn environment(&self, _environment: &str) -> &StatsSyncEnvironmentHealth {
+        &self.live
     }
 }
 
