@@ -149,8 +149,8 @@ permission!(
     ["users", "controller_status"],
     Delete
 );
-// Display-only staff position tags (ATM/DATM/TA/EC/WM/FE/AEC/AWM/AFE/EP/
-// TMU/FC/INS/MTR) — never grant permissions themselves, distinct from
+// Display-only staff position tags (ATM/DATM/TA/EC/WM/FE/ATA/AEC/AWM/AFE/
+// EP/TMU/FC/INS/MTR) — never grant permissions themselves, distinct from
 // access.user_roles. Own permission pair so it can be granted without also
 // granting controller-status/roster admin capabilities.
 permission!(UsersStaffPositionsRead, ["users", "staff_positions"], Read);
