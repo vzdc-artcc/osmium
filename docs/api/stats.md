@@ -20,7 +20,7 @@ Timestamped stats responses such as controller event `occurred_at` and dataset r
 
 ## Notes
 
-- `artcc`, `history`, `totals`, and `positions` support an `environment` query with `live`, `sweatbox1`, or `sweatbox2`; default is `live`
+- statistics cover the live network only: positions vNAS assigns to ZDC, excluding ATIS. `artcc`, `history`, `totals`, and `positions` still accept `environment=live` (the default); any other value is `bad_request`
 - controller stats now track online session time separately from active facility-bucket time
 - `controller/{cid}/positions` returns the individual online-position sessions behind those aggregates — one row per `stats.controller_activations` record (`position_name`, `facility_name`, `is_primary`, `started_at`, `ended_at`, `active_seconds`), most recent first, using the shared pagination envelope. `ended_at`/`active_seconds` are null for a still-open position. Optional `year`/`month` restrict to a calendar year or a specific month within it (`month` requires `year`; both are `bad_request` if `month` isn't 1-12); omit both for all-time.
 - `artcc`'s `monthly` field is a 12-entry, ARTCC-wide (summed across every controller) monthly breakdown — only populated for the full-year view (`all_time=false` and no `month` filter); `null` for a single-month view or `all_time=true`, since there's nothing to break down further in either case
@@ -30,7 +30,7 @@ Timestamped stats responses such as controller event `occurred_at` and dataset r
 
 ## Statistics Prefixes Notes
 
-- a singleton config row (callsign prefixes that count as this ARTCC's own controllers for stats attribution) — `GET` always returns the one current row, `PATCH` replaces it wholesale
+- a singleton config row of callsign prefixes used to validate callsigns on typed ATC bookings (`POST`/`PUT /api/v1/bookings` with a `type`). It does **not** filter statistics, which count every position vNAS assigns to ZDC regardless of callsign — `GET` always returns the one current row, `PATCH` replaces it wholesale
 - prefixes are normalized server-side: trimmed, upper-cased, de-duplicated
 - reject an empty string after trimming any individual prefix with `bad_request`
 
