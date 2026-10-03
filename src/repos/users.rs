@@ -1483,7 +1483,7 @@ pub async fn set_staff_position_auto(
 /// (`VATUSA_SYNCED_STAFF_POSITIONS`) against the facility roles roster sync
 /// observed for this user. Never touches a manually-set row (see
 /// `set_staff_position_auto`) and never touches the manual-only positions
-/// (AEC/AWM/AFE/EP/TMU/FC) at all.
+/// (ATA/AEC/AWM/AFE/EP/TMU/FC) at all.
 pub async fn sync_staff_positions_from_vatusa_roles(
     pool: &PgPool,
     user_id: &str,

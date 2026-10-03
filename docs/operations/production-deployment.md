@@ -314,6 +314,22 @@ You can also pass an explicit env file first:
 scripts/prod/migrator.sh /absolute/path/to/.env.cutover migrate --domain stats
 ```
 
+Earlier migrator builds did not carry over legacy staff positions. To backfill
+them on a target that was already migrated, first deploy an osmium build that
+includes migration `0074_staff_position_ata.sql`. Without it, the first legacy
+`ATA` holder fails the position check and stops the run partway through that
+user. Then re-run the users domain:
+
+```bash
+scripts/prod/migrator.sh migrate --domain users
+```
+
+Existing staff position rows are left alone. The rest of the users domain is
+not: users, profiles, memberships and roles are rewritten from the legacy
+source. Only do this before the target has taken live changes. After go-live,
+assign the missing positions through
+`POST /api/v1/admin/users/{cid}/staff-positions/{position}` instead.
+
 Useful recovery commands after a failed run:
 
 ```bash

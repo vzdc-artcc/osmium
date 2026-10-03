@@ -84,6 +84,17 @@ pub fn normalize_staff_position(position_name: &str) -> Option<&'static str> {
     }
 }
 
+/// Which `identity.staff_positions.source` a migrated position gets. Roster
+/// sync reconciles only osmium's `VATUSA_SYNCED_STAFF_POSITIONS` and only on
+/// `auto` rows, so those stay `auto`; every other position is manual-only and
+/// must be `manual` or nothing would ever maintain it.
+pub fn staff_position_source(position: &str) -> &'static str {
+    match position {
+        "ATM" | "DATM" | "TA" | "EC" | "WM" | "FE" | "INS" | "MTR" => "auto",
+        _ => "manual",
+    }
+}
+
 pub fn normalize_event_type(value: &str) -> Result<&'static str> {
     match value.trim().to_uppercase().as_str() {
         "HOME" => Ok("HOME"),
@@ -128,6 +139,7 @@ mod tests {
     use super::{
         normalize_certification_option, normalize_controller_status, normalize_event_type,
         normalize_rating, normalize_role, normalize_staff_position, normalize_tmi_category,
+        staff_position_source,
     };
 
     #[test]
@@ -144,9 +156,17 @@ mod tests {
 
     #[test]
     fn normalizes_roles_and_staff_positions() {
-        assert_eq!(normalize_role("USER"), Some("CONTROLLER"));
+        assert_eq!(normalize_role("USER"), Some("USER"));
         assert_eq!(normalize_role("WEB_TEAM"), Some("WEB_TEAM"));
         assert_eq!(normalize_staff_position("ta"), Some("TA"));
+    }
+
+    #[test]
+    fn staff_position_source_leaves_sync_owned_positions_auto() {
+        assert_eq!(staff_position_source("ATM"), "auto");
+        assert_eq!(staff_position_source("MTR"), "auto");
+        assert_eq!(staff_position_source("ATA"), "manual");
+        assert_eq!(staff_position_source("FC"), "manual");
     }
 
     #[test]
