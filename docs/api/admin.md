@@ -12,6 +12,17 @@ Timestamped admin responses follow the shared response-timezone contract via `X-
 - fallback: UTC/Zulu when no authenticated human timezone exists
 - audit `before_state` and `after_state` snapshots remain stored JSON and are not rewritten
 
+## Audit Snapshots
+
+An audit row's `before_state` is the persisted record as it was read before the write (`null` on a create), and for record changes its `after_state` is the same record read back after the write (`null` on a delete), so the two can be diffed field by field. Neither side is the request payload. Actions that are events rather than record changes (session revokes, impersonation start/stop, queued emails and notifications, job runs, exports) carry a summary object in `after_state` instead.
+
+Before a snapshot is stored, keys are normalized to lower snake case (`accessToken` → `access_token`, `x-api-key` → `x_api_key`) and any credential-shaped key is replaced with `"[REDACTED]"`, at any nesting depth:
+
+- exact names: `authorization`, `cookie`, `token`, `access_token`, `refresh_token`, `id_token`, `session_token`, `secret`, `client_secret`, `password`, `api_key`, `apikey`, `signature`, `code_verifier`, `sig`, `secret_hash`
+- names ending in `_secret`, `_token`, `_password`, `_hash`, `_signature`, `_cookie`, `api_key`, `authorization`, `private_key`, `signing_key`, or `auth_code`
+
+Ordinary fields that merely contain one of those words, such as `callsign`, `session_id`, `category_key`, or `state`, are stored as-is.
+
 ## Main Routes
 
 - `GET /api/v1/admin/acl`

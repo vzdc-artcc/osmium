@@ -712,6 +712,7 @@ pub async fn create_progression_assignment(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
+    let before = training_admin_repo::fetch_progression_assignment(pool, &payload.user_id).await?;
     training_admin_repo::upsert_progression_assignment(
         pool,
         &payload.user_id,
@@ -729,7 +730,10 @@ pub async fn create_progression_assignment(
         "UPSERT",
         "TRAINING_PROGRESSION_ASSIGNMENT",
         Some(payload.user_id),
-        None,
+        before
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
         Some(audit_repo::sanitized_snapshot(&row)?),
     )
     .await?;
@@ -938,6 +942,15 @@ pub(crate) async fn advance_progression_if_complete(
         None => None,
     };
 
+    let before = training_admin_repo::fetch_progression_assignment(pool, user_id).await?;
+    // The actor is recorded on the row; the message only adds whether the
+    // controller asked for it, since staff and automation both pass `false`.
+    let requested = if user_initiated {
+        " at the controller's request"
+    } else {
+        ""
+    };
+
     match next {
         Some(next_prog) => {
             training_admin_repo::upsert_progression_assignment(
@@ -957,12 +970,18 @@ pub(crate) async fn advance_progression_if_complete(
                 &next_prog.name,
             )
             .await;
+            let after = training_admin_repo::fetch_progression_assignment(pool, user_id).await?;
             record_progression_advance_audit(
                 pool,
                 actor_id,
                 user_id,
                 "UPDATE",
-                json!({ "from": current_name, "to": next_prog.name, "user_initiated": user_initiated }),
+                format!(
+                    "Advanced training progression from {current_name} to {}{requested}",
+                    next_prog.name
+                ),
+                before.as_ref(),
+                after.as_ref(),
             )
             .await?;
         }
@@ -983,7 +1002,11 @@ pub(crate) async fn advance_progression_if_complete(
                 actor_id,
                 user_id,
                 "DELETE",
-                json!({ "from": current_name, "user_initiated": user_initiated }),
+                format!(
+                    "Completed training progression {current_name}; no next progression, assignment removed{requested}"
+                ),
+                before.as_ref(),
+                None,
             )
             .await?;
         }
@@ -1058,7 +1081,9 @@ async fn record_progression_advance_audit(
     actor_id: Option<&str>,
     user_id: &str,
     action: &str,
-    after: serde_json::Value,
+    message: String,
+    before: Option<&ProgressionAssignmentItem>,
+    after: Option<&ProgressionAssignmentItem>,
 ) -> Result<(), ApiError> {
     audit_repo::record_audit(
         pool,
@@ -1069,9 +1094,9 @@ async fn record_progression_advance_audit(
             resource_id: Some(user_id.to_string()),
             scope_type: "training_progression".to_string(),
             scope_key: None,
-            message: None,
-            before_state: None,
-            after_state: Some(audit_repo::sanitize_value(after)),
+            message: Some(message),
+            before_state: before.map(audit_repo::sanitized_snapshot).transpose()?,
+            after_state: after.map(audit_repo::sanitized_snapshot).transpose()?,
             ip_address: None,
         },
     )

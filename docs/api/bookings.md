@@ -11,7 +11,9 @@ pages, the homepage "upcoming bookings" widget, and the training-appointment
 scheduler's automatic booking sync.
 
 When `ATC_BOOKING_TOKEN` is unset, every endpoint returns
-`503 service_unavailable`.
+`503 service_unavailable`. `ATC_BOOKING_BASE_URL` overrides the upstream
+(default `https://atc-bookings.vatsim.net/api/booking`); tests point it at a
+local fixture.
 
 ## Routes
 
@@ -22,8 +24,12 @@ When `ATC_BOOKING_TOKEN` is unset, every endpoint returns
   returns an array; the first entry is unwrapped). `404` if not found.
 - `POST /api/v1/bookings` — create. Returns the created `AtcBookingItem` on
   success, or `400 { message }` on a validation / upstream error.
-- `PUT /api/v1/bookings/{id}` — update. A `PUT` against a booking the upstream
-  no longer has falls back to a create (parity with the legacy action).
+- `PUT /api/v1/bookings/{id}` — update. Authorization considers the stored
+  booking's owner and type as well as the request body: updating someone
+  else's booking, or a training booking, needs `training.appointments.update`
+  even when the body carries the caller's own cid. A `PUT` against a booking
+  the upstream no longer has falls back to a create (parity with the legacy
+  action).
 - `DELETE /api/v1/bookings/{id}` — delete. `404` if the booking doesn't exist.
 
 `AtcBookingItem`: `{ id, callsign, cid, type?, division?, subdivision?, start,

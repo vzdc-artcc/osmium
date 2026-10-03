@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::{Executor, PgPool, Postgres, Transaction};
+use sqlx::{Executor, PgConnection, PgPool, Postgres, Transaction};
 
 use crate::{
     errors::ApiError,
@@ -232,10 +232,10 @@ fn estimate_appointment_end(
 }
 
 pub async fn fetch_appointment_detail(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     appointment_id: &str,
 ) -> Result<Option<TrainingAppointmentDetail>, ApiError> {
-    let appointment = fetch_appointment_row(pool, appointment_id).await?;
+    let appointment = fetch_appointment_row(&mut *conn, appointment_id).await?;
 
     let Some(appointment) = appointment else {
         return Ok(None);
@@ -256,14 +256,15 @@ pub async fn fetch_appointment_detail(
         "#,
     )
     .bind(appointment_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)?;
 
     let (estimated_duration_minutes, estimated_end) =
         estimate_appointment_end(appointment.start, &lessons);
 
-    let additional_trainers = fetch_appointment_additional_trainers(pool, appointment_id).await?;
+    let additional_trainers =
+        fetch_appointment_additional_trainers(&mut *conn, appointment_id).await?;
 
     Ok(Some(TrainingAppointmentDetail {
         id: appointment.id,

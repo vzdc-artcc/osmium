@@ -25,7 +25,16 @@ use crate::{
     time::{ApiJson, ResponseTimeContext},
 };
 
-const ATC_BOOKING_BASE: &str = "https://atc-bookings.vatsim.net/api/booking";
+const DEFAULT_ATC_BOOKING_BASE: &str = "https://atc-bookings.vatsim.net/api/booking";
+
+/// `ATC_BOOKING_BASE_URL` overrides the upstream (tests point it at a local
+/// fixture); it defaults to the VATSIM booking API.
+fn atc_booking_base() -> String {
+    std::env::var("ATC_BOOKING_BASE_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_ATC_BOOKING_BASE.to_string())
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiMessageBody {
@@ -106,7 +115,7 @@ fn booking_error_response(message: impl Into<String>) -> Response {
 async fn fetch_bookings(cid: Option<i64>) -> Result<Vec<AtcBookingItem>, ApiError> {
     let token = atc_token()?;
     let client = atc_client()?;
-    let mut url = format!("{ATC_BOOKING_BASE}?key_only=1&sort=start");
+    let mut url = format!("{}?key_only=1&sort=start", atc_booking_base());
     if let Some(cid) = cid {
         url.push_str(&format!("&cid={cid}"));
     }
@@ -128,7 +137,7 @@ async fn fetch_single_booking(id: i64) -> Result<Option<AtcBookingItem>, ApiErro
     let token = atc_token()?;
     let client = atc_client()?;
     let res = client
-        .get(format!("{ATC_BOOKING_BASE}/{id}"))
+        .get(format!("{}/{id}", atc_booking_base()))
         .bearer_auth(&token)
         .send()
         .await
@@ -160,8 +169,8 @@ async fn send_booking_write(
     let token = atc_token()?;
     let client = atc_client()?;
     let (url, method) = match id {
-        Some(id) => (format!("{ATC_BOOKING_BASE}/{id}"), reqwest::Method::PUT),
-        None => (ATC_BOOKING_BASE.to_string(), reqwest::Method::POST),
+        Some(id) => (format!("{}/{id}", atc_booking_base()), reqwest::Method::PUT),
+        None => (atc_booking_base(), reqwest::Method::POST),
     };
     let mut payload = json!({
         "callsign": body.callsign,
@@ -235,8 +244,21 @@ async fn upsert_booking(
     id: Option<i64>,
     body: CreateOrUpdateAtcBookingRequest,
 ) -> Result<Response, ApiError> {
+    // The stored booking's owner and type decide authorization for an update
+    // as well as the request body, which the caller controls; it doubles as
+    // the audit before-state.
+    let before = match id {
+        Some(id) => fetch_single_booking(id).await?,
+        None => None,
+    };
+
     // Data-dependent authorization.
-    if booking_needs_privileged_auth(body.cid, user.cid, body.r#type.as_deref()) {
+    let needs_privileged =
+        booking_needs_privileged_auth(body.cid, user.cid, body.r#type.as_deref())
+            || before.as_ref().is_some_and(|existing| {
+                booking_needs_privileged_auth(existing.cid, user.cid, existing.r#type.as_deref())
+            });
+    if needs_privileged {
         ensure_permission(
             state,
             Some(user),
@@ -294,9 +316,11 @@ async fn upsert_booking(
     }
 
     // Upstream write; a PUT against a missing booking falls back to create.
+    let mut created = id.is_none();
     let mut outcome = send_booking_write(id, &body).await?;
     if matches!(outcome, UpstreamWrite::NotFound) && id.is_some() {
         outcome = send_booking_write(None, &body).await?;
+        created = true;
     }
 
     match outcome {
@@ -305,8 +329,10 @@ async fn upsert_booking(
                 pool,
                 user,
                 headers,
-                if id.is_some() { "UPDATE" } else { "CREATE" },
+                if created { "CREATE" } else { "UPDATE" },
                 Some(item.id.to_string()),
+                if created { None } else { before.as_ref() },
+                Some(&item),
             )
             .await?;
             Ok(Json(*item).into_response())
@@ -370,7 +396,7 @@ pub async fn delete_atc_booking(
     let token = atc_token()?;
     let client = atc_client()?;
     let res = client
-        .delete(format!("{ATC_BOOKING_BASE}/{id}"))
+        .delete(format!("{}/{id}", atc_booking_base()))
         .bearer_auth(&token)
         .send()
         .await
@@ -380,7 +406,16 @@ pub async fn delete_atc_booking(
     }
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    record_booking_audit(pool, user, &headers, "DELETE", Some(id.to_string())).await?;
+    record_booking_audit(
+        pool,
+        user,
+        &headers,
+        "DELETE",
+        Some(id.to_string()),
+        Some(&booking),
+        None,
+    )
+    .await?;
 
     Ok(Json(ApiMessageBody {
         message: "booking deleted".to_string(),
@@ -393,6 +428,8 @@ async fn record_booking_audit(
     headers: &HeaderMap,
     action: &str,
     resource_id: Option<String>,
+    before: Option<&AtcBookingItem>,
+    after: Option<&AtcBookingItem>,
 ) -> Result<(), ApiError> {
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
     audit_repo::record_audit(
@@ -405,8 +442,8 @@ async fn record_booking_audit(
             scope_type: "global".to_string(),
             scope_key: Some(user.cid.to_string()),
             message: None,
-            before_state: None,
-            after_state: None,
+            before_state: before.map(audit_repo::sanitized_snapshot).transpose()?,
+            after_state: after.map(audit_repo::sanitized_snapshot).transpose()?,
             ip_address: audit_repo::client_ip(headers),
         },
     )

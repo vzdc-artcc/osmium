@@ -271,6 +271,7 @@ pub async fn set_user_controller_status(
         controller_status: updated.1,
         artcc: updated.2,
     };
+    let after = user_repo::find_roster_user_by_cid(pool, cid).await?;
 
     let actor =
         audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
@@ -288,7 +289,10 @@ pub async fn set_user_controller_status(
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
                 .transpose()?,
-            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            after_state: after
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
             ip_address: audit_repo::client_ip(&headers),
         },
     )
@@ -437,6 +441,7 @@ pub async fn admin_update_user_profile(
         .await?
         .ok_or(ApiError::NotFound)?;
 
+    let before = user_repo::fetch_me_profile(pool, &target_id).await?;
     let profile = user_repo::admin_update_user_profile(
         pool,
         &target_id,
@@ -458,7 +463,7 @@ pub async fn admin_update_user_profile(
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
             message: None,
-            before_state: None,
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
             after_state: Some(audit_repo::sanitized_snapshot(&profile)?),
             ip_address: audit_repo::client_ip(&headers),
         },
@@ -507,10 +512,12 @@ pub async fn reassign_user_operating_initials(
         .await?
         .ok_or(ApiError::NotFound)?;
 
+    let before = user_repo::fetch_me_profile(pool, &target_id).await?;
     let assigned = user_repo::reassign_operating_initials(pool, &target_id, &initials).await?;
     if !assigned {
         return Err(ApiError::Conflict);
     }
+    let after = user_repo::fetch_me_profile(pool, &target_id).await?;
 
     let response = UpdateOperatingInitialsResponse {
         cid,
@@ -529,8 +536,8 @@ pub async fn reassign_user_operating_initials(
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
             message: None,
-            before_state: None,
-            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
+            after_state: Some(audit_repo::sanitized_snapshot(&after)?),
             ip_address: audit_repo::client_ip(&headers),
         },
     )
@@ -723,6 +730,7 @@ pub async fn refresh_user_vatusa(
         },
     };
 
+    let after = user_repo::find_roster_user_by_cid(pool, cid).await?;
     let actor =
         audit_repo::resolve_audit_actor(pool, Some(user), current_service_account.as_ref()).await?;
     audit_repo::record_audit(
@@ -739,7 +747,10 @@ pub async fn refresh_user_vatusa(
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
                 .transpose()?,
-            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            after_state: after
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
             ip_address: audit_repo::client_ip(&headers),
         },
     )
@@ -1076,6 +1087,10 @@ pub async fn revoke_user_session(
         .await?
         .ok_or(ApiError::NotFound)?;
 
+    let before = access_repo::list_user_sessions(pool, &target_id)
+        .await?
+        .into_iter()
+        .find(|session| session.id == session_id);
     if !access_repo::revoke_user_session(pool, &target_id, &session_id).await? {
         return Err(ApiError::NotFound);
     }
@@ -1087,6 +1102,10 @@ pub async fn revoke_user_session(
         current_service_account.as_ref(),
         "REVOKE",
         cid,
+        before
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
         serde_json::json!({ "revoked_session_id": session_id, "target_cid": cid }),
     )
     .await?;
@@ -1120,6 +1139,9 @@ pub async fn revoke_all_user_sessions(
         .await?
         .ok_or(ApiError::NotFound)?;
 
+    // Snapshot from the session listing, which carries only non-secret metadata
+    // (id, ip, user agent, timestamps) and never the session token.
+    let before = access_repo::list_user_sessions(pool, &target_id).await?;
     let revoked = access_repo::revoke_all_user_sessions(pool, &target_id).await?;
 
     record_session_revoke_audit(
@@ -1129,6 +1151,7 @@ pub async fn revoke_all_user_sessions(
         current_service_account.as_ref(),
         "REVOKE_ALL",
         cid,
+        Some(audit_repo::sanitized_snapshot(&before)?),
         serde_json::json!({ "revoked_count": revoked, "target_cid": cid }),
     )
     .await?;
@@ -1145,6 +1168,7 @@ async fn record_session_revoke_audit(
     current_service_account: Option<&CurrentServiceAccount>,
     action: &str,
     target_cid: i64,
+    before_state: Option<serde_json::Value>,
     after_state: serde_json::Value,
 ) -> Result<(), ApiError> {
     let actor =
@@ -1159,7 +1183,7 @@ async fn record_session_revoke_audit(
             scope_type: "global".to_string(),
             scope_key: Some(target_cid.to_string()),
             message: None,
-            before_state: None,
+            before_state,
             after_state: Some(after_state),
             ip_address: audit_repo::client_ip(headers),
         },
@@ -1294,6 +1318,7 @@ pub async fn update_user_access(
         .ok_or(ApiError::NotFound)?;
     let (before_roles, before_permissions) =
         fetch_user_access(state.db.as_ref(), &target_before.id).await?;
+    let before = build_user_access_body(&target_before, &before_roles, before_permissions);
 
     let existing_direct_names =
         access_repo::fetch_user_direct_permission_names(pool, &target_user_id).await?;
@@ -1352,11 +1377,7 @@ pub async fn update_user_access(
             scope_type: "global".to_string(),
             scope_key: Some(cid.to_string()),
             message: None,
-            before_state: Some(audit_repo::sanitize_value(serde_json::json!({
-                "user": target_before,
-                "server_admin": is_server_admin(&before_roles),
-                "permissions": permission_tree_from_paths(&before_permissions),
-            }))),
+            before_state: Some(audit_repo::sanitized_snapshot(&before)?),
             after_state: Some(audit_repo::sanitized_snapshot(&response)?),
             ip_address: audit_repo::client_ip(&headers),
         },
