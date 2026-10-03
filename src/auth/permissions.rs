@@ -19,7 +19,7 @@ permission!(FeedbackItemsDecide, ["feedback", "items"], Decide);
 // permission nested one level under a 2-segment one at the same prefix
 // would silently clobber (or be clobbered by) it. See migration 0048. The same
 // underscore-joined form is used for every other "self"/"interest"/"policy"
-// sub-permission below (migration 0072), and tests/permission_catalog.rs fails
+// sub-permission below (migration 0073), and tests/permission_catalog.rs fails
 // if any catalog path becomes a prefix of another.
 permission!(FeedbackItemsSelfRead, ["feedback", "items_self"], Read);
 

@@ -56,11 +56,11 @@ async fn no_permission_path_is_a_prefix_of_another() {
     app.cleanup().await;
 }
 
-/// Grants held under the pre-0072 names (role, user grant, user revoke, and
+/// Grants held under the pre-rename names (role, user grant, user revoke, and
 /// service account) must all move to the renamed permissions. The grant tables
 /// cascade on delete, so a missed table would silently drop those grants.
 #[tokio::test(flavor = "current_thread")]
-async fn migration_0072_moves_every_grant_to_the_renamed_permission() {
+async fn rename_migration_moves_every_grant_to_the_renamed_permission() {
     let _env_lock = lock_env();
     let Ok(root_url) = std::env::var("DATABASE_URL") else {
         return;
@@ -85,6 +85,11 @@ async fn migration_0072_moves_every_grant_to_the_renamed_permission() {
         .expect("connect test database");
 
     let migrator = sqlx::migrate!("./migrations");
+    let rename_version = migrator
+        .iter()
+        .find(|migration| migration.description == "rename prefix colliding permissions")
+        .expect("rename migration exists")
+        .version;
     let apply = |version: i64| {
         let migration = migrator
             .iter()
@@ -101,29 +106,33 @@ async fn migration_0072_moves_every_grant_to_the_renamed_permission() {
             tx.commit().await.expect("commit");
         }
     };
-    for version in migrator.iter().map(|m| m.version).filter(|v| *v < 72) {
+    for version in migrator
+        .iter()
+        .map(|m| m.version)
+        .filter(|v| *v < rename_version)
+    {
         apply(version).await;
     }
 
     sqlx::raw_sql(
-        "insert into identity.users (id, cid, full_name, display_name) values ('u-0072', 7200001, 'Rename Target', 'Rename Target');
-         insert into access.service_accounts (id, key, name) values ('sa-0072', 'sa-0072', 'Rename Key');
-         insert into access.roles (name) values ('ROLE_0072');
-         insert into access.role_permissions (role_name, permission_name) values ('ROLE_0072', 'training.assignment_requests.self.request');
+        "insert into identity.users (id, cid, full_name, display_name) values ('u-rename', 7200001, 'Rename Target', 'Rename Target');
+         insert into access.service_accounts (id, key, name) values ('sa-rename', 'sa-rename', 'Rename Key');
+         insert into access.roles (name) values ('ROLE_RENAME');
+         insert into access.role_permissions (role_name, permission_name) values ('ROLE_RENAME', 'training.assignment_requests.self.request');
          insert into access.user_permissions (user_id, permission_name, granted) values
-             ('u-0072', 'events.positions.self.request', true),
-             ('u-0072', 'files.assets.policy.update', false);
+             ('u-rename', 'events.positions.self.request', true),
+             ('u-rename', 'files.assets.policy.update', false);
          insert into access.service_account_permissions (service_account_id, permission_name, granted) values
-             ('sa-0072', 'users.visitor_applications.self.read', true);",
+             ('sa-rename', 'users.visitor_applications.self.read', true);",
     )
     .execute(&pool)
     .await
     .expect("seed grants under the old names");
 
-    apply(72).await;
+    apply(rename_version).await;
 
     let role: Vec<String> = sqlx::query_scalar(
-        "select permission_name from access.role_permissions where role_name = 'ROLE_0072'",
+        "select permission_name from access.role_permissions where role_name = 'ROLE_RENAME'",
     )
     .fetch_all(&pool)
     .await
@@ -131,7 +140,7 @@ async fn migration_0072_moves_every_grant_to_the_renamed_permission() {
     assert_eq!(role, vec!["training.assignment_requests_self.request"]);
 
     let mut user: Vec<(String, bool)> = sqlx::query_as(
-        "select permission_name, granted from access.user_permissions where user_id = 'u-0072'",
+        "select permission_name, granted from access.user_permissions where user_id = 'u-rename'",
     )
     .fetch_all(&pool)
     .await
@@ -146,7 +155,7 @@ async fn migration_0072_moves_every_grant_to_the_renamed_permission() {
     );
 
     let service_account: Vec<String> = sqlx::query_scalar(
-        "select permission_name from access.service_account_permissions where service_account_id = 'sa-0072'",
+        "select permission_name from access.service_account_permissions where service_account_id = 'sa-rename'",
     )
     .fetch_all(&pool)
     .await
