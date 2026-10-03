@@ -227,3 +227,69 @@ async fn server_admin_actor_is_unrestricted() {
 
     app.cleanup().await;
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn editor_round_trip_keeps_a_read_and_its_self_request() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let granted = [
+        "training.assignment_requests.read",
+        "training.assignment_requests_self.request",
+    ];
+    let staff = app
+        .create_user(
+            10000404,
+            "Access Editor",
+            &[
+                "access.users.read",
+                "access.users.update",
+                granted[0],
+                granted[1],
+            ],
+        )
+        .await;
+    let target = app.create_user(10000405, "Training Staff", &granted).await;
+
+    // The access editor seeds itself from this tree and posts it back unchanged.
+    let response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/admin/users/{}/access", target.cid),
+            Some(&staff.session_token),
+            None,
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+    let body: Value = json_body(response).await;
+    let tree = body["permissions"].clone();
+    assert_eq!(tree["training"]["assignment_requests"], json!(["read"]));
+    assert_eq!(
+        tree["training"]["assignment_requests_self"],
+        json!(["request"])
+    );
+
+    let response = app
+        .json_request(
+            "POST",
+            &format!("/api/v1/admin/users/{}/access", target.cid),
+            Some(&staff.session_token),
+            Some(json!({ "permissions": tree, "reason": "no-op save" })),
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+
+    let mut direct: Vec<String> = sqlx::query_scalar(
+        "select up.permission_name from access.user_permissions up join identity.users u on u.id = up.user_id where u.cid = $1 and up.granted",
+    )
+    .bind(target.cid)
+    .fetch_all(&app.pool)
+    .await
+    .expect("load target grants");
+    direct.sort();
+    assert_eq!(direct, granted.map(str::to_string).to_vec());
+
+    app.cleanup().await;
+}

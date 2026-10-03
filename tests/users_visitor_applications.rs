@@ -16,8 +16,8 @@ async fn visitor_application_lifecycle_works_end_to_end() {
             10000100,
             "Visitor Applicant",
             &[
-                "users.visitor_applications.self.read",
-                "users.visitor_applications.self.request",
+                "users.visitor_applications_self.read",
+                "users.visitor_applications_self.request",
             ],
         )
         .await;
