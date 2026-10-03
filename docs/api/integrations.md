@@ -53,19 +53,11 @@ Discord link start:
 
 ```json
 {
-  "redirect_uri": "http://localhost:3000/discord/callback"
+  "return_url": "http://127.0.0.1:3000/profile/overview"
 }
 ```
 
-Discord link complete:
-
-```json
-{
-  "code": "oauth_code",
-  "state": "oauth_state_token",
-  "redirect_uri": "http://localhost:3000/discord/callback"
-}
-```
+`auth_url` in the response is `null` when Discord OAuth is not configured (see `DISCORD_*` in the configuration guide).
 
 Announcement queue:
 
