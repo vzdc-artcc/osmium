@@ -315,7 +315,10 @@ scripts/prod/migrator.sh /absolute/path/to/.env.cutover migrate --domain stats
 ```
 
 Earlier migrator builds did not carry over legacy staff positions. To backfill
-them on a target that was already migrated, re-run the users domain:
+them on a target that was already migrated, first deploy an osmium build that
+includes migration `0074_staff_position_ata.sql`. Without it, the first legacy
+`ATA` holder fails the position check and stops the run partway through that
+user. Then re-run the users domain:
 
 ```bash
 scripts/prod/migrator.sh migrate --domain users

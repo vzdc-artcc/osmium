@@ -508,7 +508,7 @@ pub const STAFF_POSITIONS: [&str; 15] = [
 ];
 
 /// Subset of STAFF_POSITIONS that VATUSA's roster API actually reports.
-/// The rest (AEC/AWM/AFE/EP/TMU/FC) have no VATUSA equivalent and are
+/// The rest (ATA/AEC/AWM/AFE/EP/TMU/FC) have no VATUSA equivalent and are
 /// always manually assigned — roster sync never touches them.
 pub const VATUSA_SYNCED_STAFF_POSITIONS: [&str; 8] =
     ["ATM", "DATM", "TA", "EC", "WM", "FE", "INS", "MTR"];
