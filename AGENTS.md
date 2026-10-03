@@ -205,6 +205,17 @@ permissions use `["feedback", "items_self"]` rather than
 `["feedback", "items", "self"]`. Check for a prefix collision before adding a
 permission.
 
+**Reviving a dead gate is an authorization change.** A hand-built
+`PermissionPath` that matches no seeded permission refuses everyone, so the
+route has been closed in practice whatever its docs say. Correcting the path
+opens it to every holder of the real permission, often the whole roster
+through the baseline grant. Before you fix one, find out who holds the
+permission, call the route as that holder against rows in every state
+(pending, stashed, someone else's), and read what the body actually returns.
+A filter the website sends (`status=RELEASED`) is presentation, not access
+control. Then treat it as the authorization change it is: ask first, and do
+not fold it silently into an unrelated fix.
+
 **`SERVER_ADMIN`** is reserved. It is granted only through the
 `OSMIUM_SERVER_ADMIN_CID` env var, reconciled idempotently on every login for
 those CIDs, and resolves to every row in `access.permissions` including ones
@@ -267,6 +278,14 @@ Two more conventions worth knowing:
 - Errors cross the HTTP boundary only as `ApiError`. Its `IntoResponse` maps to
   stable snake_case codes (`bad_request`, `forbidden`, `oauth_state_mismatch`).
   Clients match on those strings, so do not rename one casually.
+- Changing which status or code a route returns is a client contract change,
+  even when no code is renamed. Before you claim a client is unaffected,
+  search the website for the strings and statuses involved, for example
+  `git grep -nE "'(unauthorized|forbidden)'|\b40[13]\b" origin/next`, and name
+  every call site you found in the PR, or quote the empty result. A "no call
+  site" claim with no search behind it is unverified, whether a builder or a
+  reviewer wrote it, and repeating one from an earlier comment does not
+  verify it.
 - Timestamp-bearing responses return through `ApiJson::new(body, time)` with a
   `ResponseTimeContext`, which honors the caller's timezone and the
   `X-Response-Timezone` header. Plain `Json` for such a body skips that.
