@@ -1090,7 +1090,7 @@ pub async fn get_sua_mission_by_lookup(
     Ok(ApiJson::new(PublicSuaMissionItem::from(item), time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Not the submitter of this mission"), (status = 404, description = "SUA request not found")))]
+#[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read, or not the submitter of this mission"), (status = 404, description = "SUA request not found")))]
 pub async fn delete_sua_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,

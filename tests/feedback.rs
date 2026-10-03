@@ -154,7 +154,7 @@ async fn list_feedback_with_self_permission_returns_only_own_submissions() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn get_user_feedback_allows_self_view_with_self_permission() {
+async fn get_user_feedback_refuses_self_view_with_only_self_permission() {
     let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
@@ -183,17 +183,68 @@ async fn get_user_feedback_allows_self_view_with_self_permission() {
         .await;
     assert_status(&submit_response, StatusCode::CREATED);
 
+    // The route returns every status plus staff comments and the submitter, so
+    // the baseline self permission must not open it to the target.
     let response = app
         .json_request(
             "GET",
-            &format!("/api/v1/users/{}/feedback", target.cid),
+            &format!("/api/v1/users/{}/feedback?status=PENDING", target.cid),
             Some(&target.session_token),
             None,
         )
         .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
+
+    app.cleanup().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_user_feedback_refuses_peer_with_only_self_permission() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let target = app
+        .create_user(10000060, "Feedback Target", &["feedback.items_self.read"])
+        .await;
+    let peer = app
+        .create_user(10000061, "Curious Peer", &["feedback.items_self.read"])
+        .await;
+
+    let response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/users/{}/feedback", target.cid),
+            Some(&peer.session_token),
+            None,
+        )
+        .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
+
+    app.cleanup().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_user_feedback_allows_staff_own_view_with_directory_private() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let staff = app
+        .create_user(10000062, "Staff Viewer", &["users.directory_private.read"])
+        .await;
+
+    let response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/users/{}/feedback", staff.cid),
+            Some(&staff.session_token),
+            None,
+        )
+        .await;
     assert_status(&response, StatusCode::OK);
-    let body: Value = json_body(response).await;
-    assert_eq!(body["items"].as_array().unwrap().len(), 1);
 
     app.cleanup().await;
 }

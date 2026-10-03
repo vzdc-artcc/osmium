@@ -456,7 +456,7 @@ pub async fn create_visitor_application(
     responses(
         (status = 200, description = "Feedback for a user", body = UserFeedbackListResponse),
         (status = 401, description = "Not authenticated"),
-        (status = 403, description = "Own feedback needs feedback.items_self.read; someone else's needs users.directory_private.read"),
+        (status = 403, description = "Lacks users.directory_private.read (required for your own feedback too)"),
         (status = 404, description = "User not found")
     )
 )]
@@ -474,23 +474,15 @@ pub async fn get_user_feedback(
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    if target.1 == viewer.cid {
-        ensure_permission(
-            &state,
-            Some(viewer),
-            None,
-            PermissionPath::from_segments(["feedback", "items_self"], PermissionAction::Read),
-        )
-        .await?;
-    } else {
-        ensure_permission(
-            &state,
-            Some(viewer),
-            None,
-            PermissionPath::from_segments(["users", "directory_private"], PermissionAction::Read),
-        )
-        .await?;
-    }
+    // One gate for every caller, self included: the response carries every
+    // status, staff comments, and the submitter's identity.
+    ensure_permission(
+        &state,
+        Some(viewer),
+        None,
+        PermissionPath::from_segments(["users", "directory_private"], PermissionAction::Read),
+    )
+    .await?;
 
     let pagination =
         PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)

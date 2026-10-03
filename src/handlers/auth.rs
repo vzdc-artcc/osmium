@@ -486,8 +486,8 @@ pub async fn vatsim_callback(
     responses(
         (status = 200, description = "Now impersonating the target; returns the target's /me view", body = MeBody),
         (status = 400, description = "Invalid target (self, or already impersonating)"),
-        (status = 401, description = "Not authorized"),
-        (status = 403, description = "Target is a server admin (refused)"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks auth.impersonate.create, or target is a server admin (refused)"),
         (status = 404, description = "Target user not found")
     )
 )]
