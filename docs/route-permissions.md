@@ -96,6 +96,7 @@ Permission-gated routes:
 - `GET /api/v1/admin/integrations/discord/configs` -> `integrations.stats.update`
 - `POST /api/v1/admin/integrations/discord/configs` -> `integrations.stats.update`
 - `PATCH /api/v1/admin/integrations/discord/configs/{config_id}` -> `integrations.stats.update`
+- `DELETE /api/v1/admin/integrations/discord/configs/{config_id}` -> `integrations.stats.update`
 - `POST /api/v1/admin/integrations/discord/channels` -> `integrations.stats.update`
 - `PATCH /api/v1/admin/integrations/discord/channels/{channel_id}` -> `integrations.stats.update`
 - `DELETE /api/v1/admin/integrations/discord/channels/{channel_id}` -> `integrations.stats.update`
@@ -108,6 +109,7 @@ Permission-gated routes:
 - `GET /api/v1/admin/integrations/outbound-jobs` -> `integrations.stats.update`
 - `POST /api/v1/admin/integrations/outbound-jobs/run` -> `integrations.stats.update`
 - `POST /api/v1/admin/notifications/announcements` -> `integrations.stats.update`
+- the Discord config/channel/role/category writes, both outbound-jobs routes, announcements, and the event `publish/discord` and `discord-event` routes also require a user session and return `401` to an API key; see `docs/operations/service-accounts.md`
 - `PATCH /api/v1/admin/users/{cid}/controller-status` -> `users.controller_status.update`
 - `PATCH /api/v1/admin/users/{cid}/controller-lifecycle` -> `users.controller_status.update` (additionally requires `users.controller_status.delete`, ATM/DATM-only, when `controller_status` is `NONE` — this is the roster-purge path: VATUSA removal + cascading cleanup)
 - `GET /api/v1/admin/roster/purge-candidates` -> `users.controller_status.update`
@@ -164,6 +166,7 @@ Permission-gated routes:
 - `POST /api/v1/events/{event_id}/positions/lock` -> `events.items.update`
 - `POST /api/v1/events/{event_id}/positions/unlock` -> `events.items.update`
 - `POST /api/v1/events/{event_id}/publish/discord` -> `integrations.stats.update`
+- `POST /api/v1/events/{event_id}/discord-event` -> `integrations.stats.update`
 - `PATCH /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.assign`
 - `DELETE /api/v1/events/{event_id}/positions/{position_id}` -> `events.positions.delete`
 - `POST /api/v1/events/{event_id}/positions/publish` -> `events.positions.publish`
