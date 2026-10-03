@@ -359,7 +359,9 @@ pub async fn update_event_preset_positions(
 ) -> Result<Json<Vec<String>>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let before = events_repo::fetch_preset_positions(pool, &event_id).await?;
     events_repo::update_preset_positions_row(pool, &event_id, &payload.preset_positions).await?;
+    let after = events_repo::fetch_preset_positions(pool, &event_id).await?;
     record_audit(
         pool,
         user,
@@ -367,8 +369,14 @@ pub async fn update_event_preset_positions(
         "UPDATE",
         "EVENT_PRESET_POSITIONS",
         Some(event_id.clone()),
-        None,
-        Some(audit_repo::sanitized_snapshot(&payload.preset_positions)?),
+        before
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
+        after
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
     )
     .await?;
     Ok(Json(payload.preset_positions))
@@ -396,7 +404,9 @@ pub async fn lock_event_positions(
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let before = events_repo::fetch_event(pool, &event_id).await?;
     events_repo::set_positions_locked(pool, &event_id, true).await?;
+    let after = events_repo::fetch_event(pool, &event_id).await?;
     record_audit(
         pool,
         user,
@@ -404,8 +414,14 @@ pub async fn lock_event_positions(
         "UPDATE",
         "EVENT_POSITION_LOCK",
         Some(event_id.clone()),
-        None,
-        Some(serde_json::json!({ "positions_locked": true })),
+        before
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
+        after
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
     )
     .await?;
     Ok(Json(ApiMessageBody {
@@ -435,7 +451,9 @@ pub async fn unlock_event_positions(
 ) -> Result<Json<ApiMessageBody>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
+    let before = events_repo::fetch_event(pool, &event_id).await?;
     events_repo::set_positions_locked(pool, &event_id, false).await?;
+    let after = events_repo::fetch_event(pool, &event_id).await?;
     record_audit(
         pool,
         user,
@@ -443,8 +461,14 @@ pub async fn unlock_event_positions(
         "UPDATE",
         "EVENT_POSITION_LOCK",
         Some(event_id.clone()),
-        None,
-        Some(serde_json::json!({ "positions_locked": false })),
+        before
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
+        after
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
     )
     .await?;
     Ok(Json(ApiMessageBody {

@@ -15,21 +15,33 @@ const REDACTED: &str = "[REDACTED]";
 /// to SERVER_ADMIN readers — facility admins holding `audit.logs.read` must never
 /// see impersonation activity (security checklist #2).
 pub const AUTH_IMPERSONATION_RESOURCE: &str = "AUTH_IMPERSONATION";
-const SENSITIVE_KEY_FRAGMENTS: &[&str] = &[
+/// Keys redacted from audit snapshots, matched exactly (case-insensitive). Exact
+/// matching rather than substring matching keeps ordinary domain fields such as
+/// `callsign`, `assigned_slot`, `session_id`, `category_key` and `state` readable.
+/// `sig` is the signed-download signature and `secret_hash` the stored API key
+/// digest; both carry credential material under a name the suffix rule misses.
+const SENSITIVE_KEYS: &[&str] = &[
     "authorization",
     "cookie",
     "token",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "session_token",
     "secret",
+    "client_secret",
     "password",
     "api_key",
     "apikey",
-    "key",
-    "session",
-    "sig",
     "signature",
-    "code",
-    "state",
+    "code_verifier",
+    "sig",
+    "secret_hash",
 ];
+
+/// Any key ending with one of these is redacted too, so new credential columns
+/// (`bearer_token`, `oauth_client_secret`, ...) are covered without a list edit.
+const SENSITIVE_KEY_SUFFIXES: &[&str] = &["_secret", "_token", "_password"];
 
 #[derive(Debug, Clone)]
 pub struct AuditLogFilters {
@@ -356,9 +368,10 @@ where
 
 fn is_sensitive_key(key: &str) -> bool {
     let normalized = key.trim().to_ascii_lowercase();
-    SENSITIVE_KEY_FRAGMENTS
-        .iter()
-        .any(|fragment| normalized.contains(fragment))
+    SENSITIVE_KEYS.contains(&normalized.as_str())
+        || SENSITIVE_KEY_SUFFIXES
+            .iter()
+            .any(|suffix| normalized.ends_with(suffix))
 }
 
 #[cfg(test)]
@@ -381,5 +394,57 @@ mod tests {
         assert_eq!(sanitized["token"], "[REDACTED]");
         assert_eq!(sanitized["nested"]["api_key"], "[REDACTED]");
         assert_eq!(sanitized["nested"]["safe"], "ok");
+    }
+
+    #[test]
+    fn keeps_domain_fields_that_resemble_sensitive_names() {
+        let value = json!({
+            "callsign": "DEN_APP",
+            "pilot_callsign": "AAL123",
+            "assigned_slot": 2,
+            "session_id": "sess-1",
+            "category_key": "sops",
+            "state": "CO",
+            "nested": [{ "callsign": "DEN_TWR", "session_id": "sess-2" }]
+        });
+
+        assert_eq!(sanitize_value(value.clone()), value);
+    }
+
+    #[test]
+    fn redacts_every_sensitive_name_top_level_nested_and_in_arrays() {
+        let names = [
+            "authorization",
+            "Cookie",
+            "token",
+            "access_token",
+            "refresh_token",
+            "id_token",
+            "session_token",
+            "secret",
+            "client_secret",
+            "password",
+            "api_key",
+            "apikey",
+            "signature",
+            "code_verifier",
+            "sig",
+            "secret_hash",
+            "bearer_token",
+            "oauth_client_secret",
+            "smtp_password",
+        ];
+        for name in names {
+            let value = json!({
+                name: "s3cr3t",
+                "nested": { name: "s3cr3t", "safe": "ok" },
+                "list": [{ name: "s3cr3t" }]
+            });
+            let sanitized = sanitize_value(value);
+            assert_eq!(sanitized[name], "[REDACTED]", "top-level {name}");
+            assert_eq!(sanitized["nested"][name], "[REDACTED]", "nested {name}");
+            assert_eq!(sanitized["nested"]["safe"], "ok");
+            assert_eq!(sanitized["list"][0][name], "[REDACTED]", "array {name}");
+        }
     }
 }

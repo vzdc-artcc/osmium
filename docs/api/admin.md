@@ -12,6 +12,12 @@ Timestamped admin responses follow the shared response-timezone contract via `X-
 - fallback: UTC/Zulu when no authenticated human timezone exists
 - audit `before_state` and `after_state` snapshots remain stored JSON and are not rewritten
 
+## Audit Snapshots
+
+An audit row's `before_state` is the persisted record as it was read before the write (`null` on a create), and its `after_state` is the same record read back after the write (`null` on a delete). Both sides use the same shape so they can be diffed field by field. Neither side is the request payload.
+
+Before a snapshot is stored, any key whose name matches one of these exactly (case-insensitive) is replaced with `"[REDACTED]"`, at any nesting depth: `authorization`, `cookie`, `token`, `access_token`, `refresh_token`, `id_token`, `session_token`, `secret`, `client_secret`, `password`, `api_key`, `apikey`, `signature`, `code_verifier`, `sig`, `secret_hash`. Any key ending in `_secret`, `_token`, or `_password` is redacted too. Ordinary fields that only contain one of those words, such as `callsign`, `session_id`, `category_key`, or `state`, are stored as-is.
+
 ## Main Routes
 
 - `GET /api/v1/admin/acl`

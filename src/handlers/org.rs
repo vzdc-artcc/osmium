@@ -477,6 +477,10 @@ pub async fn create_or_update_certification_type(
         }
     }
 
+    let before = match payload.id.as_deref() {
+        Some(id) => certifications::fetch_certification_type(pool, id).await?,
+        None => None,
+    };
     let (type_id, _name) = certifications::upsert_certification_type(
         pool,
         payload.id.as_deref(),
@@ -491,7 +495,7 @@ pub async fn create_or_update_certification_type(
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    record_simple_audit(
+    record_full_audit(
         pool,
         user,
         &headers,
@@ -502,6 +506,10 @@ pub async fn create_or_update_certification_type(
         },
         "CERTIFICATION_TYPE",
         Some(type_id),
+        before
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
         Some(audit_repo::sanitized_snapshot(&full)?),
     )
     .await?;
@@ -526,16 +534,19 @@ pub async fn update_certification_type_order(
         .into_iter()
         .map(|item| (item.id, item.order))
         .collect();
+    let before = certifications::list_certification_types(pool).await?;
     certifications::update_certification_type_order(pool, &items).await?;
+    let after = certifications::list_certification_types(pool).await?;
 
-    record_simple_audit(
+    record_full_audit(
         pool,
         user,
         &headers,
         "UPDATE",
         "CERTIFICATION_TYPE",
         None,
-        Some(json!({ "reordered": items.len() })),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&after)?),
     )
     .await?;
 
@@ -559,18 +570,22 @@ pub async fn delete_certification_type(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let name = certifications::delete_certification_type(pool, &id)
+    let before = certifications::fetch_certification_type(pool, &id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    certifications::delete_certification_type(pool, &id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    record_simple_audit(
+    record_full_audit(
         pool,
         user,
         &headers,
         "DELETE",
         "CERTIFICATION_TYPE",
         Some(id),
-        Some(json!({ "name": name })),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        None,
     )
     .await?;
 
@@ -622,6 +637,7 @@ pub async fn save_user_certifications(
             )
         })
         .collect();
+    let before = certifications::fetch_user_certifications(pool, cid).await?;
     certifications::save_user_certifications(
         pool,
         &target_user_id,
@@ -629,6 +645,7 @@ pub async fn save_user_certifications(
         actor.actor_id.as_deref(),
     )
     .await?;
+    let after = certifications::fetch_user_certifications(pool, cid).await?;
 
     // Required dossier note against the controller (parity with the website).
     training_admin_repo::insert_dossier_entry(
@@ -641,14 +658,15 @@ pub async fn save_user_certifications(
     )
     .await?;
 
-    record_simple_audit(
+    record_full_audit(
         pool,
         user,
         &headers,
         "UPDATE",
         "CERTIFICATION",
         Some(target_user_id),
-        Some(json!({ "cid": cid, "count": entries.len() })),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&after)?),
     )
     .await?;
 
@@ -1298,6 +1316,7 @@ pub async fn update_controller_lifecycle(
     let after = controller_lifecycle::fetch_membership_lifecycle_row(pool, cid)
         .await?
         .ok_or(ApiError::NotFound)?;
+    let after_state = audit_repo::sanitized_snapshot(&after)?;
     let response = ControllerLifecycleResponse {
         cid: after.cid,
         controller_status: after.controller_status,
@@ -1313,7 +1332,7 @@ pub async fn update_controller_lifecycle(
         "USER_CONTROLLER_LIFECYCLE",
         Some(after.user_id),
         Some(audit_repo::sanitized_snapshot(&before)?),
-        Some(audit_repo::sanitized_snapshot(&response)?),
+        Some(after_state),
     )
     .await?;
 

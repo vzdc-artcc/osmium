@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 
 use crate::{
     errors::ApiError,
@@ -113,7 +113,7 @@ pub struct SessionExistsRow {
 }
 
 pub async fn fetch_session_detail_row(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     session_id: &str,
 ) -> Result<Option<SessionDetailRow>, ApiError> {
     sqlx::query_as::<_, SessionDetailRow>(
@@ -141,13 +141,13 @@ pub async fn fetch_session_detail_row(
         "#,
     )
     .bind(session_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)
 }
 
 pub async fn fetch_ticket_rows(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     session_id: &str,
 ) -> Result<Vec<TicketRow>, ApiError> {
     sqlx::query_as::<_, TicketRow>(
@@ -159,12 +159,15 @@ pub async fn fetch_ticket_rows(
         "#,
     )
     .bind(session_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)
 }
 
-pub async fn fetch_score_rows(pool: &PgPool, session_id: &str) -> Result<Vec<ScoreRow>, ApiError> {
+pub async fn fetch_score_rows(
+    conn: &mut PgConnection,
+    session_id: &str,
+) -> Result<Vec<ScoreRow>, ApiError> {
     sqlx::query_as::<_, ScoreRow>(
         r#"
         select id, training_ticket_id, criteria_id, cell_id, passed
@@ -176,26 +179,26 @@ pub async fn fetch_score_rows(pool: &PgPool, session_id: &str) -> Result<Vec<Sco
         "#,
     )
     .bind(session_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)
 }
 
 pub async fn fetch_performance_indicator_root(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     session_id: &str,
 ) -> Result<Option<IndicatorRootRow>, ApiError> {
     sqlx::query_as::<_, IndicatorRootRow>(
         "select id from training.session_performance_indicators where training_session_id = $1",
     )
     .bind(session_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)
 }
 
 pub async fn fetch_performance_indicator_categories(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     root_id: &str,
 ) -> Result<Vec<IndicatorCategoryRow>, ApiError> {
     sqlx::query_as::<_, IndicatorCategoryRow>(
@@ -207,13 +210,13 @@ pub async fn fetch_performance_indicator_categories(
         "#,
     )
     .bind(root_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)
 }
 
 pub async fn fetch_performance_indicator_criteria(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     root_id: &str,
 ) -> Result<Vec<IndicatorCriteriaRow>, ApiError> {
     sqlx::query_as::<_, IndicatorCriteriaRow>(
@@ -229,7 +232,7 @@ pub async fn fetch_performance_indicator_criteria(
         "#,
     )
     .bind(root_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)
 }
@@ -624,7 +627,7 @@ pub async fn insert_session_additional_trainer_row(
 }
 
 pub async fn fetch_session_additional_trainers(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     session_id: &str,
 ) -> Result<Vec<AdditionalTrainerDetail>, ApiError> {
     sqlx::query_as::<_, AdditionalTrainerDetail>(
@@ -641,7 +644,7 @@ pub async fn fetch_session_additional_trainers(
         "#,
     )
     .bind(session_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|_| ApiError::Internal)
 }
@@ -1119,15 +1122,15 @@ pub async fn insert_ots_recommendation_note(
 }
 
 pub async fn fetch_session_detail(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     session_id: &str,
 ) -> Result<Option<TrainingSessionDetail>, ApiError> {
-    let Some(session) = fetch_session_detail_row(pool, session_id).await? else {
+    let Some(session) = fetch_session_detail_row(&mut *conn, session_id).await? else {
         return Ok(None);
     };
 
-    let ticket_rows = fetch_ticket_rows(pool, session_id).await?;
-    let score_rows = fetch_score_rows(pool, session_id).await?;
+    let ticket_rows = fetch_ticket_rows(&mut *conn, session_id).await?;
+    let score_rows = fetch_score_rows(&mut *conn, session_id).await?;
 
     let mut scores_by_ticket: std::collections::HashMap<String, Vec<RubricScoreDetail>> =
         std::collections::HashMap::new();
@@ -1155,8 +1158,8 @@ pub async fn fetch_session_detail(
         })
         .collect::<Vec<_>>();
 
-    let performance_indicator = fetch_performance_indicator(pool, session_id).await?;
-    let additional_trainers = fetch_session_additional_trainers(pool, session_id).await?;
+    let performance_indicator = fetch_performance_indicator(&mut *conn, session_id).await?;
+    let additional_trainers = fetch_session_additional_trainers(&mut *conn, session_id).await?;
 
     Ok(Some(TrainingSessionDetail {
         id: session.id,
@@ -1181,15 +1184,15 @@ pub async fn fetch_session_detail(
 }
 
 pub async fn fetch_performance_indicator(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     session_id: &str,
 ) -> Result<Option<TrainingSessionPerformanceIndicatorDetail>, ApiError> {
-    let Some(root) = fetch_performance_indicator_root(pool, session_id).await? else {
+    let Some(root) = fetch_performance_indicator_root(&mut *conn, session_id).await? else {
         return Ok(None);
     };
 
-    let category_rows = fetch_performance_indicator_categories(pool, &root.id).await?;
-    let criteria_rows = fetch_performance_indicator_criteria(pool, &root.id).await?;
+    let category_rows = fetch_performance_indicator_categories(&mut *conn, &root.id).await?;
+    let criteria_rows = fetch_performance_indicator_criteria(&mut *conn, &root.id).await?;
 
     let mut criteria_by_category: std::collections::HashMap<
         String,

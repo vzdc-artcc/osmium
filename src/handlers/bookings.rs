@@ -293,10 +293,18 @@ async fn upsert_booking(
         }
     }
 
+    // Audit context only: a failed lookup must not block the write.
+    let before = match id {
+        Some(id) => fetch_single_booking(id).await.ok().flatten(),
+        None => None,
+    };
+
     // Upstream write; a PUT against a missing booking falls back to create.
+    let mut created = id.is_none();
     let mut outcome = send_booking_write(id, &body).await?;
     if matches!(outcome, UpstreamWrite::NotFound) && id.is_some() {
         outcome = send_booking_write(None, &body).await?;
+        created = true;
     }
 
     match outcome {
@@ -305,8 +313,10 @@ async fn upsert_booking(
                 pool,
                 user,
                 headers,
-                if id.is_some() { "UPDATE" } else { "CREATE" },
+                if created { "CREATE" } else { "UPDATE" },
                 Some(item.id.to_string()),
+                if created { None } else { before.as_ref() },
+                Some(&item),
             )
             .await?;
             Ok(Json(*item).into_response())
@@ -380,7 +390,16 @@ pub async fn delete_atc_booking(
     }
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
-    record_booking_audit(pool, user, &headers, "DELETE", Some(id.to_string())).await?;
+    record_booking_audit(
+        pool,
+        user,
+        &headers,
+        "DELETE",
+        Some(id.to_string()),
+        Some(&booking),
+        None,
+    )
+    .await?;
 
     Ok(Json(ApiMessageBody {
         message: "booking deleted".to_string(),
@@ -393,6 +412,8 @@ async fn record_booking_audit(
     headers: &HeaderMap,
     action: &str,
     resource_id: Option<String>,
+    before: Option<&AtcBookingItem>,
+    after: Option<&AtcBookingItem>,
 ) -> Result<(), ApiError> {
     let actor = audit_repo::resolve_audit_actor(pool, Some(user), None).await?;
     audit_repo::record_audit(
@@ -405,8 +426,8 @@ async fn record_booking_audit(
             scope_type: "global".to_string(),
             scope_key: Some(user.cid.to_string()),
             message: None,
-            before_state: None,
-            after_state: None,
+            before_state: before.map(audit_repo::sanitized_snapshot).transpose()?,
+            after_state: after.map(audit_repo::sanitized_snapshot).transpose()?,
             ip_address: audit_repo::client_ip(headers),
         },
     )

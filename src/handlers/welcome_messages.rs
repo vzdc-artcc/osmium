@@ -68,7 +68,7 @@ pub async fn update_welcome_message_content(
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
 
-    let before = welcome_messages_repo::fetch_welcome_message_content(pool).await?;
+    let before = welcome_messages_repo::fetch_welcome_message_content(&mut *tx).await?;
 
     welcome_messages_repo::update_welcome_message_content(
         &mut *tx,
@@ -79,10 +79,7 @@ pub async fn update_welcome_message_content(
     )
     .await?;
 
-    let after = WelcomeMessageContent {
-        home_text: payload.home_text.trim().to_string(),
-        visitor_text: payload.visitor_text.trim().to_string(),
-    };
+    let after = welcome_messages_repo::fetch_welcome_message_content(&mut *tx).await?;
 
     let actor = audit_repo::resolve_audit_actor(
         &mut *tx,

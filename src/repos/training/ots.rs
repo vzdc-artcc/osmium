@@ -158,6 +158,22 @@ where
         .map_err(|_| ApiError::Internal)
 }
 
+pub async fn list_ots_recommendations_for_student<'e, E>(
+    executor: E,
+    student_id: &str,
+) -> Result<Vec<OtsRecommendationSummary>, ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    let sql = format!("{OTS_SELECT} where o.student_id = $1 order by o.created_at asc, o.id asc");
+    sqlx::query_as::<_, OtsRecommendationRow>(&sql)
+        .bind(student_id)
+        .fetch_all(executor)
+        .await
+        .map(|rows| rows.into_iter().map(Into::into).collect())
+        .map_err(|_| ApiError::Internal)
+}
+
 pub async fn update_ots_recommendation_row<'e, E>(
     executor: E,
     recommendation_id: &str,

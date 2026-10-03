@@ -1014,6 +1014,10 @@ pub async fn create_lesson_rubric_criteria(
     )
     .await?;
 
+    let after =
+        training_rubrics_repo::fetch_criteria_for_lesson(&mut *tx, &lesson_id, &criteria_id)
+            .await?
+            .ok_or(ApiError::Internal)?;
     record_audit(
         &mut tx,
         actor_id.as_deref(),
@@ -1023,16 +1027,7 @@ pub async fn create_lesson_rubric_criteria(
         "training_session",
         Some(&lesson_id),
         None,
-        Some(serde_json::json!({
-            "id": criteria_id,
-            "rubric_id": rubric_id,
-            "lesson_id": lesson_id,
-            "criteria": criteria,
-            "description": description,
-            "passing": payload.passing,
-            "max_points": payload.max_points,
-            "sort_order": sort_order,
-        })),
+        Some(audit_repo::sanitized_snapshot(&after)?),
         audit_repo::client_ip(&headers),
     )
     .await?;
@@ -1117,6 +1112,10 @@ pub async fn update_lesson_rubric_criteria(
     .await?;
 
     let cells = training_rubrics_repo::fetch_criteria_cells(&mut *tx, &criteria_id).await?;
+    let after =
+        training_rubrics_repo::fetch_criteria_for_lesson(&mut *tx, &lesson_id, &criteria_id)
+            .await?
+            .ok_or(ApiError::Internal)?;
 
     record_audit(
         &mut tx,
@@ -1126,24 +1125,8 @@ pub async fn update_lesson_rubric_criteria(
         Some(&criteria_id),
         "training_session",
         Some(&lesson_id),
-        Some(serde_json::json!({
-            "id": before.id,
-            "rubric_id": before.rubric_id,
-            "criteria": before.criteria,
-            "description": before.description,
-            "passing": before.passing,
-            "max_points": before.max_points,
-            "sort_order": before.sort_order,
-        })),
-        Some(serde_json::json!({
-            "id": criteria_id,
-            "rubric_id": before.rubric_id,
-            "criteria": criteria,
-            "description": description,
-            "passing": payload.passing,
-            "max_points": payload.max_points,
-            "sort_order": sort_order,
-        })),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&after)?),
         audit_repo::client_ip(&headers),
     )
     .await?;
@@ -1287,6 +1270,9 @@ pub async fn create_lesson_rubric_cell(
     )
     .await?;
 
+    let after = training_rubrics_repo::fetch_cell_for_criteria(&mut *tx, &criteria_id, &cell_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
     record_audit(
         &mut tx,
         actor_id.as_deref(),
@@ -1296,12 +1282,7 @@ pub async fn create_lesson_rubric_cell(
         "training_session",
         Some(&lesson_id),
         None,
-        Some(serde_json::json!({
-            "id": cell_id,
-            "criteria_id": criteria_id,
-            "points": payload.points,
-            "description": description,
-        })),
+        Some(audit_repo::sanitized_snapshot(&after)?),
         audit_repo::client_ip(&headers),
     )
     .await?;
@@ -1380,6 +1361,9 @@ pub async fn update_lesson_rubric_cell(
 
     training_rubrics_repo::update_cell_row(&mut *tx, &cell_id, payload.points, &description)
         .await?;
+    let after = training_rubrics_repo::fetch_cell_for_criteria(&mut *tx, &criteria_id, &cell_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
 
     record_audit(
         &mut tx,
@@ -1389,18 +1373,8 @@ pub async fn update_lesson_rubric_cell(
         Some(&cell_id),
         "training_session",
         Some(&lesson_id),
-        Some(serde_json::json!({
-            "id": before.id,
-            "criteria_id": before.criteria_id,
-            "points": before.points,
-            "description": before.description,
-        })),
-        Some(serde_json::json!({
-            "id": cell_id,
-            "criteria_id": criteria_id,
-            "points": payload.points,
-            "description": description,
-        })),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&after)?),
         audit_repo::client_ip(&headers),
     )
     .await?;
@@ -2194,7 +2168,8 @@ pub async fn get_training_appointment(
 ) -> Result<ApiJson<TrainingAppointmentDetail>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let detail = training_appointments_repo::fetch_appointment_detail(db, &appointment_id)
+    let mut conn = db.acquire().await.map_err(|_| ApiError::Internal)?;
+    let detail = training_appointments_repo::fetch_appointment_detail(&mut conn, &appointment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
@@ -2263,48 +2238,25 @@ pub async fn create_training_appointment(
         .await?;
     }
 
-    let created_snapshot = serde_json::json!({
-        "id": appointment_id,
-        "student_id": student_id,
-        "trainer_id": user.id,
-        "start": payload.start,
-        "environment": environment,
-        "lesson_ids": lesson_ids,
-        "notes": notes,
-        "additional_trainers": additional_trainers,
-        "double_booking": false,
-        "preparation_completed": false,
-        "warning_email_sent": false,
-        "atc_booking_id": null
-    });
-    let created_scope_key = created_snapshot["student_id"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
-    let created_resource_id = created_snapshot["id"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let detail = training_appointments_repo::fetch_appointment_detail(&mut tx, &appointment_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
 
     record_audit(
         &mut tx,
         actor_id.as_deref(),
         "CREATE",
         "TRAINING_APPOINTMENT",
-        Some(&created_resource_id),
+        Some(&detail.id),
         "training_session",
-        Some(&created_scope_key),
+        Some(&detail.student_id),
         None,
-        Some(created_snapshot),
+        Some(audit_repo::sanitized_snapshot(&detail)?),
         audit_repo::client_ip(&headers),
     )
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-
-    let detail = training_appointments_repo::fetch_appointment_detail(db, &appointment_id)
-        .await?
-        .ok_or(ApiError::Internal)?;
 
     enqueue_appointment_email(
         &state,
@@ -2354,15 +2306,9 @@ pub async fn update_training_appointment(
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    let existing_lesson_ids =
-        training_appointments_repo::fetch_appointment_lesson_ids(&mut *tx, &appointment_id).await?;
-
-    let existing_additional_trainers =
-        training_appointments_repo::fetch_appointment_additional_trainers(
-            &mut *tx,
-            &appointment_id,
-        )
-        .await?;
+    let before = training_appointments_repo::fetch_appointment_detail(&mut tx, &appointment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     let lesson_ids = validate_appointment_lesson_ids(&payload.lesson_ids)?;
     let student_id = validate_user_exists(&mut tx, &payload.student_id).await?;
@@ -2415,38 +2361,9 @@ pub async fn update_training_appointment(
         .await?;
     }
 
-    let before_snapshot = serde_json::json!({
-        "id": existing.id,
-        "student_id": existing.student_id,
-        "trainer_id": existing.trainer_id,
-        "start": existing.start,
-        "environment": existing.environment,
-        "double_booking": existing.double_booking,
-        "preparation_completed": existing.preparation_completed,
-        "warning_email_sent": existing.warning_email_sent,
-        "atc_booking_id": existing.atc_booking_id,
-        "notes": existing.notes,
-        "additional_trainers": existing_additional_trainers,
-        "lesson_ids": existing_lesson_ids
-    });
-    let after_snapshot = serde_json::json!({
-        "id": appointment_id,
-        "student_id": student_id,
-        "trainer_id": existing.trainer_id,
-        "start": payload.start,
-        "environment": environment,
-        "double_booking": payload.double_booking.unwrap_or(existing.double_booking),
-        "preparation_completed": payload.preparation_completed.unwrap_or(existing.preparation_completed),
-        "warning_email_sent": payload.warning_email_sent.unwrap_or(existing.warning_email_sent),
-        "atc_booking_id": atc_booking_id.unwrap_or(existing.atc_booking_id),
-        "notes": notes,
-        "additional_trainers": additional_trainers,
-        "lesson_ids": lesson_ids
-    });
-    let update_scope_key = after_snapshot["student_id"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let detail = training_appointments_repo::fetch_appointment_detail(&mut tx, &appointment_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
 
     record_audit(
         &mut tx,
@@ -2455,18 +2372,14 @@ pub async fn update_training_appointment(
         "TRAINING_APPOINTMENT",
         Some(&appointment_id),
         "training_session",
-        Some(&update_scope_key),
-        Some(before_snapshot),
-        Some(after_snapshot),
+        Some(&detail.student_id),
+        Some(audit_repo::sanitized_snapshot(&before)?),
+        Some(audit_repo::sanitized_snapshot(&detail)?),
         audit_repo::client_ip(&headers),
     )
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
-
-    let detail = training_appointments_repo::fetch_appointment_detail(db, &appointment_id)
-        .await?
-        .ok_or(ApiError::Internal)?;
 
     enqueue_appointment_email(
         &state,
@@ -2507,8 +2420,10 @@ pub async fn delete_training_appointment(
 
     // Capture the appointment (with student/trainer names) before deleting it, so
     // the cancellation email has the data the deleted row itself no longer carries.
+    let mut conn = db.acquire().await.map_err(|_| ApiError::Internal)?;
     let detail_before =
-        training_appointments_repo::fetch_appointment_detail(db, &appointment_id).await?;
+        training_appointments_repo::fetch_appointment_detail(&mut conn, &appointment_id).await?;
+    drop(conn);
 
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
@@ -2715,9 +2630,11 @@ pub async fn get_training_session(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let detail = training_sessions_repo::fetch_session_detail(db, &session_id)
+    let mut conn = db.acquire().await.map_err(|_| ApiError::Internal)?;
+    let detail = training_sessions_repo::fetch_session_detail(&mut conn, &session_id)
         .await?
         .ok_or(ApiError::NotFound)?;
+    drop(conn);
 
     // Data-dependent authorization (same shape as org.rs::get_user_certifications):
     // the session's own student may read it with just auth.profile.read; anyone
@@ -2759,12 +2676,22 @@ pub async fn create_training_session(
     Extension(current_user): Extension<Option<CurrentUser>>,
     _permission: RequirePermission<TrainingSessionsCreate>,
     time: ResponseTimeContext,
+    headers: HeaderMap,
     Json(payload): Json<CreateTrainingSessionRequest>,
 ) -> Result<(StatusCode, ApiJson<CreateOrUpdateTrainingSessionResult>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    match upsert_training_session(&state, db, user, None, payload.into_update_request()).await? {
+    match upsert_training_session(
+        &state,
+        db,
+        user,
+        None,
+        payload.into_update_request(),
+        audit_repo::client_ip(&headers),
+    )
+    .await?
+    {
         Ok(result) => {
             if let Some(detail) = &result.session {
                 enqueue_session_created_email(&state, db, detail).await;
@@ -2799,12 +2726,22 @@ pub async fn update_training_session(
     _permission: RequirePermission<TrainingSessionsUpdate>,
     Path(session_id): Path<String>,
     time: ResponseTimeContext,
+    headers: HeaderMap,
     Json(payload): Json<UpdateTrainingSessionRequest>,
 ) -> Result<(StatusCode, ApiJson<CreateOrUpdateTrainingSessionResult>), ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    match upsert_training_session(&state, db, user, Some(session_id), payload).await? {
+    match upsert_training_session(
+        &state,
+        db,
+        user,
+        Some(session_id),
+        payload,
+        audit_repo::client_ip(&headers),
+    )
+    .await?
+    {
         Ok(result) => Ok((StatusCode::OK, ApiJson::new(result, time.clone()))),
         Err(errors) => Ok((
             StatusCode::BAD_REQUEST,
@@ -2839,6 +2776,9 @@ pub async fn delete_training_session(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
+    let before = training_sessions_repo::fetch_session_detail(&mut tx, &session_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     let deleted = training_sessions_repo::delete_session_row(&mut tx, &session_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -2851,7 +2791,7 @@ pub async fn delete_training_session(
         Some(&deleted.id),
         "training_session",
         Some(&deleted.id),
-        Some(serde_json::json!({ "id": deleted.id, "instructor_id": deleted.instructor_id })),
+        Some(audit_repo::sanitized_snapshot(&before)?),
         None,
         audit_repo::client_ip(&headers),
     )
@@ -3011,6 +2951,7 @@ async fn upsert_training_session(
     user: &CurrentUser,
     session_id: Option<String>,
     payload: UpdateTrainingSessionRequest,
+    ip_address: Option<String>,
 ) -> Result<Result<CreateOrUpdateTrainingSessionResult, Vec<ApiMessage>>, ApiError> {
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
@@ -3068,6 +3009,10 @@ async fn upsert_training_session(
 
     let now = Utc::now();
     let existing_id = session_id.clone();
+    let before = match existing_id.as_deref() {
+        Some(id) => training_sessions_repo::fetch_session_detail(&mut tx, id).await?,
+        None => None,
+    };
     let (session_id, _instructor_id, old_tickets) = if let Some(ref id) = existing_id {
         let existing = training_sessions_repo::fetch_session_exists_row(&mut tx, id)
             .await?
@@ -3238,6 +3183,9 @@ async fn upsert_training_session(
     )
     .await?;
 
+    let after = training_sessions_repo::fetch_session_detail(&mut tx, &session_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
     record_audit(
         &mut tx,
         actor_id.as_deref(),
@@ -3250,9 +3198,12 @@ async fn upsert_training_session(
         Some(&session_id),
         "training_session",
         Some(&session_id),
-        None,
-        None,
-        None,
+        before
+            .as_ref()
+            .map(audit_repo::sanitized_snapshot)
+            .transpose()?,
+        Some(audit_repo::sanitized_snapshot(&after)?),
+        ip_address,
     )
     .await?;
 
@@ -3277,7 +3228,8 @@ async fn upsert_training_session(
         tracing::warn!(?err, student_id = %student.id, "progression auto-advance after session save failed");
     }
 
-    let session = training_sessions_repo::fetch_session_detail(db, &session_id)
+    let mut conn = db.acquire().await.map_err(|_| ApiError::Internal)?;
+    let session = training_sessions_repo::fetch_session_detail(&mut conn, &session_id)
         .await?
         .ok_or(ApiError::Internal)?;
 
@@ -3572,20 +3524,23 @@ async fn sync_ots_recommendations(
     start: DateTime<Utc>,
 ) -> Result<Option<OtsRecommendationSummary>, ApiError> {
     if passed_lessons.iter().any(|lesson| lesson.instructor_only) {
+        let existing =
+            training_ots_repo::list_ots_recommendations_for_student(&mut **tx, student_user_id)
+                .await?;
         let deleted_ids =
             training_sessions_repo::delete_ots_recommendations_for_student(tx, student_user_id)
                 .await?;
 
-        for deleted_id in deleted_ids {
+        for deleted in existing.iter().filter(|rec| deleted_ids.contains(&rec.id)) {
             record_audit(
                 tx,
                 actor_id,
                 "DELETE",
                 "OTS_RECOMMENDATION",
-                Some(&deleted_id),
+                Some(&deleted.id),
                 "training_session",
                 Some(student_user_id),
-                Some(serde_json::json!({ "id": deleted_id })),
+                Some(audit_repo::sanitized_snapshot(deleted)?),
                 None,
                 None,
             )
