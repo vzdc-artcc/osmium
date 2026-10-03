@@ -1190,14 +1190,7 @@ pub async fn delete_lesson_rubric_criteria(
         Some(&criteria_id),
         "training_session",
         Some(&lesson_id),
-        Some(serde_json::json!({
-            "id": deleted.id,
-            "rubric_id": deleted.rubric_id,
-            "criteria": deleted.criteria,
-            "description": deleted.description,
-            "passing": deleted.passing,
-            "max_points": deleted.max_points,
-        })),
+        Some(audit_repo::sanitized_snapshot(&deleted)?),
         None,
         audit_repo::client_ip(&headers),
     )
@@ -1438,12 +1431,7 @@ pub async fn delete_lesson_rubric_cell(
         Some(&cell_id),
         "training_session",
         Some(&lesson_id),
-        Some(serde_json::json!({
-            "id": deleted.id,
-            "criteria_id": deleted.criteria_id,
-            "points": deleted.points,
-            "description": deleted.description,
-        })),
+        Some(audit_repo::sanitized_snapshot(&deleted)?),
         None,
         audit_repo::client_ip(&headers),
     )
@@ -2418,39 +2406,19 @@ pub async fn delete_training_appointment(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    // Capture the appointment (with student/trainer names) before deleting it, so
-    // the cancellation email has the data the deleted row itself no longer carries.
-    let mut conn = db.acquire().await.map_err(|_| ApiError::Internal)?;
-    let detail_before =
-        training_appointments_repo::fetch_appointment_detail(&mut conn, &appointment_id).await?;
-    drop(conn);
-
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
-    let lesson_ids =
-        training_appointments_repo::fetch_appointment_lesson_ids(&mut *tx, &appointment_id).await?;
+    // The full appointment (with student/trainer names) is both the audit
+    // before-state and what the cancellation email needs once the row is gone.
+    let detail_before =
+        training_appointments_repo::fetch_appointment_detail(&mut *tx, &appointment_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
 
-    let deleted = training_appointments_repo::delete_appointment_row(&mut *tx, &appointment_id)
+    training_appointments_repo::delete_appointment_row(&mut *tx, &appointment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
-
-    let deleted_snapshot = serde_json::json!({
-        "id": deleted.id,
-        "student_id": deleted.student_id,
-        "trainer_id": deleted.trainer_id,
-        "start": deleted.start,
-        "environment": deleted.environment,
-        "double_booking": deleted.double_booking,
-        "preparation_completed": deleted.preparation_completed,
-        "warning_email_sent": deleted.warning_email_sent,
-        "atc_booking_id": deleted.atc_booking_id,
-        "lesson_ids": lesson_ids
-    });
-    let delete_scope_key = deleted_snapshot["student_id"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
 
     record_audit(
         &mut tx,
@@ -2459,8 +2427,8 @@ pub async fn delete_training_appointment(
         "TRAINING_APPOINTMENT",
         Some(&appointment_id),
         "training_session",
-        Some(&delete_scope_key),
-        Some(deleted_snapshot),
+        Some(&detail_before.student_id),
+        Some(audit_repo::sanitized_snapshot(&detail_before)?),
         None,
         audit_repo::client_ip(&headers),
     )
@@ -2468,18 +2436,16 @@ pub async fn delete_training_appointment(
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
-    if let Some(detail) = &detail_before {
-        enqueue_appointment_email(
-            &state,
-            db,
-            "training.appointment_canceled",
-            &detail.student_id,
-            &detail.student_name,
-            &detail.trainer_name,
-            detail.start,
-        )
-        .await;
-    }
+    enqueue_appointment_email(
+        &state,
+        db,
+        "training.appointment_canceled",
+        &detail_before.student_id,
+        &detail_before.student_name,
+        &detail_before.trainer_name,
+        detail_before.start,
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -3531,16 +3497,22 @@ async fn sync_ots_recommendations(
             training_sessions_repo::delete_ots_recommendations_for_student(tx, student_user_id)
                 .await?;
 
-        for deleted in existing.iter().filter(|rec| deleted_ids.contains(&rec.id)) {
+        // Audit every row the delete removed; one committed after the read
+        // above still gets a row, with just its id.
+        for deleted_id in &deleted_ids {
+            let before = match existing.iter().find(|rec| &rec.id == deleted_id) {
+                Some(rec) => audit_repo::sanitized_snapshot(rec)?,
+                None => serde_json::json!({ "id": deleted_id }),
+            };
             record_audit(
                 tx,
                 actor_id,
                 "DELETE",
                 "OTS_RECOMMENDATION",
-                Some(&deleted.id),
+                Some(deleted_id),
                 "training_session",
                 Some(student_user_id),
-                Some(audit_repo::sanitized_snapshot(deleted)?),
+                Some(before),
                 None,
                 None,
             )

@@ -14,9 +14,14 @@ Timestamped admin responses follow the shared response-timezone contract via `X-
 
 ## Audit Snapshots
 
-An audit row's `before_state` is the persisted record as it was read before the write (`null` on a create), and its `after_state` is the same record read back after the write (`null` on a delete). Both sides use the same shape so they can be diffed field by field. Neither side is the request payload.
+An audit row's `before_state` is the persisted record as it was read before the write (`null` on a create), and for record changes its `after_state` is the same record read back after the write (`null` on a delete), so the two can be diffed field by field. Neither side is the request payload. Actions that are events rather than record changes (session revokes, impersonation start/stop, queued emails and notifications, job runs, exports) carry a summary object in `after_state` instead.
 
-Before a snapshot is stored, any key whose name matches one of these exactly (case-insensitive) is replaced with `"[REDACTED]"`, at any nesting depth: `authorization`, `cookie`, `token`, `access_token`, `refresh_token`, `id_token`, `session_token`, `secret`, `client_secret`, `password`, `api_key`, `apikey`, `signature`, `code_verifier`, `sig`, `secret_hash`. Any key ending in `_secret`, `_token`, or `_password` is redacted too. Ordinary fields that only contain one of those words, such as `callsign`, `session_id`, `category_key`, or `state`, are stored as-is.
+Before a snapshot is stored, keys are normalized to lower snake case (`accessToken` → `access_token`, `x-api-key` → `x_api_key`) and any credential-shaped key is replaced with `"[REDACTED]"`, at any nesting depth:
+
+- exact names: `authorization`, `cookie`, `token`, `access_token`, `refresh_token`, `id_token`, `session_token`, `secret`, `client_secret`, `password`, `api_key`, `apikey`, `signature`, `code_verifier`, `sig`, `secret_hash`
+- names ending in `_secret`, `_token`, `_password`, `_hash`, `_signature`, `_cookie`, `api_key`, `authorization`, `private_key`, `signing_key`, or `auth_code`
+
+Ordinary fields that merely contain one of those words, such as `callsign`, `session_id`, `category_key`, or `state`, are stored as-is.
 
 ## Main Routes
 

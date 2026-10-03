@@ -40,8 +40,22 @@ const SENSITIVE_KEYS: &[&str] = &[
 ];
 
 /// Any key ending with one of these is redacted too, so new credential columns
-/// (`bearer_token`, `oauth_client_secret`, ...) are covered without a list edit.
-const SENSITIVE_KEY_SUFFIXES: &[&str] = &["_secret", "_token", "_password"];
+/// and header names (`bearer_token`, `oauth_client_secret`, `x-api-key`,
+/// `set-cookie`, `signing_key`, `token_hash`, ...) are covered without a list
+/// edit. Matching happens after `normalize_key`.
+const SENSITIVE_KEY_SUFFIXES: &[&str] = &[
+    "_secret",
+    "_token",
+    "_password",
+    "_hash",
+    "_signature",
+    "_cookie",
+    "api_key",
+    "authorization",
+    "private_key",
+    "signing_key",
+    "auth_code",
+];
 
 #[derive(Debug, Clone)]
 pub struct AuditLogFilters {
@@ -366,8 +380,31 @@ where
     .map_err(|_| ApiError::Internal)
 }
 
+/// Lower snake case: `accessToken` and `x-api-key` compare as `access_token`
+/// and `x_api_key`.
+fn normalize_key(key: &str) -> String {
+    let mut normalized = String::with_capacity(key.len() + 4);
+    let mut previous_lower = false;
+    for ch in key.trim().chars() {
+        if ch == '-' || ch == ' ' {
+            normalized.push('_');
+            previous_lower = false;
+        } else if ch.is_ascii_uppercase() {
+            if previous_lower {
+                normalized.push('_');
+            }
+            normalized.push(ch.to_ascii_lowercase());
+            previous_lower = false;
+        } else {
+            normalized.push(ch);
+            previous_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        }
+    }
+    normalized
+}
+
 fn is_sensitive_key(key: &str) -> bool {
-    let normalized = key.trim().to_ascii_lowercase();
+    let normalized = normalize_key(key);
     SENSITIVE_KEYS.contains(&normalized.as_str())
         || SENSITIVE_KEY_SUFFIXES
             .iter()
@@ -433,6 +470,17 @@ mod tests {
             "bearer_token",
             "oauth_client_secret",
             "smtp_password",
+            "accessToken",
+            "clientSecret",
+            "x-api-key",
+            "set-cookie",
+            "proxy-authorization",
+            "private_key",
+            "signing_key",
+            "token_hash",
+            "password_hash",
+            "auth_code",
+            "hmac_signature",
         ];
         for name in names {
             let value = json!({

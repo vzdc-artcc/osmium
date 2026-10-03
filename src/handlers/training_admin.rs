@@ -943,10 +943,12 @@ pub(crate) async fn advance_progression_if_complete(
     };
 
     let before = training_admin_repo::fetch_progression_assignment(pool, user_id).await?;
-    let initiated_by = if user_initiated {
-        "the controller"
+    // The actor is recorded on the row; the message only adds whether the
+    // controller asked for it, since staff and automation both pass `false`.
+    let requested = if user_initiated {
+        " at the controller's request"
     } else {
-        "the system"
+        ""
     };
 
     match next {
@@ -975,7 +977,7 @@ pub(crate) async fn advance_progression_if_complete(
                 user_id,
                 "UPDATE",
                 format!(
-                    "Advanced training progression from {current_name} to {} (initiated by {initiated_by})",
+                    "Advanced training progression from {current_name} to {}{requested}",
                     next_prog.name
                 ),
                 before.as_ref(),
@@ -1001,7 +1003,7 @@ pub(crate) async fn advance_progression_if_complete(
                 user_id,
                 "DELETE",
                 format!(
-                    "Completed training progression {current_name}; no next progression, assignment removed (initiated by {initiated_by})"
+                    "Completed training progression {current_name}; no next progression, assignment removed{requested}"
                 ),
                 before.as_ref(),
                 None,
