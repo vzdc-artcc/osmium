@@ -27,7 +27,7 @@ struct BotOfferPosted {
     message_id: String,
 }
 
-#[utoipa::path(post, path = "/api/v1/training/impromptu-offers", tag = "training", request_body = CreateImpromptuOfferRequest, responses((status = 200, description = "Impromptu offer posted", body = ImpromptuOfferItem), (status = 401, description = "Not authenticated"), (status = 503, description = "Discord bot unavailable")))]
+#[utoipa::path(post, path = "/api/v1/training/impromptu-offers", tag = "training", request_body = CreateImpromptuOfferRequest, responses((status = 200, description = "Impromptu offer posted", body = ImpromptuOfferItem), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.impromptu.create"), (status = 503, description = "Discord bot unavailable")))]
 pub async fn create_impromptu_offer(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -93,7 +93,7 @@ pub async fn create_impromptu_offer(
     Ok(Json(offer))
 }
 
-#[utoipa::path(get, path = "/api/v1/training/impromptu-offers", tag = "training", responses((status = 200, description = "My impromptu offers", body = ImpromptuOfferListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/training/impromptu-offers", tag = "training", responses((status = 200, description = "My impromptu offers", body = ImpromptuOfferListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.impromptu.create")))]
 pub async fn list_impromptu_offers(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -105,7 +105,7 @@ pub async fn list_impromptu_offers(
     Ok(Json(ImpromptuOfferListResponse { items }))
 }
 
-#[utoipa::path(get, path = "/api/v1/training/impromptu-offers/{offer_id}", tag = "training", params(("offer_id" = String, Path, description = "Offer ID")), responses((status = 200, description = "Offer with claims", body = ImpromptuOfferDetail), (status = 401, description = "Not authenticated"), (status = 404, description = "Not found")))]
+#[utoipa::path(get, path = "/api/v1/training/impromptu-offers/{offer_id}", tag = "training", params(("offer_id" = String, Path, description = "Offer ID")), responses((status = 200, description = "Offer with claims", body = ImpromptuOfferDetail), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.impromptu.create"), (status = 404, description = "Not found")))]
 pub async fn get_impromptu_offer(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -124,7 +124,7 @@ pub async fn get_impromptu_offer(
     Ok(Json(ImpromptuOfferDetail { offer, claims }))
 }
 
-#[utoipa::path(post, path = "/api/v1/training/impromptu-offers/{offer_id}/accept", tag = "training", params(("offer_id" = String, Path, description = "Offer ID")), request_body = AcceptImpromptuOfferRequest, responses((status = 200, description = "Accepted", body = ImpromptuOfferItem), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/training/impromptu-offers/{offer_id}/accept", tag = "training", params(("offer_id" = String, Path, description = "Offer ID")), request_body = AcceptImpromptuOfferRequest, responses((status = 200, description = "Accepted", body = ImpromptuOfferItem), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.impromptu.create")))]
 pub async fn accept_impromptu_offer(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -171,7 +171,7 @@ pub async fn accept_impromptu_offer(
     Ok(Json(offer))
 }
 
-#[utoipa::path(post, path = "/api/v1/training/impromptu-offers/{offer_id}/cancel", tag = "training", params(("offer_id" = String, Path, description = "Offer ID")), responses((status = 200, description = "Cancelled", body = ImpromptuOfferItem), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/training/impromptu-offers/{offer_id}/cancel", tag = "training", params(("offer_id" = String, Path, description = "Offer ID")), responses((status = 200, description = "Cancelled", body = ImpromptuOfferItem), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.impromptu.create")))]
 pub async fn cancel_impromptu_offer(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -212,7 +212,7 @@ pub async fn cancel_impromptu_offer(
 
 /// Bot-facing: record a student's claim by Discord id. Gated on the integrations
 /// permission the bot's service account holds.
-#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/impromptu-claims", tag = "integrations", request_body = RecordImpromptuClaimRequest, responses((status = 200, description = "Claim recorded"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord account not linked")))]
+#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/impromptu-claims", tag = "integrations", request_body = RecordImpromptuClaimRequest, responses((status = 200, description = "Claim recorded"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update"), (status = 404, description = "Discord account not linked")))]
 pub async fn record_impromptu_claim(
     State(state): State<AppState>,
     _permission: RequirePermission<crate::auth::permissions::IntegrationsStatsUpdate>,

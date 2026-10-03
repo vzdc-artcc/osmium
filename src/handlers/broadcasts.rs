@@ -33,7 +33,7 @@ use crate::{
     params(ListChangeBroadcastsQuery),
     responses(
         (status = 200, description = "List change broadcasts", body = ChangeBroadcastListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks web.broadcasts.read")
     )
 )]
 pub async fn list_broadcasts(
@@ -86,7 +86,7 @@ pub async fn list_broadcasts(
     ),
     responses(
         (status = 200, description = "Change broadcast detail with recipient state", body = ChangeBroadcastDetail),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks web.broadcasts.read"),
         (status = 404, description = "Broadcast not found")
     )
 )]
@@ -113,7 +113,7 @@ pub async fn admin_get_broadcast(
     responses(
         (status = 201, description = "Change broadcast created", body = ChangeBroadcastListItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks web.broadcasts.create")
     )
 )]
 pub async fn create_broadcast(
@@ -184,7 +184,7 @@ pub async fn create_broadcast(
     responses(
         (status = 200, description = "Change broadcast updated", body = ChangeBroadcastListItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks web.broadcasts.update"),
         (status = 404, description = "Broadcast not found")
     )
 )]
@@ -248,7 +248,7 @@ pub async fn update_broadcast(
     ),
     responses(
         (status = 204, description = "Change broadcast deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks web.broadcasts.delete"),
         (status = 404, description = "Broadcast not found")
     )
 )]
@@ -293,7 +293,7 @@ pub async fn delete_broadcast(
     tag = "broadcasts",
     responses(
         (status = 200, description = "Change broadcasts with the current user's status", body = MyChangeBroadcastListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")
     )
 )]
 pub async fn list_my_broadcasts(
@@ -319,7 +319,7 @@ pub async fn list_my_broadcasts(
     ),
     responses(
         (status = 204, description = "Broadcast marked as seen"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update"),
         (status = 404, description = "Broadcast not found or not addressed to this user")
     )
 )]
@@ -350,7 +350,7 @@ pub async fn mark_broadcast_seen(
     ),
     responses(
         (status = 204, description = "Broadcast marked as agreed"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update"),
         (status = 404, description = "Broadcast not found or not addressed to this user")
     )
 )]

@@ -179,7 +179,7 @@ async fn roster_export_is_permission_gated() {
     let response = test
         .request(roster_export_request(&nobody.session_token))
         .await;
-    assert_status(&response, StatusCode::UNAUTHORIZED);
+    assert_status(&response, StatusCode::FORBIDDEN);
 
     test.cleanup().await;
 }

@@ -186,7 +186,7 @@ async fn session_endpoints_are_permission_gated() {
             &nobody.session_token,
         ))
         .await;
-    assert_eq!(list.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(list.status(), StatusCode::FORBIDDEN);
 
     let revoke_all = test
         .request(admin_request(
@@ -195,7 +195,7 @@ async fn session_endpoints_are_permission_gated() {
             &nobody.session_token,
         ))
         .await;
-    assert_eq!(revoke_all.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(revoke_all.status(), StatusCode::FORBIDDEN);
 
     // Unauthenticated too.
     let anon = test

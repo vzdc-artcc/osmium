@@ -166,7 +166,7 @@ struct RubricRule {
     params(PaginationQuery),
     responses(
         (status = 200, description = "List assignments", body = TrainingAssignmentListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignments.read")
     )
 )]
 pub async fn list_assignments(
@@ -202,7 +202,7 @@ pub async fn list_assignments(
     responses(
         (status = 201, description = "Assignment created", body = TrainingAssignment),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignments.create")
     )
 )]
 pub async fn create_assignment(
@@ -280,7 +280,7 @@ pub async fn create_assignment(
     ),
     responses(
         (status = 200, description = "Assignment detail", body = TrainingAssignment),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignments.read"),
         (status = 404, description = "Assignment not found")
     )
 )]
@@ -310,7 +310,7 @@ pub async fn get_assignment(
     responses(
         (status = 200, description = "Assignment updated", body = TrainingAssignment),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignments.update"),
         (status = 404, description = "Assignment not found")
     )
 )]
@@ -410,7 +410,7 @@ pub async fn update_assignment(
     ),
     responses(
         (status = 204, description = "Assignment deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignments.delete"),
         (status = 404, description = "Assignment not found")
     )
 )]
@@ -463,7 +463,7 @@ pub async fn delete_assignment(
     params(PaginationQuery),
     responses(
         (status = 200, description = "List OTS recommendations", body = OtsRecommendationListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.ots_recommendations.read")
     )
 )]
 pub async fn list_ots_recommendations(
@@ -499,7 +499,7 @@ pub async fn list_ots_recommendations(
     responses(
         (status = 201, description = "OTS recommendation created", body = OtsRecommendationSummary),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.ots_recommendations.create")
     )
 )]
 pub async fn create_ots_recommendation(
@@ -572,7 +572,7 @@ pub async fn create_ots_recommendation(
     responses(
         (status = 200, description = "OTS recommendation updated", body = OtsRecommendationSummary),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.ots_recommendations.update"),
         (status = 404, description = "OTS recommendation not found")
     )
 )]
@@ -642,7 +642,7 @@ pub async fn update_ots_recommendation(
     ),
     responses(
         (status = 204, description = "OTS recommendation deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.ots_recommendations.delete"),
         (status = 404, description = "OTS recommendation not found")
     )
 )]
@@ -694,7 +694,7 @@ pub async fn delete_ots_recommendation(
     params(PaginationQuery),
     responses(
         (status = 200, description = "List training lessons", body = TrainingLessonListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read")
     )
 )]
 pub async fn list_lessons(
@@ -729,7 +729,7 @@ pub async fn list_lessons(
     responses(
         (status = 201, description = "Training lesson created", body = TrainingLesson),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.create")
     )
 )]
 pub async fn create_lesson(
@@ -799,7 +799,7 @@ pub async fn create_lesson(
     responses(
         (status = 200, description = "Training lesson updated", body = TrainingLesson),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"),
         (status = 404, description = "Lesson not found")
     )
 )]
@@ -872,7 +872,7 @@ pub async fn update_lesson(
     ),
     responses(
         (status = 204, description = "Training lesson deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.delete"),
         (status = 404, description = "Lesson not found")
     )
 )]
@@ -921,7 +921,7 @@ pub async fn delete_lesson(
     ),
     responses(
         (status = 200, description = "Lesson rubric", body = LessonRubricDetail),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read"),
         (status = 404, description = "Lesson not found or has no rubric")
     )
 )]
@@ -951,7 +951,7 @@ pub async fn get_lesson_rubric(
     responses(
         (status = 201, description = "Rubric criteria created", body = LessonRubricCriteriaDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"),
         (status = 404, description = "Lesson not found")
     )
 )]
@@ -1069,7 +1069,7 @@ pub async fn create_lesson_rubric_criteria(
     responses(
         (status = 200, description = "Rubric criteria updated", body = LessonRubricCriteriaDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"),
         (status = 404, description = "Rubric criteria not found")
     )
 )]
@@ -1175,7 +1175,7 @@ pub async fn update_lesson_rubric_criteria(
     ),
     responses(
         (status = 204, description = "Rubric criteria deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.delete"),
         (status = 404, description = "Rubric criteria not found")
     )
 )]
@@ -1237,7 +1237,7 @@ pub async fn delete_lesson_rubric_criteria(
     responses(
         (status = 201, description = "Rubric cell created", body = crate::models::LessonRubricCellDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"),
         (status = 404, description = "Rubric criteria not found")
     )
 )]
@@ -1335,7 +1335,7 @@ pub async fn create_lesson_rubric_cell(
     responses(
         (status = 200, description = "Rubric cell updated", body = crate::models::LessonRubricCellDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"),
         (status = 404, description = "Rubric cell not found")
     )
 )]
@@ -1429,7 +1429,7 @@ pub async fn update_lesson_rubric_cell(
     ),
     responses(
         (status = 204, description = "Rubric cell deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.delete"),
         (status = 404, description = "Rubric cell not found")
     )
 )]
@@ -1487,7 +1487,7 @@ pub async fn delete_lesson_rubric_cell(
     params(PaginationQuery),
     responses(
         (status = 200, description = "List assignment requests", body = TrainingAssignmentRequestListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignment_requests.read")
     )
 )]
 pub async fn list_assignment_requests(
@@ -1525,7 +1525,8 @@ pub async fn list_assignment_requests(
     request_body = CreateTrainingAssignmentRequestRequest,
     responses(
         (status = 201, description = "Assignment request created", body = TrainingAssignmentRequest),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Self-request needs training.assignment_requests.self.request; on behalf of another student needs training.assignment_requests.create")
     )
 )]
 pub async fn create_assignment_request(
@@ -1619,7 +1620,7 @@ pub async fn create_assignment_request(
     responses(
         (status = 200, description = "Assignment request updated", body = TrainingAssignmentRequest),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignment_requests.decide"),
         (status = 404, description = "Assignment request not found")
     )
 )]
@@ -1685,7 +1686,8 @@ pub async fn decide_assignment_request(
     ),
     responses(
         (status = 204, description = "Assignment request deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "The submitting student may cancel their own PENDING request; anyone else needs training.assignment_requests.delete"),
         (status = 404, description = "Assignment request not found")
     )
 )]
@@ -1749,7 +1751,7 @@ pub async fn delete_assignment_request(
     params(PaginationQuery),
     responses(
         (status = 200, description = "List trainer release requests", body = TrainerReleaseRequestListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.release_requests.read")
     )
 )]
 pub async fn list_release_requests(
@@ -1787,7 +1789,8 @@ pub async fn list_release_requests(
     request_body = CreateTrainerReleaseRequestRequest,
     responses(
         (status = 201, description = "Trainer release request created", body = TrainerReleaseRequest),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Self-request needs training.release_requests.self.request; on behalf of another student needs training.release_requests.create")
     )
 )]
 pub async fn create_release_request(
@@ -1879,7 +1882,7 @@ pub async fn create_release_request(
     responses(
         (status = 200, description = "Trainer release request updated", body = TrainerReleaseRequest),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.release_requests.decide"),
         (status = 404, description = "Release request not found")
     )
 )]
@@ -1962,7 +1965,8 @@ pub async fn decide_release_request(
     ),
     responses(
         (status = 204, description = "Trainer release request deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "The submitting student may cancel their own PENDING request; anyone else needs training.release_requests.delete"),
         (status = 404, description = "Release request not found")
     )
 )]
@@ -2026,7 +2030,7 @@ pub async fn delete_release_request(
     responses(
         (status = 204, description = "Interest recorded"),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignment_requests.interest.request")
     )
 )]
 pub async fn add_assignment_request_interest(
@@ -2075,7 +2079,7 @@ pub async fn add_assignment_request_interest(
     ),
     responses(
         (status = 204, description = "Interest removed"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.assignment_requests.interest.delete")
     )
 )]
 pub async fn remove_assignment_request_interest(
@@ -2118,7 +2122,7 @@ pub async fn remove_assignment_request_interest(
     params(ListTrainingAppointmentsQuery),
     responses(
         (status = 200, description = "List training appointments", body = TrainingAppointmentListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.appointments.read")
     )
 )]
 pub async fn list_training_appointments(
@@ -2182,7 +2186,7 @@ pub async fn list_training_appointments(
     ),
     responses(
         (status = 200, description = "Training appointment detail", body = TrainingAppointmentDetail),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.appointments.read"),
         (status = 404, description = "Training appointment not found")
     )
 )]
@@ -2209,7 +2213,7 @@ pub async fn get_training_appointment(
     responses(
         (status = 201, description = "Training appointment created", body = TrainingAppointmentDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.appointments.create"),
         (status = 404, description = "Student not found")
     )
 )]
@@ -2331,7 +2335,7 @@ pub async fn create_training_appointment(
     responses(
         (status = 200, description = "Training appointment updated", body = TrainingAppointmentDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.appointments.update"),
         (status = 404, description = "Training appointment not found")
     )
 )]
@@ -2491,7 +2495,7 @@ pub async fn update_training_appointment(
     ),
     responses(
         (status = 204, description = "Training appointment deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.appointments.delete"),
         (status = 404, description = "Training appointment not found")
     )
 )]
@@ -2577,7 +2581,7 @@ pub async fn delete_training_appointment(
     responses(
         (status = 200, description = "Aggregated training-session statistics for the scope", body = TrainingStatsBundle),
         (status = 400, description = "Invalid month"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.sessions.read")
     )
 )]
 pub async fn get_training_stats(
@@ -2598,7 +2602,7 @@ pub async fn get_training_stats(
     tag = "training",
     responses(
         (status = 200, description = "All-time sum of training-session hours", body = TrainingStatsAllTimeHours),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.sessions.read")
     )
 )]
 pub async fn get_all_time_training_hours(
@@ -2618,7 +2622,7 @@ pub async fn get_all_time_training_hours(
     params(ListTrainingSessionsQuery),
     responses(
         (status = 200, description = "List training sessions", body = TrainingSessionListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.sessions.read")
     )
 )]
 pub async fn list_training_sessions(
@@ -2702,7 +2706,8 @@ pub async fn list_training_sessions(
     ),
     responses(
         (status = 200, description = "Training session detail", body = TrainingSessionDetail),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "The session's own student needs only auth.profile.read; anyone else needs training.sessions.read"),
         (status = 404, description = "Training session not found")
     )
 )]
@@ -2751,7 +2756,7 @@ pub async fn get_training_session(
     responses(
         (status = 201, description = "Training session created", body = CreateOrUpdateTrainingSessionResult),
         (status = 400, description = "Invalid request", body = CreateOrUpdateTrainingSessionResult),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.sessions.create")
     )
 )]
 pub async fn create_training_session(
@@ -2789,7 +2794,7 @@ pub async fn create_training_session(
     responses(
         (status = 200, description = "Training session updated", body = CreateOrUpdateTrainingSessionResult),
         (status = 400, description = "Invalid request", body = CreateOrUpdateTrainingSessionResult),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.sessions.update"),
         (status = 404, description = "Training session not found")
     )
 )]
@@ -2822,7 +2827,7 @@ pub async fn update_training_session(
     ),
     responses(
         (status = 204, description = "Training session deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.sessions.delete"),
         (status = 404, description = "Training session not found")
     )
 )]

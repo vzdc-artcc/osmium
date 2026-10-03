@@ -98,7 +98,8 @@ pub async fn list_api_keys(
     ),
     responses(
         (status = 200, description = "API key detail", body = ApiKeyDetail),
-        (status = 401, description = "Not authenticated or not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not the key's creator and lacks api_keys.read"),
         (status = 404, description = "API key not found")
     )
 )]
@@ -130,7 +131,8 @@ pub async fn get_api_key(
     responses(
         (status = 201, description = "API key created. The plaintext secret is returned exactly once.", body = CreateApiKeyResponse),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated, lacks api_keys.create, or attempted to grant permissions outside subset")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks api_keys.create, or requested a permission the caller doesn't hold")
     )
 )]
 pub async fn create_api_key(
@@ -231,7 +233,8 @@ pub async fn create_api_key(
     responses(
         (status = 200, description = "API key updated", body = ApiKeyDetail),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated or not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not the key's creator and lacks api_keys.update, or requested a permission the caller doesn't hold"),
         (status = 404, description = "API key not found")
     )
 )]
@@ -316,7 +319,8 @@ pub async fn update_api_key(
     ),
     responses(
         (status = 204, description = "API key revoked"),
-        (status = 401, description = "Not authenticated or not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not the key's creator and lacks api_keys.delete"),
         (status = 404, description = "API key not found")
     )
 )]
@@ -386,7 +390,7 @@ async fn ensure_can_manage_api_key(
         return Ok(());
     }
 
-    Err(ApiError::Unauthorized)
+    Err(ApiError::Forbidden)
 }
 
 async fn user_holds_permission(
@@ -417,7 +421,7 @@ async fn validate_permissions_are_subset(
     let creator_set: BTreeSet<&PermissionPath> = creator_perms.iter().collect();
     for perm in requested {
         if !creator_set.contains(perm) {
-            return Err(ApiError::Unauthorized);
+            return Err(ApiError::Forbidden);
         }
     }
 

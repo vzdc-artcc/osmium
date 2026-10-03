@@ -46,7 +46,7 @@ pub struct ApiMessageBody {
     pub message: String,
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/training/progressions", tag = "training", params(PaginationQuery), responses((status = 200, description = "Training progressions", body = TrainingProgressionListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/training/progressions", tag = "training", params(PaginationQuery), responses((status = 200, description = "Training progressions", body = TrainingProgressionListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read")))]
 pub async fn list_progressions(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingLessonsRead>,
@@ -69,7 +69,7 @@ pub async fn list_progressions(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/training/progressions", tag = "training", request_body = CreateTrainingProgressionRequest, responses((status = 201, description = "Training progression created", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/training/progressions", tag = "training", request_body = CreateTrainingProgressionRequest, responses((status = 201, description = "Training progression created", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update")))]
 pub async fn create_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -106,7 +106,7 @@ pub async fn create_progression(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), request_body = UpdateTrainingProgressionRequest, responses((status = 200, description = "Updated training progression", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), request_body = UpdateTrainingProgressionRequest, responses((status = 200, description = "Updated training progression", body = TrainingProgressionItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Progression not found")))]
 pub async fn update_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -150,7 +150,7 @@ pub async fn update_progression(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), responses((status = 200, description = "Deleted training progression", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/progressions/{progression_id}", tag = "training", params(("progression_id" = String, Path, description = "Progression ID")), responses((status = 200, description = "Deleted training progression", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Progression not found")))]
 pub async fn delete_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -180,7 +180,7 @@ pub async fn delete_progression(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/training/progression-steps", tag = "training", params(PaginationQuery), responses((status = 200, description = "Training progression steps", body = TrainingProgressionStepListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/training/progression-steps", tag = "training", params(PaginationQuery), responses((status = 200, description = "Training progression steps", body = TrainingProgressionStepListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read")))]
 pub async fn list_progression_steps(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingLessonsRead>,
@@ -203,7 +203,7 @@ pub async fn list_progression_steps(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/training/progression-steps", tag = "training", request_body = CreateTrainingProgressionStepRequest, responses((status = 201, description = "Training progression step created", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/training/progression-steps", tag = "training", request_body = CreateTrainingProgressionStepRequest, responses((status = 201, description = "Training progression step created", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update")))]
 pub async fn create_progression_step(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -237,7 +237,7 @@ pub async fn create_progression_step(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), request_body = UpdateTrainingProgressionStepRequest, responses((status = 200, description = "Updated training progression step", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression step not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), request_body = UpdateTrainingProgressionStepRequest, responses((status = 200, description = "Updated training progression step", body = TrainingProgressionStepItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Progression step not found")))]
 pub async fn update_progression_step(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -275,7 +275,7 @@ pub async fn update_progression_step(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), responses((status = 200, description = "Deleted training progression step", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression step not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/progression-steps/{step_id}", tag = "training", params(("step_id" = String, Path, description = "Progression step ID")), responses((status = 200, description = "Deleted training progression step", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Progression step not found")))]
 pub async fn delete_progression_step(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -305,7 +305,7 @@ pub async fn delete_progression_step(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/templates", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator templates", body = PerformanceIndicatorTemplateListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/templates", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator templates", body = PerformanceIndicatorTemplateListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read")))]
 pub async fn list_performance_indicator_templates(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingLessonsRead>,
@@ -328,7 +328,7 @@ pub async fn list_performance_indicator_templates(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/templates", tag = "training", request_body = CreatePerformanceIndicatorTemplateRequest, responses((status = 201, description = "Performance indicator template created", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/templates", tag = "training", request_body = CreatePerformanceIndicatorTemplateRequest, responses((status = 201, description = "Performance indicator template created", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update")))]
 pub async fn create_performance_indicator_template(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -362,7 +362,7 @@ pub async fn create_performance_indicator_template(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), request_body = UpdatePerformanceIndicatorTemplateRequest, responses((status = 200, description = "Updated performance indicator template", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Template not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), request_body = UpdatePerformanceIndicatorTemplateRequest, responses((status = 200, description = "Updated performance indicator template", body = PerformanceIndicatorTemplateItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Template not found")))]
 pub async fn update_performance_indicator_template(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -397,7 +397,7 @@ pub async fn update_performance_indicator_template(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), responses((status = 200, description = "Deleted performance indicator template", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Template not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/templates/{template_id}", tag = "training", params(("template_id" = String, Path, description = "Template ID")), responses((status = 200, description = "Deleted performance indicator template", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Template not found")))]
 pub async fn delete_performance_indicator_template(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -427,7 +427,7 @@ pub async fn delete_performance_indicator_template(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/categories", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator categories", body = PerformanceIndicatorCategoryListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/categories", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator categories", body = PerformanceIndicatorCategoryListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read")))]
 pub async fn list_performance_indicator_categories(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingLessonsRead>,
@@ -446,7 +446,7 @@ pub async fn list_performance_indicator_categories(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/categories", tag = "training", request_body = CreatePerformanceIndicatorCategoryRequest, responses((status = 201, description = "Performance indicator category created", body = PerformanceIndicatorCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/categories", tag = "training", request_body = CreatePerformanceIndicatorCategoryRequest, responses((status = 201, description = "Performance indicator category created", body = PerformanceIndicatorCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update")))]
 pub async fn create_performance_indicator_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -481,7 +481,7 @@ pub async fn create_performance_indicator_category(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), request_body = UpdatePerformanceIndicatorCategoryRequest, responses((status = 200, description = "Updated performance indicator category", body = PerformanceIndicatorCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Category not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), request_body = UpdatePerformanceIndicatorCategoryRequest, responses((status = 200, description = "Updated performance indicator category", body = PerformanceIndicatorCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Category not found")))]
 pub async fn update_performance_indicator_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -521,7 +521,7 @@ pub async fn update_performance_indicator_category(
     Ok(Json(row))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), responses((status = 200, description = "Deleted performance indicator category", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Category not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/categories/{category_id}", tag = "training", params(("category_id" = String, Path, description = "Category ID")), responses((status = 200, description = "Deleted performance indicator category", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Category not found")))]
 pub async fn delete_performance_indicator_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -551,7 +551,7 @@ pub async fn delete_performance_indicator_category(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/criteria", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator criteria", body = PerformanceIndicatorCriteriaListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/training/performance-indicators/criteria", tag = "training", params(PaginationQuery), responses((status = 200, description = "Performance indicator criteria", body = PerformanceIndicatorCriteriaListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read")))]
 pub async fn list_performance_indicator_criteria(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingLessonsRead>,
@@ -569,7 +569,7 @@ pub async fn list_performance_indicator_criteria(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/criteria", tag = "training", request_body = CreatePerformanceIndicatorCriteriaRequest, responses((status = 201, description = "Performance indicator criteria created", body = PerformanceIndicatorCriteriaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/training/performance-indicators/criteria", tag = "training", request_body = CreatePerformanceIndicatorCriteriaRequest, responses((status = 201, description = "Performance indicator criteria created", body = PerformanceIndicatorCriteriaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update")))]
 pub async fn create_performance_indicator_criteria(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -604,7 +604,7 @@ pub async fn create_performance_indicator_criteria(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), request_body = UpdatePerformanceIndicatorCriteriaRequest, responses((status = 200, description = "Updated performance indicator criteria", body = PerformanceIndicatorCriteriaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Criteria not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), request_body = UpdatePerformanceIndicatorCriteriaRequest, responses((status = 200, description = "Updated performance indicator criteria", body = PerformanceIndicatorCriteriaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Criteria not found")))]
 pub async fn update_performance_indicator_criteria(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -644,7 +644,7 @@ pub async fn update_performance_indicator_criteria(
     Ok(Json(row))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), responses((status = 200, description = "Deleted performance indicator criteria", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Criteria not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/performance-indicators/criteria/{criteria_id}", tag = "training", params(("criteria_id" = String, Path, description = "Criteria ID")), responses((status = 200, description = "Deleted performance indicator criteria", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Criteria not found")))]
 pub async fn delete_performance_indicator_criteria(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -674,7 +674,7 @@ pub async fn delete_performance_indicator_criteria(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/training/progression-assignments", tag = "training", params(PaginationQuery), responses((status = 200, description = "Progression assignments", body = ProgressionAssignmentListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/training/progression-assignments", tag = "training", params(PaginationQuery), responses((status = 200, description = "Progression assignments", body = ProgressionAssignmentListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.read")))]
 pub async fn list_progression_assignments(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingLessonsRead>,
@@ -700,7 +700,7 @@ pub async fn list_progression_assignments(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/training/progression-assignments", tag = "training", request_body = CreateProgressionAssignmentRequest, responses((status = 201, description = "Progression assignment created", body = ProgressionAssignmentItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/training/progression-assignments", tag = "training", request_body = CreateProgressionAssignmentRequest, responses((status = 201, description = "Progression assignment created", body = ProgressionAssignmentItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update")))]
 pub async fn create_progression_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -736,7 +736,7 @@ pub async fn create_progression_assignment(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/training/progression-assignments/{user_id}", tag = "training", params(("user_id" = String, Path, description = "User ID")), responses((status = 200, description = "Deleted progression assignment", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Progression assignment not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/training/progression-assignments/{user_id}", tag = "training", params(("user_id" = String, Path, description = "User ID")), responses((status = 200, description = "Deleted progression assignment", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.lessons.update"), (status = 404, description = "Progression assignment not found")))]
 pub async fn delete_progression_assignment(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -807,7 +807,7 @@ async fn build_progression_status(
     })
 }
 
-#[utoipa::path(get, path = "/api/v1/users/{cid}/progression", tag = "training", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "Progression status", body = ProgressionStatusResponse), (status = 401, description = "Not authenticated"), (status = 404, description = "User not found")))]
+#[utoipa::path(get, path = "/api/v1/users/{cid}/progression", tag = "training", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "Progression status", body = ProgressionStatusResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Own progression needs auth.profile.read; someone else's needs training.lessons.read"), (status = 404, description = "User not found")))]
 pub async fn get_user_progression_status(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -843,7 +843,7 @@ pub async fn get_user_progression_status(
     Ok(ApiJson::new(status, time))
 }
 
-#[utoipa::path(post, path = "/api/v1/users/{cid}/progression/complete", tag = "training", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "Progression advanced (or unchanged)", body = ProgressionStatusResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Force-finish opted out"), (status = 404, description = "User not found")))]
+#[utoipa::path(post, path = "/api/v1/users/{cid}/progression/complete", tag = "training", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "Progression advanced (or unchanged)", body = ProgressionStatusResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Own completion needs auth.profile.update, someone else's needs training.lessons.update, or force-finish opted out"), (status = 404, description = "User not found")))]
 pub async fn force_complete_progression(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -1078,7 +1078,7 @@ async fn record_progression_advance_audit(
     .await
 }
 
-#[utoipa::path(get, path = "/api/v1/users/{cid}/dossier", tag = "training", params(("cid" = i64, Path, description = "User CID"), PaginationQuery), responses((status = 200, description = "User dossier entries", body = DossierEntryListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/users/{cid}/dossier", tag = "training", params(("cid" = i64, Path, description = "User CID"), PaginationQuery), responses((status = 200, description = "User dossier entries", body = DossierEntryListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Own dossier needs auth.profile.read; someone else's needs training.lessons.read")))]
 pub async fn get_user_dossier(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -1145,7 +1145,7 @@ pub async fn get_user_dossier(
     responses(
         (status = 201, description = "Dossier entry created", body = DossierEntryItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks training.dossier.create"),
         (status = 404, description = "User not found")
     )
 )]

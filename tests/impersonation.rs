@@ -240,7 +240,7 @@ async fn refuses_nested_impersonation() {
             Some(json!({})),
         )
         .await;
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     test.cleanup().await;
 }
@@ -326,7 +326,7 @@ async fn requires_the_impersonate_permission() {
             Some(json!({})),
         )
         .await;
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     test.cleanup().await;
 }

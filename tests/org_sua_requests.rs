@@ -101,7 +101,7 @@ async fn sua_request_self_service_lifecycle_and_validation_work_end_to_end() {
             None,
         )
         .await;
-    assert_status(&denied_delete, StatusCode::UNAUTHORIZED);
+    assert_status(&denied_delete, StatusCode::FORBIDDEN);
 
     // Public lookup by id works with no session at all.
     let lookup_by_id = app

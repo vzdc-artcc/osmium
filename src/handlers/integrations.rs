@@ -42,7 +42,7 @@ pub struct ApiMessageBody {
     pub message: String,
 }
 
-#[utoipa::path(get, path = "/api/v1/me/discord", tag = "integrations", responses((status = 200, description = "Current Discord link state", body = DiscordLinkStateBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/me/discord", tag = "integrations", responses((status = 200, description = "Current Discord link state", body = DiscordLinkStateBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn get_my_discord(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -58,7 +58,7 @@ pub async fn get_my_discord(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/me/discord/link/start", tag = "integrations", request_body = DiscordLinkStartRequest, responses((status = 200, description = "Discord link start response", body = DiscordLinkStateBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/me/discord/link/start", tag = "integrations", request_body = DiscordLinkStartRequest, responses((status = 200, description = "Discord link start response", body = DiscordLinkStateBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn start_discord_link(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -108,7 +108,7 @@ pub async fn start_discord_link(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/me/discord/unlink", tag = "integrations", request_body = DiscordUnlinkRequest, responses((status = 200, description = "Discord link removed", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/me/discord/unlink", tag = "integrations", request_body = DiscordUnlinkRequest, responses((status = 200, description = "Discord link removed", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn unlink_discord(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -331,7 +331,7 @@ fn append_query(base: &str, params: &[(&str, &str)]) -> String {
     url
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", responses((status = 200, description = "Discord configuration bundle", body = DiscordConfigBundle), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", responses((status = 200, description = "Discord configuration bundle", body = DiscordConfigBundle), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn list_discord_configs(
     State(state): State<AppState>,
     _permission: RequirePermission<IntegrationsStatsUpdate>,
@@ -353,7 +353,7 @@ pub async fn list_discord_configs(
     ))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/features", tag = "integrations", responses((status = 200, description = "Discord bot feature toggles", body = BotFeatureFlagsResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/features", tag = "integrations", responses((status = 200, description = "Discord bot feature toggles", body = BotFeatureFlagsResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn list_bot_features(
     State(state): State<AppState>,
     _permission: RequirePermission<IntegrationsStatsUpdate>,
@@ -372,7 +372,7 @@ pub async fn list_bot_features(
     Ok(Json(BotFeatureFlagsResponse { features }))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/features", tag = "integrations", request_body = UpdateBotFeatureFlagsRequest, responses((status = 200, description = "Updated Discord bot feature toggles", body = BotFeatureFlagsResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/features", tag = "integrations", request_body = UpdateBotFeatureFlagsRequest, responses((status = 200, description = "Updated Discord bot feature toggles", body = BotFeatureFlagsResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn update_bot_features(
     State(state): State<AppState>,
     _permission: RequirePermission<IntegrationsStatsUpdate>,
@@ -404,7 +404,7 @@ pub async fn update_bot_features(
     Ok(Json(BotFeatureFlagsResponse { features }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/guilds", tag = "integrations", responses((status = 200, description = "Guilds the Discord bot is a member of", body = DiscoveredGuildListResponse), (status = 401, description = "Not authenticated"), (status = 503, description = "Discord bot unavailable")))]
+#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/guilds", tag = "integrations", responses((status = 200, description = "Guilds the Discord bot is a member of", body = DiscoveredGuildListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update"), (status = 503, description = "Discord bot unavailable")))]
 pub async fn list_discord_guilds(
     _permission: RequirePermission<IntegrationsStatsUpdate>,
 ) -> Result<Json<DiscoveredGuildListResponse>, ApiError> {
@@ -412,7 +412,7 @@ pub async fn list_discord_guilds(
     Ok(Json(response))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/guilds/{guild_id}/discovery", tag = "integrations", params(("guild_id" = String, Path, description = "Discord guild id")), responses((status = 200, description = "Live channels, categories, and roles for the guild", body = GuildDiscoveryResponse), (status = 401, description = "Not authenticated"), (status = 503, description = "Discord bot unavailable")))]
+#[utoipa::path(get, path = "/api/v1/admin/integrations/discord/guilds/{guild_id}/discovery", tag = "integrations", params(("guild_id" = String, Path, description = "Discord guild id")), responses((status = 200, description = "Live channels, categories, and roles for the guild", body = GuildDiscoveryResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update"), (status = 503, description = "Discord bot unavailable")))]
 pub async fn discover_discord_guild(
     _permission: RequirePermission<IntegrationsStatsUpdate>,
     Path(guild_id): Path<String>,
@@ -426,7 +426,7 @@ pub async fn discover_discord_guild(
     Ok(Json(response))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", request_body = CreateDiscordConfigRequest, responses((status = 201, description = "Discord config created", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/configs", tag = "integrations", request_body = CreateDiscordConfigRequest, responses((status = 201, description = "Discord config created", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn create_discord_config(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -449,7 +449,7 @@ pub async fn create_discord_config(
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), request_body = UpdateDiscordConfigRequest, responses((status = 200, description = "Updated Discord config", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord config not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), request_body = UpdateDiscordConfigRequest, responses((status = 200, description = "Updated Discord config", body = DiscordConfigItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update"), (status = 404, description = "Discord config not found")))]
 pub async fn update_discord_config(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -476,7 +476,7 @@ pub async fn update_discord_config(
     Ok(ApiJson::new(item, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), responses((status = 200, description = "Deleted Discord config", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/configs/{config_id}", tag = "integrations", params(("config_id" = String, Path, description = "Discord config ID")), responses((status = 200, description = "Deleted Discord config", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn delete_discord_config(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -491,7 +491,7 @@ pub async fn delete_discord_config(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/channels", tag = "integrations", request_body = CreateDiscordChannelRequest, responses((status = 201, description = "Discord channel created", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/channels", tag = "integrations", request_body = CreateDiscordChannelRequest, responses((status = 201, description = "Discord channel created", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn create_discord_channel(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -512,7 +512,7 @@ pub async fn create_discord_channel(
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), request_body = UpdateDiscordChannelRequest, responses((status = 200, description = "Updated Discord channel", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord channel not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), request_body = UpdateDiscordChannelRequest, responses((status = 200, description = "Updated Discord channel", body = DiscordChannelItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update"), (status = 404, description = "Discord channel not found")))]
 pub async fn update_discord_channel(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -542,7 +542,7 @@ pub async fn update_discord_channel(
     Ok(ApiJson::new(item, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), responses((status = 200, description = "Deleted Discord channel", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/channels/{channel_id}", tag = "integrations", params(("channel_id" = String, Path, description = "Discord channel ID")), responses((status = 200, description = "Deleted Discord channel", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn delete_discord_channel(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -557,7 +557,7 @@ pub async fn delete_discord_channel(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/roles", tag = "integrations", request_body = CreateDiscordRoleRequest, responses((status = 201, description = "Discord role created", body = DiscordRoleItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/roles", tag = "integrations", request_body = CreateDiscordRoleRequest, responses((status = 201, description = "Discord role created", body = DiscordRoleItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn create_discord_role(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -578,7 +578,7 @@ pub async fn create_discord_role(
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), request_body = UpdateDiscordRoleRequest, responses((status = 200, description = "Updated Discord role", body = DiscordRoleItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord role not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), request_body = UpdateDiscordRoleRequest, responses((status = 200, description = "Updated Discord role", body = DiscordRoleItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update"), (status = 404, description = "Discord role not found")))]
 pub async fn update_discord_role(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -608,7 +608,7 @@ pub async fn update_discord_role(
     Ok(ApiJson::new(item, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), responses((status = 200, description = "Deleted Discord role", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/roles/{role_id}", tag = "integrations", params(("role_id" = String, Path, description = "Discord role ID")), responses((status = 200, description = "Deleted Discord role", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn delete_discord_role(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -623,7 +623,7 @@ pub async fn delete_discord_role(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/categories", tag = "integrations", request_body = CreateDiscordCategoryRequest, responses((status = 201, description = "Discord category created", body = DiscordCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/integrations/discord/categories", tag = "integrations", request_body = CreateDiscordCategoryRequest, responses((status = 201, description = "Discord category created", body = DiscordCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn create_discord_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -644,7 +644,7 @@ pub async fn create_discord_category(
     Ok((StatusCode::CREATED, ApiJson::new(item, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), request_body = UpdateDiscordCategoryRequest, responses((status = 200, description = "Updated Discord category", body = DiscordCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Discord category not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), request_body = UpdateDiscordCategoryRequest, responses((status = 200, description = "Updated Discord category", body = DiscordCategoryItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update"), (status = 404, description = "Discord category not found")))]
 pub async fn update_discord_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -674,7 +674,7 @@ pub async fn update_discord_category(
     Ok(ApiJson::new(item, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), responses((status = 200, description = "Deleted Discord category", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(delete, path = "/api/v1/admin/integrations/discord/categories/{category_id}", tag = "integrations", params(("category_id" = String, Path, description = "Discord category ID")), responses((status = 200, description = "Deleted Discord category", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn delete_discord_category(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -689,7 +689,7 @@ pub async fn delete_discord_category(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/notifications/announcements", tag = "integrations", request_body = AnnouncementRequest, responses((status = 200, description = "Announcement queued", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/notifications/announcements", tag = "integrations", request_body = AnnouncementRequest, responses((status = 200, description = "Announcement queued", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn queue_announcement(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -762,7 +762,7 @@ pub async fn queue_announcement(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/events/{event_id}/publish/discord", tag = "integrations", params(("event_id" = String, Path, description = "Event ID")), request_body = EventPublishDiscordRequest, responses((status = 200, description = "Event Discord publish queued", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/events/{event_id}/publish/discord", tag = "integrations", params(("event_id" = String, Path, description = "Event ID")), request_body = EventPublishDiscordRequest, responses((status = 200, description = "Event Discord publish queued", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn queue_event_publish_discord(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -801,7 +801,7 @@ pub async fn queue_event_publish_discord(
     }))
 }
 
-#[utoipa::path(post, path = "/api/v1/events/{event_id}/discord-event", tag = "integrations", params(("event_id" = String, Path, description = "Event ID")), request_body = CreateDiscordScheduledEventRequest, responses((status = 200, description = "Discord scheduled-event creation queued", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/events/{event_id}/discord-event", tag = "integrations", params(("event_id" = String, Path, description = "Event ID")), request_body = CreateDiscordScheduledEventRequest, responses((status = 200, description = "Discord scheduled-event creation queued", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn queue_event_discord_scheduled_event(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -846,7 +846,7 @@ pub async fn queue_event_discord_scheduled_event(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/integrations/outbound-jobs", tag = "integrations", params(OutboundJobsQuery), responses((status = 200, description = "Outbound integration jobs", body = OutboundJobListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/integrations/outbound-jobs", tag = "integrations", params(OutboundJobsQuery), responses((status = 200, description = "Outbound integration jobs", body = OutboundJobListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn list_outbound_jobs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -877,7 +877,7 @@ pub async fn list_outbound_jobs(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/integrations/outbound-jobs/run", tag = "integrations", responses((status = 200, description = "Attempted outbound integration job deliveries", body = [OutboundJobItem]), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/integrations/outbound-jobs/run", tag = "integrations", responses((status = 200, description = "Attempted outbound integration job deliveries", body = [OutboundJobItem]), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks integrations.stats.update")))]
 pub async fn run_outbound_jobs(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,

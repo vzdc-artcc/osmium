@@ -65,7 +65,7 @@ pub async fn ensure_permission(
         return if permissions.contains(&permission) {
             Ok(())
         } else {
-            Err(ApiError::Unauthorized)
+            Err(ApiError::Forbidden)
         };
     }
 
@@ -75,7 +75,7 @@ pub async fn ensure_permission(
         return if permissions.contains(&permission) {
             Ok(())
         } else {
-            Err(ApiError::Unauthorized)
+            Err(ApiError::Forbidden)
         };
     }
 

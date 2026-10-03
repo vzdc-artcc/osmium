@@ -90,6 +90,7 @@ Common error values:
 
 - `bad_request`
 - `unauthorized`
+- `forbidden`
 - `too_many_requests`
 - `service_unavailable`
 - `internal_error`

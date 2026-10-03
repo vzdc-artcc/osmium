@@ -46,5 +46,5 @@ Machine auth:
 
 - no `DATABASE_URL`: DB-backed routes degrade to `service_unavailable`
 - missing session or invalid bearer token: `unauthorized`
-- permission mismatch: `unauthorized`
+- permission mismatch: `forbidden`
 - invalid path or query values: `bad_request`

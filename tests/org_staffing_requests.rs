@@ -68,7 +68,7 @@ async fn staffing_request_crud_lifecycle_and_admin_filters_work_end_to_end() {
             None,
         )
         .await;
-    assert_status(&denied_list, StatusCode::UNAUTHORIZED);
+    assert_status(&denied_list, StatusCode::FORBIDDEN);
 
     // Both STAFF and EVENT_STAFF can list, and denormalized fields (including the
     // new email field) are populated.
@@ -127,7 +127,7 @@ async fn staffing_request_crud_lifecycle_and_admin_filters_work_end_to_end() {
             None,
         )
         .await;
-    assert_status(&denied_delete, StatusCode::UNAUTHORIZED);
+    assert_status(&denied_delete, StatusCode::FORBIDDEN);
 
     let delete_response = app
         .json_request(

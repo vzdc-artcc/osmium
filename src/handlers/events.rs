@@ -110,7 +110,7 @@ pub async fn get_event(
     request_body = CreateEventRequest,
     responses(
         (status = 201, description = "Event created", body = Event),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.create")
     )
 )]
 pub async fn create_event(
@@ -178,7 +178,7 @@ pub async fn create_event(
     request_body = UpdateEventRequest,
     responses(
         (status = 200, description = "Event updated", body = Event),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update"),
         (status = 404, description = "Event not found")
     )
 )]
@@ -255,7 +255,7 @@ pub async fn update_event(
     ),
     responses(
         (status = 204, description = "Event deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.delete"),
         (status = 404, description = "Event not found")
     )
 )]
@@ -366,7 +366,7 @@ pub async fn list_event_positions(
     ))
 }
 
-#[utoipa::path(get, path = "/api/v1/users/{cid}/event-positions", tag = "events", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "User's published event positions, most recent event first", body = UserEventPositionListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/users/{cid}/event-positions", tag = "events", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "User's published event positions, most recent event first", body = UserEventPositionListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Own positions need auth.profile.read; someone else's need users.directory.read")))]
 pub async fn get_user_event_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -412,7 +412,8 @@ pub async fn get_user_event_positions(
     responses(
         (status = 201, description = "Position request created", body = EventPosition),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks events.positions.self.request, or events.positions.assign when creating on behalf of another user")
     )
 )]
 pub async fn create_event_position(
@@ -514,7 +515,7 @@ pub async fn create_event_position(
     responses(
         (status = 200, description = "Position updated", body = EventPosition),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.positions.assign"),
         (status = 404, description = "Event or position not found")
     )
 )]
@@ -603,7 +604,7 @@ pub async fn assign_event_position(
     ),
     responses(
         (status = 204, description = "Position deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.positions.delete"),
         (status = 404, description = "Event or position not found")
     )
 )]
@@ -657,7 +658,7 @@ pub async fn delete_event_position(
     ),
     responses(
         (status = 200, description = "Positions published"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.positions.publish")
     )
 )]
 pub async fn publish_event_positions(

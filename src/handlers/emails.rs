@@ -36,7 +36,7 @@ use crate::{
     tag = "emails",
     responses(
         (status = 200, description = "Email templates", body = [EmailTemplateDefinitionResponse]),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.templates.read"),
         (status = 503, description = "Email system unavailable")
     )
 )]
@@ -54,7 +54,7 @@ pub async fn list_templates(
     request_body = EmailPreviewRequest,
     responses(
         (status = 200, description = "Rendered email preview", body = EmailPreviewResponse),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.preview.create"),
         (status = 503, description = "Email system unavailable")
     )
 )]
@@ -109,7 +109,7 @@ pub async fn preview_email(
     request_body = EmailSendRequest,
     responses(
         (status = 200, description = "Queued email send", body = EmailSendResponse),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.send.create"),
         (status = 503, description = "Email system unavailable")
     )
 )]
@@ -153,7 +153,7 @@ pub async fn send_email(
     params(ListEmailOutboxQuery),
     responses(
         (status = 200, description = "Email outbox", body = EmailOutboxListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.outbox.read")
     )
 )]
 pub async fn list_outbox(
@@ -187,7 +187,7 @@ pub async fn list_outbox(
     params(("id" = String, Path, description = "Outbox id")),
     responses(
         (status = 200, description = "Email outbox detail", body = crate::models::EmailOutboxDetailResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.outbox.read")
     )
 )]
 pub async fn get_outbox_detail(
@@ -250,7 +250,7 @@ pub async fn update_preferences(
     tag = "emails",
     responses(
         (status = 200, description = "The caller's per-category email preferences", body = EmailPreferencesResponse),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")
     )
 )]
 pub async fn get_my_email_preferences(
@@ -278,7 +278,7 @@ pub async fn get_my_email_preferences(
     responses(
         (status = 200, description = "Updated per-category email preferences", body = EmailPreferencesResponse),
         (status = 400, description = "Invalid request (unknown or transactional category)"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update")
     )
 )]
 pub async fn update_my_email_preferences(
@@ -306,7 +306,7 @@ pub async fn update_my_email_preferences(
     request_body = EmailResubscribeRequest,
     responses(
         (status = 200, description = "Resubscribed", body = EmailSuppressionRecordResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.suppressions.update")
     )
 )]
 pub async fn resubscribe(
@@ -324,7 +324,7 @@ pub async fn resubscribe(
     tag = "emails",
     responses(
         (status = 200, description = "Email branding configuration", body = EmailBranding),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.branding.read")
     )
 )]
 pub async fn get_email_branding(
@@ -348,7 +348,7 @@ pub async fn get_email_branding(
     responses(
         (status = 200, description = "Email branding configuration updated", body = EmailBranding),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks emails.branding.update")
     )
 )]
 pub async fn update_email_branding(

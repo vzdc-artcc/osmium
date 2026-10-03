@@ -30,6 +30,7 @@ Timestamped user-domain responses such as visitor applications, solo certificati
 - every other route in this file still requires an authenticated user session
 - viewing private fields depends on `users.read`, `users.update`, or self-access
 - user detail responses expose grouped effective permissions
+- `GET /api/v1/users/{cid}/feedback` requires `users.directory_private.read` for every caller, including a controller viewing their own feedback: the response carries every status, staff comments, and the submitter's identity
 
 ## Notes
 

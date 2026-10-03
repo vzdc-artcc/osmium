@@ -28,7 +28,7 @@ use crate::{
     tag = "welcome-messages",
     responses(
         (status = 200, description = "Welcome message content", body = WelcomeMessageContent),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks web.welcome_messages.read")
     )
 )]
 pub async fn get_welcome_message_content(
@@ -51,7 +51,7 @@ pub async fn get_welcome_message_content(
     responses(
         (status = 200, description = "Welcome message content updated", body = WelcomeMessageContent),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks web.welcome_messages.update")
     )
 )]
 pub async fn update_welcome_message_content(
@@ -118,7 +118,7 @@ pub async fn update_welcome_message_content(
     tag = "welcome-messages",
     responses(
         (status = 200, description = "Current user's welcome message state", body = MyWelcomeMessageResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")
     )
 )]
 pub async fn get_my_welcome_message(
@@ -171,7 +171,7 @@ pub async fn get_my_welcome_message(
     tag = "welcome-messages",
     responses(
         (status = 204, description = "Welcome message acknowledged"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update")
     )
 )]
 pub async fn acknowledge_welcome_message(

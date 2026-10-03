@@ -107,7 +107,7 @@ pub async fn get_publication(
     tag = "publications",
     responses(
         (status = 200, description = "List publication categories for admin", body = [PublicationCategory]),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.categories.read")
     )
 )]
 pub async fn admin_list_publication_categories(
@@ -128,7 +128,7 @@ pub async fn admin_list_publication_categories(
     responses(
         (status = 201, description = "Publication category created", body = PublicationCategory),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.categories.create")
     )
 )]
 pub async fn create_publication_category(
@@ -186,7 +186,7 @@ pub async fn create_publication_category(
     responses(
         (status = 200, description = "Publication category updated", body = PublicationCategory),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.categories.update"),
         (status = 404, description = "Publication category not found")
     )
 )]
@@ -254,7 +254,7 @@ pub async fn update_publication_category(
     ),
     responses(
         (status = 204, description = "Publication category deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.categories.delete"),
         (status = 404, description = "Publication category not found")
     )
 )]
@@ -302,7 +302,7 @@ pub async fn delete_publication_category(
     params(PaginationQuery),
     responses(
         (status = 200, description = "List publications for admin", body = PublicationListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.items.read")
     )
 )]
 pub async fn admin_list_publications(
@@ -338,7 +338,7 @@ pub async fn admin_list_publications(
     ),
     responses(
         (status = 200, description = "Publication details for admin", body = Publication),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.items.read"),
         (status = 404, description = "Publication not found")
     )
 )]
@@ -363,7 +363,7 @@ pub async fn admin_get_publication(
     responses(
         (status = 201, description = "Publication created", body = Publication),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.items.create"),
         (status = 404, description = "Referenced file not found")
     )
 )]
@@ -446,7 +446,7 @@ pub async fn create_publication(
     responses(
         (status = 200, description = "Publication updated", body = Publication),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.items.update"),
         (status = 404, description = "Publication not found")
     )
 )]
@@ -571,7 +571,7 @@ pub async fn update_publication(
     ),
     responses(
         (status = 204, description = "Publication deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks publications.items.delete"),
         (status = 404, description = "Publication not found")
     )
 )]

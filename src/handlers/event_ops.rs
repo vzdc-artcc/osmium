@@ -69,7 +69,7 @@ pub async fn get_event_ops_plan(
     responses(
         (status = 200, description = "Updated event ops plan", body = EventOpsPlanItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update"),
         (status = 404, description = "Event not found")
     )
 )]
@@ -166,7 +166,7 @@ pub async fn list_event_tmis(
     responses(
         (status = 201, description = "Event TMI created", body = EventTmiItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update")
     )
 )]
 pub async fn create_event_tmi(
@@ -222,7 +222,7 @@ pub async fn create_event_tmi(
     responses(
         (status = 200, description = "Updated event TMI", body = EventTmiItem),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update"),
         (status = 404, description = "Event or TMI not found")
     )
 )]
@@ -279,7 +279,7 @@ pub async fn update_event_tmi(
     ),
     responses(
         (status = 200, description = "Deleted event TMI", body = ApiMessageBody),
-        (status = 401, description = "Not authenticated"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update"),
         (status = 404, description = "Event or TMI not found")
     )
 )]
@@ -346,7 +346,7 @@ pub async fn get_event_preset_positions(
     responses(
         (status = 200, description = "Updated preset positions", body = [String]),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update")
     )
 )]
 pub async fn update_event_preset_positions(
@@ -384,7 +384,7 @@ pub async fn update_event_preset_positions(
     responses(
         (status = 200, description = "Locked event positions", body = ApiMessageBody),
         (status = 400, description = "Invalid event ID"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update")
     )
 )]
 pub async fn lock_event_positions(
@@ -423,7 +423,7 @@ pub async fn lock_event_positions(
     responses(
         (status = 200, description = "Unlocked event positions", body = ApiMessageBody),
         (status = 400, description = "Invalid event ID"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.items.update")
     )
 )]
 pub async fn unlock_event_positions(
@@ -464,7 +464,7 @@ pub async fn unlock_event_positions(
     params(PaginationQuery),
     responses(
         (status = 200, description = "List event position presets", body = EventPositionPresetListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.presets.read")
     )
 )]
 pub async fn list_event_position_presets(
@@ -498,7 +498,7 @@ pub async fn list_event_position_presets(
     params(("preset_id" = String, Path, description = "Preset ID")),
     responses(
         (status = 200, description = "Event position preset", body = EventPositionPreset),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.presets.read"),
         (status = 404, description = "Preset not found")
     )
 )]
@@ -523,7 +523,7 @@ pub async fn get_event_position_preset(
     responses(
         (status = 201, description = "Event position preset created", body = EventPositionPreset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.presets.create")
     )
 )]
 pub async fn create_event_position_preset(
@@ -569,7 +569,7 @@ pub async fn create_event_position_preset(
     responses(
         (status = 200, description = "Event position preset updated", body = EventPositionPreset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.presets.update"),
         (status = 404, description = "Preset not found")
     )
 )]
@@ -621,7 +621,7 @@ pub async fn update_event_position_preset(
     params(("preset_id" = String, Path, description = "Preset ID")),
     responses(
         (status = 204, description = "Event position preset deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.presets.delete"),
         (status = 404, description = "Preset not found")
     )
 )]
@@ -687,7 +687,7 @@ pub async fn list_ops_plan_files(
     responses(
         (status = 201, description = "Ops plan file attached", body = OpsPlanFile),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.ops_plan_files.create")
     )
 )]
 pub async fn create_ops_plan_file(
@@ -739,7 +739,7 @@ pub async fn create_ops_plan_file(
     ),
     responses(
         (status = 204, description = "Ops plan file removed"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks events.ops_plan_files.delete"),
         (status = 404, description = "Event or file not found")
     )
 )]

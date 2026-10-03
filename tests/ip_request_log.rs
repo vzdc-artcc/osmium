@@ -172,7 +172,7 @@ async fn admin_ip_history_endpoint_is_permission_gated_and_scoped() {
         .await;
     assert_status(&response, StatusCode::UNAUTHORIZED);
 
-    // Authenticated but without the permission → 401.
+    // Authenticated but without the permission → 403.
     let response = test
         .request(ip_request(
             "/api/v1/admin/users/556011/ip-history",
@@ -180,7 +180,7 @@ async fn admin_ip_history_endpoint_is_permission_gated_and_scoped() {
             Some(&target.session_token),
         ))
         .await;
-    assert_status(&response, StatusCode::UNAUTHORIZED);
+    assert_status(&response, StatusCode::FORBIDDEN);
 
     // Admin with the permission → 200 and sees the target's history.
     let response = test

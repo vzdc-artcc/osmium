@@ -55,7 +55,7 @@ async fn visitor_application_lifecycle_works_end_to_end() {
             Some(json!({"home_facility": "ZLA", "why_visit": "Testing"})),
         )
         .await;
-    assert_status(&denied_create, StatusCode::UNAUTHORIZED);
+    assert_status(&denied_create, StatusCode::FORBIDDEN);
 
     // Create the application.
     let create_response = app

@@ -145,7 +145,7 @@ async fn purge_transition_requires_delete_permission_and_blocks_on_vatusa() {
             Some(json!({"controller_status": "NONE"})),
         )
         .await;
-    assert_status(&denied, StatusCode::UNAUTHORIZED);
+    assert_status(&denied, StatusCode::FORBIDDEN);
 
     // An ATM/DATM-equivalent user passes the permission gate and reaches the
     // VATUSA call, which fails safely (503) because no API key is configured

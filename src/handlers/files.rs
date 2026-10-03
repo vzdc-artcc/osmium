@@ -49,7 +49,7 @@ const NONCE_LEN: usize = 12;
     params(FileAuditQuery),
     responses(
         (status = 200, description = "File audit log rows", body = FileAuditLogListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks files.audit.read")
     )
 )]
 pub async fn list_file_audit_logs(
@@ -90,7 +90,7 @@ pub async fn list_file_audit_logs(
     params(PaginationQuery),
     responses(
         (status = 200, description = "List file assets", body = FileAssetListResponse),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks files.assets.read")
     )
 )]
 pub async fn list_files(
@@ -145,7 +145,8 @@ pub async fn list_files(
     responses(
         (status = 201, description = "File uploaded", body = FileAsset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks files.assets.create or files.content.create"),
         (status = 404, description = "owner_cid does not reference an existing user")
     )
 )]
@@ -286,7 +287,8 @@ pub async fn upload_file(
     responses(
         (status = 201, description = "File imported", body = FileAsset),
         (status = 400, description = "Invalid request, unsafe URL, or non-image content"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks files.assets.create or files.content.create"),
         (status = 404, description = "owner_cid does not reference an existing user")
     )
 )]
@@ -491,7 +493,8 @@ pub async fn import_file_from_url(
     ),
     responses(
         (status = 200, description = "File metadata", body = FileAsset),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks files.assets.read, which ownership, public status, or a role grant cannot substitute for; or holds it but the file is not public, owned, role-granted, or directly granted to the caller"),
         (status = 404, description = "File not found")
     )
 )]
@@ -522,7 +525,8 @@ pub async fn get_file_metadata(
     responses(
         (status = 200, description = "File content stream"),
         (status = 206, description = "Partial file content"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks files.content.read, which ownership, public status, or a role grant cannot substitute for; or holds it but the file is not public, owned, role-granted, or directly granted to the caller"),
         (status = 404, description = "File not found")
     )
 )]
@@ -567,7 +571,8 @@ pub async fn download_file_content(
     ),
     responses(
         (status = 200, description = "Signed download URL", body = SignedUrlResponse),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks files.content.read, which ownership, public status, or a role grant cannot substitute for; or holds it but the file is not public, owned, role-granted, or directly granted to the caller"),
         (status = 404, description = "File not found")
     )
 )]
@@ -638,7 +643,8 @@ pub async fn get_signed_download_url(
     responses(
         (status = 200, description = "CDN file download"),
         (status = 206, description = "Partial CDN file download"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks files.content.read, which ownership, public status, or a role grant cannot substitute for; or holds it but the file is not public, owned, role-granted, or directly granted to the caller"),
         (status = 404, description = "File not found")
     )
 )]
@@ -688,7 +694,8 @@ pub async fn cdn_download_file(
     responses(
         (status = 200, description = "Updated file metadata", body = FileAsset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Lacks files.assets.update, or files.assets.policy.update when changing access-control fields"),
         (status = 404, description = "File not found")
     )
 )]
@@ -810,7 +817,7 @@ pub async fn update_file_metadata(
     responses(
         (status = 200, description = "Replaced file content", body = FileAsset),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks files.content.update"),
         (status = 404, description = "File not found")
     )
 )]
@@ -893,7 +900,7 @@ pub async fn replace_file_content(
     ),
     responses(
         (status = 204, description = "File deleted"),
-        (status = 401, description = "Not authorized"),
+        (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks files.assets.delete"),
         (status = 404, description = "File not found")
     )
 )]
@@ -1077,7 +1084,7 @@ async fn ensure_can_update_file_metadata(
     )) {
         Ok(())
     } else {
-        Err(ApiError::Unauthorized)
+        Err(ApiError::Forbidden)
     }
 }
 
@@ -1093,7 +1100,7 @@ async fn ensure_can_update_file_policy(
         return Ok(());
     }
 
-    Err(ApiError::Unauthorized)
+    Err(ApiError::Forbidden)
 }
 
 // The following two checks are data-dependent (ownership/role/direct-grant on the
@@ -1117,7 +1124,7 @@ async fn ensure_can_read_file_metadata(
     {
         Ok(())
     } else {
-        Err(ApiError::Unauthorized)
+        Err(ApiError::Forbidden)
     }
 }
 
@@ -1137,7 +1144,7 @@ async fn ensure_can_read_file_content(
     {
         Ok(())
     } else {
-        Err(ApiError::Unauthorized)
+        Err(ApiError::Forbidden)
     }
 }
 

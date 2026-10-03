@@ -64,7 +64,7 @@ pub struct ApiMessageBody {
     pub message: String,
 }
 
-#[utoipa::path(get, path = "/api/v1/loa/me", tag = "workflows", params(PaginationQuery), responses((status = 200, description = "Current user's LOAs", body = LoaListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/loa/me", tag = "workflows", params(PaginationQuery), responses((status = 200, description = "Current user's LOAs", body = LoaListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn list_my_loas(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -88,7 +88,7 @@ pub async fn list_my_loas(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/loa/me", tag = "workflows", request_body = CreateLoaRequest, responses((status = 201, description = "LOA created", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/loa/me", tag = "workflows", request_body = CreateLoaRequest, responses((status = 201, description = "LOA created", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update")))]
 pub async fn create_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -125,7 +125,7 @@ pub async fn create_loa(
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/loa/{loa_id}", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = UpdateLoaRequest, responses((status = 200, description = "Updated LOA", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "LOA not found")))]
+#[utoipa::path(patch, path = "/api/v1/loa/{loa_id}", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = UpdateLoaRequest, responses((status = 200, description = "Updated LOA", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update"), (status = 404, description = "LOA not found")))]
 pub async fn update_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -174,7 +174,7 @@ pub async fn update_loa(
 /// self-cancel pattern already used for training assignment/release requests:
 /// a data-dependent ownership check in the handler body rather than a
 /// separate `RequirePermission<P>`.
-#[utoipa::path(post, path = "/api/v1/loa/{loa_id}/cancel", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), responses((status = 200, description = "Cancelled LOA", body = LoaItem), (status = 401, description = "Not authenticated"), (status = 404, description = "LOA not found")))]
+#[utoipa::path(post, path = "/api/v1/loa/{loa_id}/cancel", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), responses((status = 200, description = "Cancelled LOA", body = LoaItem), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.update"), (status = 404, description = "LOA not found")))]
 pub async fn cancel_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -208,7 +208,7 @@ pub async fn cancel_loa(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/loa", tag = "workflows", params(ListLoasQuery), responses((status = 200, description = "LOA list", body = LoaListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/loa", tag = "workflows", params(ListLoasQuery), responses((status = 200, description = "LOA list", body = LoaListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.directory.read")))]
 pub async fn admin_list_loas(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersDirectoryRead>,
@@ -246,7 +246,7 @@ pub async fn admin_list_loas(
     ))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/loa/{loa_id}/decision", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = DecideLoaRequest, responses((status = 200, description = "Updated LOA decision", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "LOA not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/loa/{loa_id}/decision", tag = "workflows", params(("loa_id" = String, Path, description = "LOA ID")), request_body = DecideLoaRequest, responses((status = 200, description = "Updated LOA decision", body = LoaItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update"), (status = 404, description = "LOA not found")))]
 pub async fn decide_loa(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -285,7 +285,7 @@ pub async fn decide_loa(
     Ok(ApiJson::new(row, time))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/loa/expire-run", tag = "workflows", responses((status = 200, description = "LOA expiration job run", body = JobRunResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/loa/expire-run", tag = "workflows", responses((status = 200, description = "LOA expiration job run", body = JobRunResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update")))]
 pub async fn run_loa_expiration(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -315,7 +315,7 @@ pub async fn run_loa_expiration(
     Ok(ApiJson::new(JobRunResponse { run }, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/users/{cid}/solo-certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID"), PaginationQuery), responses((status = 200, description = "User solo certifications", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/users/{cid}/solo-certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID"), PaginationQuery), responses((status = 200, description = "User solo certifications", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Own certifications need auth.profile.read; someone else's need users.directory.read")))]
 pub async fn get_user_solo_certifications(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -365,7 +365,7 @@ pub async fn get_user_solo_certifications(
     ))
 }
 
-#[utoipa::path(get, path = "/api/v1/users/{cid}/certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "User certifications by type", body = CertificationListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/users/{cid}/certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "User certifications by type", body = CertificationListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Own certifications need auth.profile.read; someone else's need users.directory.read")))]
 pub async fn get_user_certifications(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -423,7 +423,7 @@ fn validate_certification_options(options: &[String]) -> Result<(), ApiError> {
     Ok(())
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/roster-certifications", tag = "workflows", responses((status = 200, description = "Per-controller roster cert/solo/LOA summary", body = RosterCertificationsResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/roster-certifications", tag = "workflows", responses((status = 200, description = "Per-controller roster cert/solo/LOA summary", body = RosterCertificationsResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.directory.read")))]
 pub async fn list_roster_certifications(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersDirectoryRead>,
@@ -434,7 +434,7 @@ pub async fn list_roster_certifications(
     Ok(ApiJson::new(RosterCertificationsResponse { items }, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/certification-types", tag = "workflows", responses((status = 200, description = "Certification types with allowed options", body = CertificationTypeListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/certification-types", tag = "workflows", responses((status = 200, description = "Certification types with allowed options", body = CertificationTypeListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks org.certifications.read")))]
 pub async fn list_certification_types(
     State(state): State<AppState>,
     _permission: RequirePermission<OrgCertificationsRead>,
@@ -445,7 +445,7 @@ pub async fn list_certification_types(
     Ok(ApiJson::new(CertificationTypeListResponse { items }, time))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/certification-types", tag = "workflows", request_body = CreateOrUpdateCertificationTypeRequest, responses((status = 200, description = "Created or updated certification type", body = CertificationTypeItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Certification type not found"), (status = 409, description = "Removing an option a lesson still grants")))]
+#[utoipa::path(post, path = "/api/v1/admin/certification-types", tag = "workflows", request_body = CreateOrUpdateCertificationTypeRequest, responses((status = 200, description = "Created or updated certification type", body = CertificationTypeItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks org.certifications.update"), (status = 404, description = "Certification type not found"), (status = 409, description = "Removing an option a lesson still grants")))]
 pub async fn create_or_update_certification_type(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -509,7 +509,7 @@ pub async fn create_or_update_certification_type(
     Ok(ApiJson::new(full, time))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/certification-types/order", tag = "workflows", request_body = UpdateCertificationTypeOrderRequest, responses((status = 200, description = "Reordered", body = ApiMessageBody), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(patch, path = "/api/v1/admin/certification-types/order", tag = "workflows", request_body = UpdateCertificationTypeOrderRequest, responses((status = 200, description = "Reordered", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks org.certifications.update")))]
 pub async fn update_certification_type_order(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -547,7 +547,7 @@ pub async fn update_certification_type_order(
     ))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/certification-types/{id}", tag = "workflows", params(("id" = String, Path, description = "Certification type ID")), responses((status = 200, description = "Deleted", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Certification type not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/certification-types/{id}", tag = "workflows", params(("id" = String, Path, description = "Certification type ID")), responses((status = 200, description = "Deleted", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks org.certifications.update"), (status = 404, description = "Certification type not found")))]
 pub async fn delete_certification_type(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -582,7 +582,7 @@ pub async fn delete_certification_type(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/users/{cid}/certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = SaveCertificationsRequest, responses((status = 200, description = "Saved", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "User not found")))]
+#[utoipa::path(post, path = "/api/v1/users/{cid}/certifications", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = SaveCertificationsRequest, responses((status = 200, description = "Saved", body = ApiMessageBody), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks org.certifications.update"), (status = 404, description = "User not found")))]
 pub async fn save_user_certifications(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -660,7 +660,7 @@ pub async fn save_user_certifications(
     ))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/solo-certifications", tag = "workflows", params(ListSoloCertificationsQuery), responses((status = 200, description = "Solo certification list", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/solo-certifications", tag = "workflows", params(ListSoloCertificationsQuery), responses((status = 200, description = "Solo certification list", body = SoloCertificationListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.directory.read")))]
 pub async fn admin_list_solo_certifications(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersDirectoryRead>,
@@ -690,7 +690,7 @@ pub async fn admin_list_solo_certifications(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/solo-certifications", tag = "workflows", request_body = CreateSoloCertificationRequest, responses((status = 201, description = "Solo certification created", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/solo-certifications", tag = "workflows", request_body = CreateSoloCertificationRequest, responses((status = 201, description = "Solo certification created", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update")))]
 pub async fn create_solo_certification(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -741,7 +741,7 @@ pub async fn create_solo_certification(
     Ok((StatusCode::CREATED, ApiJson::new(full, time)))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), request_body = UpdateSoloCertificationRequest, responses((status = 200, description = "Updated solo certification", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "Solo certification not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), request_body = UpdateSoloCertificationRequest, responses((status = 200, description = "Updated solo certification", body = SoloCertificationItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update"), (status = 404, description = "Solo certification not found")))]
 pub async fn update_solo_certification(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -800,7 +800,7 @@ pub async fn update_solo_certification(
     Ok(ApiJson::new(full, time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), responses((status = 200, description = "Deleted solo certification", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Solo certification not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/solo-certifications/{solo_id}", tag = "workflows", params(("solo_id" = String, Path, description = "Solo certification ID")), responses((status = 200, description = "Deleted solo certification", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update"), (status = 404, description = "Solo certification not found")))]
 pub async fn delete_solo_certification(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -836,7 +836,7 @@ pub async fn delete_solo_certification(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/staffing-requests/me", tag = "workflows", params(PaginationQuery), responses((status = 200, description = "Current user's staffing requests", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/staffing-requests/me", tag = "workflows", params(PaginationQuery), responses((status = 200, description = "Current user's staffing requests", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn list_my_staffing_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -867,7 +867,7 @@ pub async fn list_my_staffing_requests(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/staffing-requests/me", tag = "workflows", request_body = CreateStaffingRequestRequest, responses((status = 201, description = "Staffing request created", body = StaffingRequestItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/staffing-requests/me", tag = "workflows", request_body = CreateStaffingRequestRequest, responses((status = 201, description = "Staffing request created", body = StaffingRequestItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn create_staffing_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -910,7 +910,7 @@ pub async fn create_staffing_request(
     Ok((StatusCode::CREATED, ApiJson::new(full, time)))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/staffing-requests", tag = "workflows", params(ListStaffingRequestsQuery), responses((status = 200, description = "Staffing request list", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/staffing-requests", tag = "workflows", params(ListStaffingRequestsQuery), responses((status = 200, description = "Staffing request list", body = StaffingRequestListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks org.staffing_requests.read")))]
 pub async fn admin_list_staffing_requests(
     State(state): State<AppState>,
     _permission: RequirePermission<OrgStaffingRequestsRead>,
@@ -944,7 +944,7 @@ pub async fn admin_list_staffing_requests(
     ))
 }
 
-#[utoipa::path(delete, path = "/api/v1/admin/staffing-requests/{request_id}", tag = "workflows", params(("request_id" = String, Path, description = "Staffing request ID")), responses((status = 200, description = "Deleted staffing request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "Staffing request not found")))]
+#[utoipa::path(delete, path = "/api/v1/admin/staffing-requests/{request_id}", tag = "workflows", params(("request_id" = String, Path, description = "Staffing request ID")), responses((status = 200, description = "Deleted staffing request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks org.staffing_requests.delete"), (status = 404, description = "Staffing request not found")))]
 pub async fn delete_staffing_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -977,7 +977,7 @@ pub async fn delete_staffing_request(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/sua/me", tag = "workflows", params(PaginationQuery), responses((status = 200, description = "Current user's SUA requests", body = SuaListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/sua/me", tag = "workflows", params(PaginationQuery), responses((status = 200, description = "Current user's SUA requests", body = SuaListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn list_my_sua_requests(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -1005,7 +1005,7 @@ pub async fn list_my_sua_requests(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/sua/me", tag = "workflows", request_body = CreateSuaRequest, responses((status = 201, description = "SUA request created", body = SuaBlockItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/sua/me", tag = "workflows", request_body = CreateSuaRequest, responses((status = 201, description = "SUA request created", body = SuaBlockItem), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read")))]
 pub async fn create_sua_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -1090,7 +1090,7 @@ pub async fn get_sua_mission_by_lookup(
     Ok(ApiJson::new(PublicSuaMissionItem::from(item), time))
 }
 
-#[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 404, description = "SUA request not found")))]
+#[utoipa::path(delete, path = "/api/v1/sua/{mission_id}", tag = "workflows", params(("mission_id" = String, Path, description = "SUA mission ID")), responses((status = 200, description = "Deleted SUA request", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks auth.profile.read, or not the submitter of this mission"), (status = 404, description = "SUA request not found")))]
 pub async fn delete_sua_request(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -1104,7 +1104,7 @@ pub async fn delete_sua_request(
         .await?
         .ok_or(ApiError::NotFound)?;
     if before.user_id != user.id {
-        return Err(ApiError::Unauthorized);
+        return Err(ApiError::Forbidden);
     }
 
     sua_requests::delete_sua_block_owned(pool, &mission_id, &user.id).await?;
@@ -1126,7 +1126,7 @@ pub async fn delete_sua_request(
     }))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/sua", tag = "workflows", params(ListSuaQuery), responses((status = 200, description = "SUA request list", body = SuaListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/sua", tag = "workflows", params(ListSuaQuery), responses((status = 200, description = "SUA request list", body = SuaListResponse), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.directory.read")))]
 pub async fn admin_list_sua_requests(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersDirectoryRead>,
@@ -1179,7 +1179,7 @@ pub async fn list_upcoming_sua_missions(
     ))
 }
 
-#[utoipa::path(patch, path = "/api/v1/admin/users/{cid}/controller-lifecycle", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = ControllerLifecycleRequest, responses((status = 200, description = "Updated controller lifecycle", body = ControllerLifecycleResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 404, description = "User not found")))]
+#[utoipa::path(patch, path = "/api/v1/admin/users/{cid}/controller-lifecycle", tag = "workflows", params(("cid" = i64, Path, description = "User CID")), request_body = ControllerLifecycleRequest, responses((status = 200, description = "Updated controller lifecycle", body = ControllerLifecycleResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update"), (status = 404, description = "User not found")))]
 pub async fn update_controller_lifecycle(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -1320,7 +1320,7 @@ pub async fn update_controller_lifecycle(
     Ok(ApiJson::new(response, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/roster/purge-candidates", tag = "workflows", params(PurgeCandidatesQuery), responses((status = 200, description = "Roster purge candidate activity for a month range", body = PurgeCandidatesResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/roster/purge-candidates", tag = "workflows", params(PurgeCandidatesQuery), responses((status = 200, description = "Roster purge candidate activity for a month range", body = PurgeCandidatesResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update")))]
 pub async fn list_purge_candidates(
     State(state): State<AppState>,
     _permission: RequirePermission<UsersControllerStatusUpdate>,
@@ -1377,7 +1377,7 @@ pub async fn list_purge_candidates(
     ))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/jobs", tag = "workflows", responses((status = 200, description = "Backend jobs", body = [JobStatusItem]), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/jobs", tag = "workflows", responses((status = 200, description = "Backend jobs", body = [JobStatusItem]), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks system.read")))]
 pub async fn list_jobs(
     State(state): State<AppState>,
     _permission: RequirePermission<SystemRead>,
@@ -1404,7 +1404,7 @@ pub async fn list_jobs(
     Ok(ApiJson::new(items, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/admin/jobs/{job_name}", tag = "workflows", params(("job_name" = String, Path, description = "Job name")), responses((status = 200, description = "Backend job detail", body = JobDetailResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/admin/jobs/{job_name}", tag = "workflows", params(("job_name" = String, Path, description = "Job name")), responses((status = 200, description = "Backend job detail", body = JobDetailResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks system.read")))]
 pub async fn get_job(
     State(state): State<AppState>,
     _permission: RequirePermission<SystemRead>,
@@ -1428,7 +1428,7 @@ pub async fn get_job(
     ))
 }
 
-#[utoipa::path(post, path = "/api/v1/admin/jobs/{job_name}/run", tag = "workflows", params(("job_name" = String, Path, description = "Job name")), responses((status = 200, description = "Triggered backend job", body = JobRunResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(post, path = "/api/v1/admin/jobs/{job_name}/run", tag = "workflows", params(("job_name" = String, Path, description = "Job name")), responses((status = 200, description = "Triggered backend job", body = JobRunResponse), (status = 400, description = "Invalid request"), (status = 401, description = "Not authenticated"), (status = 403, description = "Lacks users.controller_status.update")))]
 pub async fn run_job(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
