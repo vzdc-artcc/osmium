@@ -238,36 +238,32 @@ pub async fn find_user_id_by_cid(pool: &PgPool, cid: i64) -> Result<Option<Strin
         .map_err(|_| ApiError::Internal)
 }
 
-/// Replaces a user's *granted* permissions with exactly `permissions`, leaving
-/// any explicit `granted = false` deny row untouched either way — whether or
-/// not its name is in the new set. Only a direct database action creates or
-/// clears a deny row today (see `grant_missing_permissions` below); nothing
-/// reachable through the API should be able to override one, so the delete is
-/// scoped to `granted = true` and the insert is `on conflict do nothing`
-/// rather than upserting `true` over whatever is there.
 pub async fn replace_user_permissions(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
     permissions: &[String],
 ) -> Result<(), ApiError> {
-    sqlx::query("delete from access.user_permissions where user_id = $1 and granted = true")
+    sqlx::query("delete from access.user_permissions where user_id = $1")
         .bind(user_id)
         .execute(&mut **tx)
         .await
         .map_err(|_| ApiError::Internal)?;
 
-    sqlx::query(
-        r#"
-        insert into access.user_permissions (user_id, permission_name, granted)
-        select $1, unnest($2::text[]), true
-        on conflict (user_id, permission_name) do nothing
-        "#,
-    )
-    .bind(user_id)
-    .bind(permissions)
-    .execute(&mut **tx)
-    .await
-    .map_err(|_| ApiError::Internal)?;
+    for permission_name in permissions {
+        sqlx::query(
+            r#"
+            insert into access.user_permissions (user_id, permission_name, granted)
+            values ($1, $2, true)
+            on conflict (user_id, permission_name) do update
+            set granted = true
+            "#,
+        )
+        .bind(user_id)
+        .bind(permission_name)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    }
 
     Ok(())
 }
@@ -277,16 +273,17 @@ pub async fn replace_user_permissions(
 /// an explicit admin revoke (`granted = false`) — this only fills in *missing*
 /// grants, never overrides. Used to provision an impersonation target with the
 /// baseline self-service permissions every controller is entitled to but which are
-/// only materialized at first login, so acting as a never-logged-in target still
+/// only materialized when an account is seeded, so acting as a never-logged-in target still
 /// resolves as their real self (nothing less), and never as the admin (nothing more);
-/// and to top up any account's baseline on every login (`ensure_user_login_access`).
-/// A single batched statement rather than one round trip per permission, since the
-/// login use runs this unconditionally on every login, not just rare seed paths.
-pub async fn grant_missing_permissions(
-    pool: &PgPool,
+/// and to seed an existing account that has never been seeded, once, at login.
+pub async fn grant_missing_permissions<'e, E>(
+    executor: E,
     user_id: &str,
     permission_names: &[&str],
-) -> Result<(), ApiError> {
+) -> Result<(), ApiError>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     sqlx::query(
         r#"
         insert into access.user_permissions (user_id, permission_name, granted)
@@ -296,9 +293,37 @@ pub async fn grant_missing_permissions(
     )
     .bind(user_id)
     .bind(permission_names)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(|_| ApiError::Internal)?;
+    Ok(())
+}
+
+/// Whether the account has had its baseline self-service permissions seeded.
+/// Seeding happens once; after that, login never touches the account's direct
+/// permissions, so a permission the editor removes stays removed.
+pub async fn baseline_seeded(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, bool>(
+        "select baseline_seeded_at is not null from identity.users where id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
+pub async fn mark_baseline_seeded(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+) -> Result<(), ApiError> {
+    sqlx::query("update identity.users set baseline_seeded_at = now() where id = $1")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| ApiError::Internal)?;
     Ok(())
 }
 
