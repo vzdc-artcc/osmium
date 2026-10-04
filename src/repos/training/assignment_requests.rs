@@ -132,7 +132,11 @@ pub async fn insert_assignment_request(
     .bind(now)
     .execute(pool)
     .await
-    .map_err(|_| ApiError::BadRequest)?;
+    .map_err(|error| match error {
+        // At most one pending request per student (unique partial index).
+        sqlx::Error::Database(db_error) if db_error.is_unique_violation() => ApiError::Conflict,
+        _ => ApiError::Internal,
+    })?;
 
     fetch_assignment_request(pool, id)
         .await?

@@ -1525,7 +1525,9 @@ pub async fn list_assignment_requests(
     request_body = CreateTrainingAssignmentRequestRequest,
     responses(
         (status = 201, description = "Assignment request created", body = TrainingAssignmentRequest),
-        (status = 401, description = "Not authenticated")
+        (status = 400, description = "Unknown student"),
+        (status = 401, description = "Not authenticated"),
+        (status = 409, description = "The student already has a pending assignment request")
     )
 )]
 pub async fn create_assignment_request(
