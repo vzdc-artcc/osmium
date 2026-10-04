@@ -48,11 +48,22 @@ impl From<TrainerReleaseRequestRow> for TrainerReleaseRequest {
     }
 }
 
-pub async fn count_release_requests<'e, E>(executor: E) -> Result<i64, ApiError>
+/// Shared by the count and list queries so `total` always matches the filtered items.
+/// `$1` is the optional request status.
+const RELEASE_REQUEST_FILTER: &str = "where ($1::text is null or r.status = $1)";
+
+pub async fn count_release_requests<'e, E>(
+    executor: E,
+    status: Option<&str>,
+) -> Result<i64, ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {
-    sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.trainer_release_requests")
+    let sql = format!(
+        "select count(*)::bigint from training.trainer_release_requests r {RELEASE_REQUEST_FILTER}"
+    );
+    sqlx::query_scalar::<_, i64>(&sql)
+        .bind(status)
         .fetch_one(executor)
         .await
         .map_err(|_| ApiError::Internal)
@@ -60,6 +71,7 @@ where
 
 pub async fn list_release_requests<'e, E>(
     executor: E,
+    status: Option<&str>,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<TrainerReleaseRequest>, ApiError>
@@ -67,9 +79,10 @@ where
     E: Executor<'e, Database = Postgres>,
 {
     let sql = format!(
-        "{RELEASE_REQUEST_SELECT} order by r.submitted_at desc, r.id asc limit $1 offset $2"
+        "{RELEASE_REQUEST_SELECT} {RELEASE_REQUEST_FILTER} order by r.submitted_at desc, r.id asc limit $2 offset $3"
     );
     sqlx::query_as::<_, TrainerReleaseRequestRow>(&sql)
+        .bind(status)
         .bind(page_size)
         .bind(offset)
         .fetch_all(executor)

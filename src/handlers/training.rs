@@ -38,17 +38,18 @@ use crate::{
         CreateTrainingAssignmentRequestRequest, CreateTrainingLessonRequest,
         CreateTrainingSessionRequest, DecideTrainerReleaseRequestRequest,
         DecideTrainingAssignmentRequestRequest, LessonRosterChangeSummary,
-        LessonRubricCriteriaDetail, LessonRubricDetail, ListTrainingAppointmentsQuery,
-        ListTrainingSessionsQuery, OtsRecommendationListResponse, OtsRecommendationSummary,
-        PaginationMeta, PaginationQuery, TrainerReleaseRequest, TrainerReleaseRequestListResponse,
-        TrainingAppointmentDetail, TrainingAppointmentListResponse, TrainingAssignment,
-        TrainingAssignmentListResponse, TrainingAssignmentRequest,
-        TrainingAssignmentRequestListResponse, TrainingLesson, TrainingLessonListResponse,
-        TrainingSessionDetail, TrainingSessionListResponse, TrainingStatsAllTimeHours,
-        TrainingStatsBundle, TrainingStatsQuery, UpdateLessonRubricCellRequest,
-        UpdateLessonRubricCriteriaRequest, UpdateOtsRecommendationRequest,
-        UpdateTrainingAppointmentRequest, UpdateTrainingAssignmentRequest,
-        UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
+        LessonRubricCriteriaDetail, LessonRubricDetail, ListOtsRecommendationsQuery,
+        ListTrainerReleaseRequestsQuery, ListTrainingAppointmentsQuery,
+        ListTrainingAssignmentRequestsQuery, ListTrainingSessionsQuery,
+        OtsRecommendationListResponse, OtsRecommendationSummary, PaginationMeta, PaginationQuery,
+        TrainerReleaseRequest, TrainerReleaseRequestListResponse, TrainingAppointmentDetail,
+        TrainingAppointmentListResponse, TrainingAssignment, TrainingAssignmentListResponse,
+        TrainingAssignmentRequest, TrainingAssignmentRequestListResponse, TrainingLesson,
+        TrainingLessonListResponse, TrainingSessionDetail, TrainingSessionListResponse,
+        TrainingStatsAllTimeHours, TrainingStatsBundle, TrainingStatsQuery,
+        UpdateLessonRubricCellRequest, UpdateLessonRubricCriteriaRequest,
+        UpdateOtsRecommendationRequest, UpdateTrainingAppointmentRequest,
+        UpdateTrainingAssignmentRequest, UpdateTrainingLessonRequest, UpdateTrainingSessionRequest,
     },
     repos::{
         audit as audit_repo,
@@ -460,7 +461,7 @@ pub async fn delete_assignment(
     get,
     path = "/api/v1/training/ots-recommendations",
     tag = "training",
-    params(PaginationQuery),
+    params(ListOtsRecommendationsQuery),
     responses(
         (status = 200, description = "List OTS recommendations", body = OtsRecommendationListResponse),
         (status = 401, description = "Not authorized")
@@ -469,16 +470,22 @@ pub async fn delete_assignment(
 pub async fn list_ots_recommendations(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingOtsRecommendationsRead>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<ListOtsRecommendationsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<OtsRecommendationListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let pagination = query.resolve(25, 200);
-    let total = training_ots_repo::count_ots_recommendations(db).await?;
-    let rows =
-        training_ots_repo::list_ots_recommendations(db, pagination.page_size, pagination.offset)
-            .await?;
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = training_ots_repo::count_ots_recommendations(db, query.assigned).await?;
+    let rows = training_ots_repo::list_ots_recommendations(
+        db,
+        query.assigned,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
 
     let meta = PaginationMeta::new(total, pagination.page, pagination.page_size);
 
@@ -1484,24 +1491,37 @@ pub async fn delete_lesson_rubric_cell(
     get,
     path = "/api/v1/training/assignment-requests",
     tag = "training",
-    params(PaginationQuery),
+    params(ListTrainingAssignmentRequestsQuery),
     responses(
         (status = 200, description = "List assignment requests", body = TrainingAssignmentRequestListResponse),
+        (status = 400, description = "Unknown student_controller_status value"),
         (status = 401, description = "Not authorized")
     )
 )]
 pub async fn list_assignment_requests(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingAssignmentRequestsRead>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<ListTrainingAssignmentRequestsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainingAssignmentRequestListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let pagination = query.resolve(25, 200);
-    let total = training_assignment_requests_repo::count_assignment_requests(db).await?;
+    let student_controller_status = normalize_enum_filter(
+        query.student_controller_status.as_deref(),
+        &["HOME", "VISITOR"],
+    )?;
+
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total = training_assignment_requests_repo::count_assignment_requests(
+        db,
+        student_controller_status.as_deref(),
+    )
+    .await?;
     let rows = training_assignment_requests_repo::list_assignment_requests(
         db,
+        student_controller_status.as_deref(),
         pagination.page_size,
         pagination.offset,
     )
@@ -1746,24 +1766,32 @@ pub async fn delete_assignment_request(
     get,
     path = "/api/v1/training/trainer-release-requests",
     tag = "training",
-    params(PaginationQuery),
+    params(ListTrainerReleaseRequestsQuery),
     responses(
         (status = 200, description = "List trainer release requests", body = TrainerReleaseRequestListResponse),
+        (status = 400, description = "Unknown status value"),
         (status = 401, description = "Not authorized")
     )
 )]
 pub async fn list_release_requests(
     State(state): State<AppState>,
     _permission: RequirePermission<TrainingReleaseRequestsRead>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<ListTrainerReleaseRequestsQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<TrainerReleaseRequestListResponse>, ApiError> {
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let pagination = query.resolve(25, 200);
-    let total = training_release_requests_repo::count_release_requests(db).await?;
+    let status =
+        normalize_enum_filter(query.status.as_deref(), &["PENDING", "APPROVED", "DENIED"])?;
+
+    let pagination =
+        PaginationQuery::from_parts(query.page, query.page_size, query.limit, query.offset)
+            .resolve(25, 200);
+    let total =
+        training_release_requests_repo::count_release_requests(db, status.as_deref()).await?;
     let rows = training_release_requests_repo::list_release_requests(
         db,
+        status.as_deref(),
         pagination.page_size,
         pagination.offset,
     )
@@ -2142,19 +2170,20 @@ pub async fn list_training_appointments(
         _ => "asc",
     };
 
-    let total = training_appointments_repo::count_appointments(
-        db,
-        query.trainer_id.as_deref(),
-        query.student_id.as_deref(),
-        query.user_id.as_deref(),
-    )
-    .await?;
+    let filter = training_appointments_repo::AppointmentListFilter {
+        trainer_id: query.trainer_id.as_deref(),
+        student_id: query.student_id.as_deref(),
+        user_id: query.user_id.as_deref(),
+        upcoming: query.upcoming,
+        double_booking: query.double_booking,
+        as_of: Utc::now(),
+    };
+
+    let total = training_appointments_repo::count_appointments(db, filter).await?;
 
     let items = training_appointments_repo::list_appointments(
         db,
-        query.trainer_id.as_deref(),
-        query.student_id.as_deref(),
-        query.user_id.as_deref(),
+        filter,
         sort_column,
         sort_direction,
         pagination.page_size,
@@ -3758,6 +3787,23 @@ impl TrainingSessionRequestExt for UpdateTrainingSessionRequest {
             .iter()
             .map(|ticket| ticket.lesson_id.clone())
             .collect()
+    }
+}
+
+/// Upper-cases an optional enum-valued query filter and rejects anything outside `allowed`, so
+/// an unknown value is a `400` rather than a silently empty page.
+fn normalize_enum_filter(
+    value: Option<&str>,
+    allowed: &[&str],
+) -> Result<Option<String>, ApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let normalized = value.trim().to_ascii_uppercase();
+    if allowed.contains(&normalized.as_str()) {
+        Ok(Some(normalized))
+    } else {
+        Err(ApiError::BadRequest)
     }
 }
 

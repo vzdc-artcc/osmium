@@ -87,24 +87,42 @@ impl AssignmentRequestRow {
     }
 }
 
-pub async fn count_assignment_requests(pool: &PgPool) -> Result<i64, ApiError> {
-    sqlx::query_scalar::<_, i64>(
-        "select count(*)::bigint from training.training_assignment_requests",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
+/// Shared by the count and list queries so `total` always matches the filtered items.
+/// `$1` is the optional controller status, compared against the same coalesced value the
+/// response reports as `student_controller_status` (a student with no membership row is `NONE`).
+const ASSIGNMENT_REQUEST_FILTER: &str =
+    "where ($1::text is null or coalesce(sm.controller_status, 'NONE') = $1)";
+
+pub async fn count_assignment_requests(
+    pool: &PgPool,
+    student_controller_status: Option<&str>,
+) -> Result<i64, ApiError> {
+    let sql = format!(
+        r#"
+        select count(*)::bigint
+        from training.training_assignment_requests r
+        left join org.memberships sm on sm.user_id = r.student_id
+        {ASSIGNMENT_REQUEST_FILTER}
+        "#
+    );
+    sqlx::query_scalar::<_, i64>(&sql)
+        .bind(student_controller_status)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)
 }
 
 pub async fn list_assignment_requests(
     pool: &PgPool,
+    student_controller_status: Option<&str>,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<TrainingAssignmentRequest>, ApiError> {
     let sql = format!(
-        "{ASSIGNMENT_REQUEST_SELECT} order by r.submitted_at desc, r.id asc limit $1 offset $2"
+        "{ASSIGNMENT_REQUEST_SELECT} {ASSIGNMENT_REQUEST_FILTER} order by r.submitted_at desc, r.id asc limit $2 offset $3"
     );
     sqlx::query_as::<_, AssignmentRequestRow>(&sql)
+        .bind(student_controller_status)
         .bind(page_size)
         .bind(offset)
         .fetch_all(pool)

@@ -50,11 +50,21 @@ const OTS_SELECT: &str = r#"
     left join identity.users i on i.id = o.assigned_instructor_id
 "#;
 
-pub async fn count_ots_recommendations<'e, E>(executor: E) -> Result<i64, ApiError>
+/// Shared by the count and list queries so `total` always matches the filtered items.
+/// `$1` is the optional `assigned` filter.
+const OTS_FILTER: &str =
+    "where ($1::boolean is null or (o.assigned_instructor_id is not null) = $1)";
+
+pub async fn count_ots_recommendations<'e, E>(
+    executor: E,
+    assigned: Option<bool>,
+) -> Result<i64, ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {
-    sqlx::query_scalar::<_, i64>("select count(*)::bigint from training.ots_recommendations")
+    let sql = format!("select count(*)::bigint from training.ots_recommendations o {OTS_FILTER}");
+    sqlx::query_scalar::<_, i64>(&sql)
+        .bind(assigned)
         .fetch_one(executor)
         .await
         .map_err(|_| ApiError::Internal)
@@ -62,14 +72,18 @@ where
 
 pub async fn list_ots_recommendations<'e, E>(
     executor: E,
+    assigned: Option<bool>,
     page_size: i64,
     offset: i64,
 ) -> Result<Vec<OtsRecommendationSummary>, ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {
-    let sql = format!("{OTS_SELECT} order by o.created_at desc, o.id asc limit $1 offset $2");
+    let sql = format!(
+        "{OTS_SELECT} {OTS_FILTER} order by o.created_at desc, o.id asc limit $2 offset $3"
+    );
     sqlx::query_as::<_, OtsRecommendationRow>(&sql)
+        .bind(assigned)
         .bind(page_size)
         .bind(offset)
         .fetch_all(executor)
