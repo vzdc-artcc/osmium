@@ -256,8 +256,7 @@ pub async fn update_publication_category(
     ),
     responses(
         (status = 204, description = "Publication category and its publications deleted"),
-        (status = 401, description = "Not authorized"),
-        (status = 403, description = "The category has publications and the caller lacks publications.items.delete"),
+        (status = 401, description = "Not authorized, including a non-empty category when the caller lacks publications.items.delete"),
         (status = 404, description = "Publication category not found")
     )
 )]
