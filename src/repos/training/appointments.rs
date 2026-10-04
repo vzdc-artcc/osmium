@@ -29,27 +29,47 @@ pub struct AppointmentDetailRow {
     pub trainer_name: String,
 }
 
-pub async fn count_appointments(
-    pool: &PgPool,
-    trainer_id: Option<&str>,
-    student_id: Option<&str>,
-    user_id: Option<&str>,
-) -> Result<i64, ApiError> {
-    sqlx::query_scalar::<_, i64>(
-        r#"
-        select count(*)::bigint
-        from training.training_appointments ta
+/// Optional filters for the appointment list. The count and list queries bind these in the
+/// same order through [`APPOINTMENT_FILTER`], so `total` always matches the filtered items.
+#[derive(Debug, Clone, Copy)]
+pub struct AppointmentListFilter<'a> {
+    pub trainer_id: Option<&'a str>,
+    pub student_id: Option<&'a str>,
+    pub user_id: Option<&'a str>,
+    pub upcoming: Option<bool>,
+    pub double_booking: Option<bool>,
+    pub as_of: DateTime<Utc>,
+}
+
+/// Binds `$1..$6` from [`AppointmentListFilter`]. `upcoming` compares against one `as_of`
+/// instant bound into both queries rather than `now()`, which each statement would evaluate
+/// separately and could let `total` and `items` disagree about an appointment starting between
+/// them.
+const APPOINTMENT_FILTER: &str = r#"
         where ($1::text is null or ta.trainer_id = $1)
           and ($2::text is null or ta.student_id = $2)
           and ($3::text is null or (ta.trainer_id = $3 or ta.student_id = $3))
-        "#,
-    )
-    .bind(trainer_id)
-    .bind(student_id)
-    .bind(user_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|_| ApiError::Internal)
+          and ($4::boolean is null or (ta.start >= $6) = $4)
+          and ($5::boolean is null or ta.double_booking = $5)
+"#;
+
+pub async fn count_appointments(
+    pool: &PgPool,
+    filter: AppointmentListFilter<'_>,
+) -> Result<i64, ApiError> {
+    let sql = format!(
+        "select count(*)::bigint from training.training_appointments ta {APPOINTMENT_FILTER}"
+    );
+    sqlx::query_scalar::<_, i64>(&sql)
+        .bind(filter.trainer_id)
+        .bind(filter.student_id)
+        .bind(filter.user_id)
+        .bind(filter.upcoming)
+        .bind(filter.double_booking)
+        .bind(filter.as_of)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| ApiError::Internal)
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -111,12 +131,9 @@ impl AppointmentListRow {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn list_appointments(
     pool: &PgPool,
-    trainer_id: Option<&str>,
-    student_id: Option<&str>,
-    user_id: Option<&str>,
+    filter: AppointmentListFilter<'_>,
     sort_column: &str,
     sort_direction: &str,
     page_size: i64,
@@ -189,20 +206,21 @@ pub async fn list_appointments(
         join identity.users tu on tu.id = ta.trainer_id
         left join training.training_appointment_lessons tal on tal.appointment_id = ta.id
         left join training.lessons l on l.id = tal.lesson_id
-        where ($1::text is null or ta.trainer_id = $1)
-          and ($2::text is null or ta.student_id = $2)
-          and ($3::text is null or (ta.trainer_id = $3 or ta.student_id = $3))
+        {APPOINTMENT_FILTER}
         group by
             ta.id, su.cid, su.full_name, tu.cid, tu.full_name
         order by {sort_column} {sort_direction}, ta.id asc
-        limit $4 offset $5
+        limit $7 offset $8
         "#
     );
 
     sqlx::query_as::<_, AppointmentListRow>(&sql)
-        .bind(trainer_id)
-        .bind(student_id)
-        .bind(user_id)
+        .bind(filter.trainer_id)
+        .bind(filter.student_id)
+        .bind(filter.user_id)
+        .bind(filter.upcoming)
+        .bind(filter.double_booking)
+        .bind(filter.as_of)
         .bind(page_size)
         .bind(offset)
         .fetch_all(pool)
