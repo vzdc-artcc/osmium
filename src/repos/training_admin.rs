@@ -18,6 +18,8 @@ struct ProgressionAssignmentRow {
     assigned_by_actor_id: Option<String>,
     cid: Option<i64>,
     display_name: Option<String>,
+    first_name: Option<String>,
+    last_name: Option<String>,
     progression_name: Option<String>,
 }
 
@@ -30,6 +32,8 @@ impl From<ProgressionAssignmentRow> for ProgressionAssignmentItem {
             assigned_by_actor_id: row.assigned_by_actor_id,
             cid: row.cid,
             display_name: row.display_name,
+            first_name: row.first_name,
+            last_name: row.last_name,
             progression_name: row.progression_name,
         }
     }
@@ -423,6 +427,8 @@ pub async fn list_progression_assignments(
             up.assigned_by_actor_id,
             u.cid,
             u.display_name,
+            u.first_name,
+            u.last_name,
             tp.name as progression_name
         from training.user_progressions up
         join identity.users u on u.id = up.user_id
@@ -472,6 +478,8 @@ pub async fn fetch_progression_assignment(
             up.assigned_by_actor_id,
             u.cid,
             u.display_name,
+            u.first_name,
+            u.last_name,
             tp.name as progression_name
         from training.user_progressions up
         join identity.users u on u.id = up.user_id

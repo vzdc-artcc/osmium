@@ -60,7 +60,11 @@ pub struct ProgressionAssignmentItem {
     pub assigned_at: DateTime<Utc>,
     pub assigned_by_actor_id: Option<String>,
     pub cid: Option<i64>,
+    /// The name the user chose to display, which can be a preferred name.
     pub display_name: Option<String>,
+    /// The student's legal name, which staff lists show.
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
     pub progression_name: Option<String>,
 }
 
