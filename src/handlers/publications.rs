@@ -9,7 +9,9 @@ use uuid::Uuid;
 
 use crate::{
     auth::{
+        acl::{PermissionAction, PermissionPath},
         context::{CurrentServiceAccount, CurrentUser},
+        middleware::ensure_permission,
         permissions::{
             PublicationsCategoriesCreate, PublicationsCategoriesDelete, PublicationsCategoriesRead,
             PublicationsCategoriesUpdate, PublicationsItemsCreate, PublicationsItemsDelete,
@@ -253,8 +255,9 @@ pub async fn update_publication_category(
         ("category_id" = String, Path, description = "Category ID")
     ),
     responses(
-        (status = 204, description = "Publication category deleted"),
+        (status = 204, description = "Publication category and its publications deleted"),
         (status = 401, description = "Not authorized"),
+        (status = 403, description = "The category has publications and the caller lacks publications.items.delete"),
         (status = 404, description = "Publication category not found")
     )
 )]
@@ -272,6 +275,30 @@ pub async fn delete_publication_category(
     let before = publications_repo::fetch_publication_category_for_update(&mut *tx, &category_id)
         .await?
         .ok_or(ApiError::NotFound)?;
+
+    // Deleting a category deletes its files, so a non-empty category also needs the
+    // permission to delete files; otherwise this would be a side door around it.
+    let publication_ids =
+        publications_repo::lock_publication_ids_in_category(&mut *tx, &category_id).await?;
+    if !publication_ids.is_empty() {
+        ensure_permission(
+            &state,
+            current_user.as_ref(),
+            current_service_account.as_ref(),
+            PermissionPath::from_segments(["publications", "items"], PermissionAction::Delete),
+        )
+        .await?;
+    }
+    for publication_id in &publication_ids {
+        delete_publication_in_tx(
+            &mut tx,
+            current_user.as_ref(),
+            current_service_account.as_ref(),
+            publication_id,
+            &headers,
+        )
+        .await?;
+    }
 
     let rows_affected = publications_repo::delete_category(&mut tx, &category_id).await?;
     if rows_affected == 0 {
@@ -586,43 +613,63 @@ pub async fn delete_publication(
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    let before = publications_repo::fetch_publication_in_tx(&mut *tx, &publication_id)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    let before = Publication::from(before);
-
-    let publication =
-        publications_repo::fetch_publication_record_for_update(&mut *tx, &publication_id)
-            .await?
-            .ok_or(ApiError::NotFound)?;
-
-    let rows_affected = publications_repo::delete_publication_row(&mut tx, &publication_id).await?;
-    if rows_affected == 0 {
-        return Err(ApiError::BadRequest);
-    }
-
-    publications_repo::detach_file_from_publication(
-        &mut *tx,
-        &publication.file_id,
-        &publication.id,
-    )
-    .await?;
-
-    record_audit_entry(
+    delete_publication_in_tx(
         &mut tx,
         current_user.as_ref(),
         current_service_account.as_ref(),
-        AuditAction::Delete,
-        "PUBLICATION",
-        &before.id,
-        Some(&before),
-        None::<&Publication>,
+        &publication_id,
         &headers,
     )
     .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Deletes one publication inside the caller's transaction: removes the row,
+/// detaches its file asset, and writes the DELETE audit row. Shared by the single
+/// delete and the category delete, so both remove a file the same way.
+async fn delete_publication_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    current_user: Option<&CurrentUser>,
+    current_service_account: Option<&CurrentServiceAccount>,
+    publication_id: &str,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
+    let before = publications_repo::fetch_publication_in_tx(&mut **tx, publication_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let before = Publication::from(before);
+
+    let publication =
+        publications_repo::fetch_publication_record_for_update(&mut **tx, publication_id)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+
+    let rows_affected = publications_repo::delete_publication_row(tx, publication_id).await?;
+    if rows_affected == 0 {
+        return Err(ApiError::BadRequest);
+    }
+
+    publications_repo::detach_file_from_publication(
+        &mut **tx,
+        &publication.file_id,
+        &publication.id,
+    )
+    .await?;
+
+    record_audit_entry(
+        tx,
+        current_user,
+        current_service_account,
+        AuditAction::Delete,
+        "PUBLICATION",
+        &before.id,
+        Some(&before),
+        None::<&Publication>,
+        headers,
+    )
+    .await
 }
 
 fn ensure_file_can_link(
