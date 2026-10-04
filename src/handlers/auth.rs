@@ -553,8 +553,8 @@ pub async fn start_impersonation(
     }
 
     // Provision the target with the baseline self-service permissions every
-    // controller is entitled to. These are otherwise only materialized on a user's
-    // first login, so a target who has never logged in (dev-seeded, migrated) would
+    // controller is entitled to. These are otherwise only materialized when a user
+    // is seeded at login, so a target who has never logged in (dev-seeded) would
     // resolve with *fewer* permissions than they should — meaning impersonation
     // couldn't perform basic self-service (e.g. requesting an event position).
     // Additive and revoke-preserving: impersonation reflects exactly the target's
@@ -795,11 +795,12 @@ fn validate_timezone(value: &str) -> Result<String, ApiError> {
 }
 
 /// The self-service permissions every non-`SERVER_ADMIN` user is entitled to.
-/// Seeded into `access.user_permissions` on a user's first login (below), and
+/// Seeded into `access.user_permissions` once per account (at login, below, or by
+/// migration 0078 for accounts that existed before it, which lists them too), and
 /// provisioned onto an impersonation target so acting-as-them reflects their real
 /// permissions even if they never logged in. Single source of truth so the login
 /// baseline and the impersonation baseline can never drift apart.
-pub(crate) const BASELINE_SELF_SERVICE_PERMISSIONS: &[&str] = &[
+pub const BASELINE_SELF_SERVICE_PERMISSIONS: &[&str] = &[
     "auth.profile.read",
     "auth.profile.update",
     "auth.teamspeak_uids.read",
@@ -816,9 +817,15 @@ pub(crate) const BASELINE_SELF_SERVICE_PERMISSIONS: &[&str] = &[
     "events.positions.self.request",
 ];
 
-/// Seeds baseline permissions once (only for a newly-created user) and keeps the
-/// `OSMIUM_SERVER_ADMIN_CID` role sync idempotent on every login. Public for the
-/// same integration-test reason as [`bootstrap_login_user`].
+/// Seeds an account's baseline self-service permissions exactly once, and keeps
+/// the `OSMIUM_SERVER_ADMIN_CID` role sync idempotent on every login. A new user
+/// or a demoted former server admin is reset to the baseline; any other account
+/// that has never been seeded (one the legacy migrator created, most commonly) is
+/// topped up additively, so an explicit deny row or an earlier admin grant
+/// survives. Either way the account is then marked seeded
+/// (`identity.users.baseline_seeded_at`), and later logins leave its direct
+/// permissions alone, so a baseline permission an admin removes stays removed.
+/// Public for the same integration-test reason as [`bootstrap_login_user`].
 pub async fn ensure_user_login_access(
     pool: &sqlx::PgPool,
     user_id: &str,
@@ -859,17 +866,18 @@ pub async fn ensure_user_login_access(
         // "keep SERVER_ADMIN, retry next login" instead.
         let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
 
+        // Read (and lock) the seeded marker before touching roles or permissions,
+        // so this takes the user row first, in the same order as an editor save.
+        let already_seeded = access_repo::baseline_seeded(&mut tx, user_id).await?;
+
         // No-op (zero rows) for users who never held the role.
         let demoted = access_repo::revoke_server_admin(&mut tx, user_id).await?;
 
-        // Seed baseline self-service permissions when the identity.users row is
-        // first created (was_new_user), or when we just demoted a former server
-        // admin — whose only access was the now-removed role — so the account is
-        // left as an ordinary user rather than locked out with no permissions.
-        // Any other returning user leaves access.user_permissions untouched, so
-        // admin-granted permissions (via the staff permissions editor) survive
-        // across logins instead of being wiped back to the baseline each time.
-        if was_new_user || demoted {
+        // Reset to exactly the baseline when the identity.users row is first
+        // created, or when we just demoted a former server admin — whose only
+        // access was the now-removed role — so the account is left as an
+        // ordinary user rather than locked out with no permissions.
+        let seeded = if was_new_user || demoted {
             access_repo::replace_user_permissions(
                 &mut tx,
                 user_id,
@@ -879,6 +887,22 @@ pub async fn ensure_user_login_access(
                     .collect::<Vec<_>>(),
             )
             .await?;
+            true
+        } else if !already_seeded {
+            // An existing account that was never seeded: fill in what is missing
+            // without disturbing any row an admin already set.
+            access_repo::grant_missing_permissions(
+                &mut *tx,
+                user_id,
+                BASELINE_SELF_SERVICE_PERMISSIONS,
+            )
+            .await?;
+            true
+        } else {
+            false
+        };
+        if seeded {
+            access_repo::mark_baseline_seeded(&mut tx, user_id).await?;
         }
 
         tx.commit().await.map_err(|_| ApiError::Internal)?;
@@ -889,8 +913,8 @@ pub async fn ensure_user_login_access(
                 cid,
                 "revoked server admin role on login (cid no longer configured); reset to baseline access"
             );
-        } else if was_new_user {
-            tracing::info!(user_id, cid, "baseline login access seeded for new user");
+        } else if seeded {
+            tracing::info!(user_id, cid, "baseline login access seeded");
         }
 
         Ok(())
