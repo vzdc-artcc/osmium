@@ -193,6 +193,13 @@ roster metadata and grant nothing.
 - `RequirePermission<P>` is the **coarse** check only. Data-dependent rules
   ("only the owner or an approver may act on this row") still need an explicit
   in-handler ownership check.
+- An ownership check must fail closed. If deciding who owns the record needs a
+  lookup (a repo read, or an upstream API such as VATSIM's), only a definite
+  "does not exist" may count as no owner. A timeout, a non-2xx response, or a
+  body that won't parse must refuse the request, never fall back to the data
+  the caller sent. A lookup helper that folds errors into `None` can't be used
+  for this unchanged. Test the check with the lookup failing as well as
+  succeeding.
 - Add new permissions to `src/auth/permissions.rs` with the `permission!` macro
   and seed them in a migration. The macro keeps the `(segments, action)` pair as
   the single source of truth.
