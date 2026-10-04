@@ -517,6 +517,20 @@ pub async fn upsert_assignment_request(
     tx: &mut Transaction<'_, Postgres>,
     student_id: &str,
 ) -> Result<(), ApiError> {
+    // A student may hold one pending request, so clear any other before the seed
+    // resets its own to PENDING.
+    sqlx::query(
+        "delete from training.training_assignment_requests
+         where student_id = $1 and status = 'PENDING' and id <> 'seed-training-request-1'",
+    )
+    .bind(student_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "dev seed cleanup failed");
+        ApiError::Internal
+    })?;
+
     sqlx::query(
         r#"
         insert into training.training_assignment_requests (id, student_id, submitted_at, status)
