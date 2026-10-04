@@ -144,6 +144,23 @@ where
     .map_err(super::map_constraint_error)
 }
 
+/// Ids of the category's publications, locked for the rest of the transaction.
+pub async fn lock_publication_ids_in_category<'e, E>(
+    executor: E,
+    category_id: &str,
+) -> Result<Vec<String>, ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query_scalar::<_, String>(
+        "select id from web.publications where category_id = $1 order by id for update",
+    )
+    .bind(category_id)
+    .fetch_all(executor)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn delete_category(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     category_id: &str,

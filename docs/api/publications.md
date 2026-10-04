@@ -44,3 +44,4 @@ Public publication reads return only rows where:
 - admin publication and category routes require `web.update`
 - publication status is constrained to `draft`, `published`, and `archived`
 - category list routes remain intentionally unpaginated because they are bounded configuration/catalog sets
+- deleting a category deletes its publications with it (each row removed and its file asset detached, with a `PUBLICATION` audit row each); a non-empty category therefore also requires `publications.items.delete`; without it the request is refused like any missing permission and nothing is deleted

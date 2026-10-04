@@ -132,7 +132,7 @@ Permission-gated routes:
 - `GET /api/v1/admin/publications/categories` -> `publications.categories.read`
 - `POST /api/v1/admin/publications/categories` -> `publications.categories.create`
 - `PATCH /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.update`
-- `DELETE /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.delete`
+- `DELETE /api/v1/admin/publications/categories/{category_id}` -> `publications.categories.delete`, plus `publications.items.delete` when the category still has publications (they are deleted with it)
 - `GET /api/v1/users/{cid}/feedback` -> `feedback.items_self.read` for self, `users.directory_private.read` for other users
 - `GET /api/v1/users/{cid}/solo-certifications` -> self `auth.profile.read`, otherwise `users.directory.read`
 - `GET /api/v1/users/{cid}/certifications` -> self `auth.profile.read`, otherwise `users.directory.read`
