@@ -402,8 +402,8 @@ async fn list_sessions_sorts_by_end_keyword() {
 }
 
 /// A session records the performance indicator as assessed at the time:
-/// renaming or deleting the template's categories, criteria, or the template
-/// itself must not change or remove what a past session shows.
+/// renaming the template's categories and criteria, or deleting them and the
+/// template, must not change or remove what a past session shows.
 #[tokio::test(flavor = "current_thread")]
 async fn session_performance_indicator_survives_template_edits_and_deletes() {
     let _env_lock = lock_env();
