@@ -259,6 +259,12 @@ One Postgres database, per-domain schemas: `identity`, `access`, `org`,
 10. Collection routes use the shared pagination contract (`PaginationQuery` →
     `resolve(default, max)` → `PaginationMeta`) unless the route is
     intentionally bounded and that choice is documented.
+    Adding pagination to a route that used to return everything changes what
+    callers get by default: one that sends no page parameters is silently cut
+    to the default page size. Find every caller first (website hooks, the
+    Discord bot), and state a deploy order that is safe at *every*
+    intermediate state. The client usually goes first. Prove the order by
+    running the client that's deployed today against the new osmium.
 
 **A route is not complete if its docs were not updated in the same change.**
 
