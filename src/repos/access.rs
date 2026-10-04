@@ -301,13 +301,14 @@ where
 
 /// Whether the account has had its baseline self-service permissions seeded.
 /// Seeding happens once; after that, login never touches the account's direct
-/// permissions, so a permission the editor removes stays removed.
+/// permissions, so a permission the editor removes stays removed. Locks the
+/// user row so a login's seeding and an editor save can't interleave.
 pub async fn baseline_seeded(
     tx: &mut Transaction<'_, Postgres>,
     user_id: &str,
 ) -> Result<bool, ApiError> {
     sqlx::query_scalar::<_, bool>(
-        "select baseline_seeded_at is not null from identity.users where id = $1",
+        "select baseline_seeded_at is not null from identity.users where id = $1 for update",
     )
     .bind(user_id)
     .fetch_one(&mut **tx)

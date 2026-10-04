@@ -628,3 +628,75 @@ async fn a_never_seeded_account_is_refused_profile_and_own_booking_until_seeded(
 
     app.cleanup().await;
 }
+
+/// An editor save on an account that has never been seeded (a migrator import
+/// after 0078) seeds it first and applies only the admin's change on top, so a
+/// revoke made before the account's first login survives that login, and the
+/// rest of the baseline is still granted.
+#[tokio::test(flavor = "current_thread")]
+async fn an_editor_revoke_before_first_login_survives_that_login() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+    let baseline = osmium::handlers::auth::BASELINE_SELF_SERVICE_PERMISSIONS;
+    let mut actor_permissions = baseline.to_vec();
+    actor_permissions.push("access.users.update");
+    let admin = app
+        .create_user(10000314, "Access Admin", &actor_permissions)
+        .await;
+
+    // Imported after 0078: unmarked, partially provisioned.
+    let cid = 10000315i64;
+    let user_id: String = sqlx::query_scalar(
+        "insert into identity.users (id, cid, email, full_name, display_name)
+         values (gen_random_uuid()::text, $1, 'late@example.invalid', 'Late Import', 'Late Import')
+         returning id",
+    )
+    .bind(cid)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "insert into access.user_permissions (user_id, permission_name, granted)
+         values ($1, 'events.positions.self.request', true)",
+    )
+    .bind(&user_id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    // The admin sees only that one grant and swaps it for profile read.
+    let response = app
+        .json_request(
+            "POST",
+            &format!("/api/v1/admin/users/{cid}/access"),
+            Some(&admin.session_token),
+            Some(serde_json::json!({
+                "permissions": permission_tree(&["auth.profile.read"]),
+                "reason": "no event signups"
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+
+    login_as(&app, cid).await;
+
+    let granted: Vec<String> = sqlx::query_scalar(
+        "select permission_name from access.user_permissions where user_id = $1 and granted",
+    )
+    .bind(&user_id)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    assert!(
+        !granted.contains(&"events.positions.self.request".to_string()),
+        "the revoke made before first login survives it"
+    );
+    assert!(
+        granted.contains(&"feedback.items.create".to_string()),
+        "the rest of the baseline is still granted"
+    );
+
+    app.cleanup().await;
+}

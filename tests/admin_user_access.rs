@@ -202,6 +202,13 @@ async fn server_admin_actor_is_unrestricted() {
     let target = app
         .create_user(10000409, "Access Target", &["training.lessons.read"])
         .await;
+    // An existing, already-seeded account: the editor's save replaces its direct
+    // permissions exactly (an unseeded one would be seeded first).
+    sqlx::query("update identity.users set baseline_seeded_at = now() where id = $1")
+        .bind(&target.id)
+        .execute(&app.pool)
+        .await
+        .expect("mark target seeded");
 
     let response = app
         .json_request(

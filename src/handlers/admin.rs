@@ -1298,7 +1298,7 @@ pub async fn update_user_access(
     let existing_direct_names =
         access_repo::fetch_user_direct_permission_names(pool, &target_user_id).await?;
     let existing_direct_permissions =
-        access_repo::permission_names_to_permissions(existing_direct_names)?;
+        access_repo::permission_names_to_permissions(existing_direct_names.clone())?;
 
     validate_permission_changes_are_within_actor_scope(
         &state,
@@ -1324,7 +1324,28 @@ pub async fn update_user_access(
     }
 
     let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-    access_repo::replace_user_permissions(&mut tx, &target_user_id, &parsed_permissions).await?;
+    // An account not yet seeded with the baseline would otherwise get it at its
+    // next login, undoing this save. Seed it now and apply only what the admin
+    // changed on top, so both the baseline and their edit stand.
+    let new_permissions = if access_repo::baseline_seeded(&mut tx, &target_user_id).await? {
+        parsed_permissions
+    } else {
+        let existing: BTreeSet<String> = existing_direct_names.into_iter().collect();
+        let requested: BTreeSet<String> = parsed_permissions.into_iter().collect();
+        let mut seeded: BTreeSet<String> = existing.clone();
+        seeded.extend(
+            crate::handlers::auth::BASELINE_SELF_SERVICE_PERMISSIONS
+                .iter()
+                .map(|permission| permission.to_string()),
+        );
+        seeded.extend(requested.difference(&existing).cloned());
+        for removed in existing.difference(&requested) {
+            seeded.remove(removed);
+        }
+        access_repo::mark_baseline_seeded(&mut tx, &target_user_id).await?;
+        seeded.into_iter().collect()
+    };
+    access_repo::replace_user_permissions(&mut tx, &target_user_id, &new_permissions).await?;
     if let Some(role_names) = payload.role_names.as_ref() {
         for role_name in access_repo::ASSIGNABLE_USER_ROLES {
             let held = role_names.iter().any(|r| r == role_name);
