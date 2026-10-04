@@ -400,3 +400,183 @@ async fn list_sessions_sorts_by_end_keyword() {
 
     app.cleanup().await;
 }
+
+/// A session records the performance indicator as assessed at the time:
+/// renaming or deleting the template's categories, criteria, or the template
+/// itself must not change or remove what a past session shows.
+#[tokio::test(flavor = "current_thread")]
+async fn session_performance_indicator_survives_template_edits_and_deletes() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let staff = app
+        .create_user(
+            10000098,
+            "PI Staff",
+            &[
+                "training.sessions.create",
+                "training.sessions.read",
+                "training.lessons.read",
+                "training.lessons.create",
+                "training.lessons.update",
+                "users.directory.read",
+            ],
+        )
+        .await;
+    let student = app.create_user(10000099, "PI Student", &[]).await;
+    let admin = "/api/v1/admin/training/performance-indicators";
+
+    let response = app
+        .json_request(
+            "POST",
+            &format!("{admin}/templates"),
+            Some(&staff.session_token),
+            Some(json!({"name": "Ground PI"})),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let template_id = json_body::<Value>(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = app
+        .json_request(
+            "POST",
+            &format!("{admin}/categories"),
+            Some(&staff.session_token),
+            Some(json!({"template_id": template_id, "name": "Basics", "sort_order": 1})),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let category_id = json_body::<Value>(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = app
+        .json_request(
+            "POST",
+            &format!("{admin}/criteria"),
+            Some(&staff.session_token),
+            Some(json!({"category_id": category_id, "name": "Scan", "sort_order": 1})),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let criteria_id = json_body::<Value>(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/lessons",
+            Some(&staff.session_token),
+            Some(json!({
+                "identifier": "GND1",
+                "location": 2,
+                "name": "Ground Basics",
+                "description": "desc",
+                "position": "GND",
+                "facility": "DCA",
+                "duration": 60,
+                "trainee_preparation": null,
+                "instructor_only": false,
+                "notify_instructor_on_pass": false,
+                "release_request_on_pass": false,
+                "performance_indicator_template_id": template_id
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let lesson_id = json_body::<Value>(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/sessions",
+            Some(&staff.session_token),
+            Some(json!({
+                "student_id": student.id,
+                "start": "2026-02-01T12:00:00Z",
+                "end": "2026-02-01T13:00:00Z",
+                "additional_comments": null,
+                "trainer_comments": null,
+                "enable_markdown": false,
+                "tickets": [{"lesson_id": lesson_id, "passed": true, "scores": []}],
+                "performance_indicator": {
+                    "categories": [{
+                        "name": "Basics",
+                        "order": 1,
+                        "criteria": [{"name": "Scan", "order": 1, "marker": "OBSERVED", "comments": null}]
+                    }]
+                },
+                "additional_trainers": []
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let session_id = json_body::<Value>(response).await["session"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Rename, then delete, every part of the template.
+    for (path, body) in [
+        (
+            format!("{admin}/categories/{category_id}"),
+            json!({"name": "Renamed category"}),
+        ),
+        (
+            format!("{admin}/criteria/{criteria_id}"),
+            json!({"name": "Renamed criterion"}),
+        ),
+    ] {
+        let response = app
+            .json_request("PATCH", &path, Some(&staff.session_token), Some(body))
+            .await;
+        assert_status(&response, StatusCode::OK);
+    }
+    for path in [
+        format!("{admin}/criteria/{criteria_id}"),
+        format!("{admin}/categories/{category_id}"),
+        format!("{admin}/templates/{template_id}"),
+    ] {
+        let response = app
+            .json_request("DELETE", &path, Some(&staff.session_token), None)
+            .await;
+        assert!(
+            response.status().is_success(),
+            "DELETE {path} returned {}",
+            response.status()
+        );
+    }
+
+    let response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/training/sessions/{session_id}"),
+            Some(&staff.session_token),
+            None,
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+    let body: Value = json_body(response).await;
+    let session = if body["session"].is_object() {
+        &body["session"]
+    } else {
+        &body
+    };
+    let category = &session["performance_indicator"]["categories"][0];
+    assert_eq!(category["name"], "Basics", "session indicator: {session}");
+    assert_eq!(category["criteria"][0]["name"], "Scan");
+    assert_eq!(category["criteria"][0]["marker"], "OBSERVED");
+
+    app.cleanup().await;
+}
