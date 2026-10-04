@@ -866,6 +866,10 @@ pub async fn ensure_user_login_access(
         // "keep SERVER_ADMIN, retry next login" instead.
         let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
 
+        // Read (and lock) the seeded marker before touching roles or permissions,
+        // so this takes the user row first, in the same order as an editor save.
+        let already_seeded = access_repo::baseline_seeded(&mut tx, user_id).await?;
+
         // No-op (zero rows) for users who never held the role.
         let demoted = access_repo::revoke_server_admin(&mut tx, user_id).await?;
 
@@ -884,7 +888,7 @@ pub async fn ensure_user_login_access(
             )
             .await?;
             true
-        } else if !access_repo::baseline_seeded(&mut tx, user_id).await? {
+        } else if !already_seeded {
             // An existing account that was never seeded: fill in what is missing
             // without disturbing any row an admin already set.
             access_repo::grant_missing_permissions(
