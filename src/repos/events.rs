@@ -347,9 +347,29 @@ pub async fn list_event_positions_all(
     .map_err(|_| ApiError::Internal)
 }
 
+pub async fn count_user_published_event_positions(
+    pool: &PgPool,
+    cid: i64,
+) -> Result<i64, ApiError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)::bigint
+        from events.event_positions ep
+        join identity.users u on u.id = ep.user_id
+        where u.cid = $1 and ep.published = true
+        "#,
+    )
+    .bind(cid)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| ApiError::Internal)
+}
+
 pub async fn fetch_user_published_event_positions(
     pool: &PgPool,
     cid: i64,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<UserEventPositionItem>, ApiError> {
     sqlx::query_as::<_, UserEventPositionItem>(
         r#"
@@ -367,9 +387,12 @@ pub async fn fetch_user_published_event_positions(
         join identity.users u on u.id = ep.user_id
         where u.cid = $1 and ep.published = true
         order by e.starts_at desc, ep.id asc
+        limit $2 offset $3
         "#,
     )
     .bind(cid)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await
     .map_err(|_| ApiError::Internal)
