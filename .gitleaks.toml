@@ -1,0 +1,18 @@
+# Secret scanning config, shared by `just secrets-scan`, the pre-commit hook, and CI so all three
+# agree. Docs: https://github.com/gitleaks/gitleaks
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths that never hold real secrets, and template spill-over"
+paths = [
+  '''(^|/)target/''',
+  '''(^|/)Cargo\.lock$''',
+  '''(^|/)\.gitleaks\.toml$''',
+]
+# generic-api-key reads past an empty `NAME=` in an env template and reports the next line's
+# `OTHER_NAME=VALUE` as the secret (.env.example's empty VATUSA_API_KEY). A captured value that is
+# itself an upper-case env assignment is that spill-over, never a credential.
+regexes = [
+  '''^[A-Z][A-Z0-9_]*=[A-Za-z0-9_.:/-]*$''',
+]

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Refuses a commit that adds a secret or unformatted Rust. Installed by `just install-hooks`.
+# A false positive: add `gitleaks:allow` on the line, or the finding's fingerprint to
+# .gitleaksignore with a reason. Never bypass a real finding with --no-verify.
+set -euo pipefail
+just secrets-scan staged
+if git diff --cached --name-only --diff-filter=ACM | grep -q '\.rs$'; then
+    cargo fmt --all -- --check
+fi
