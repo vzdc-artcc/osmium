@@ -8,7 +8,7 @@ If `RUN_MIGRATIONS_ON_STARTUP=true`, the app attempts to apply migrations before
 
 ## Stats Sync
 
-The stats worker polls the live, sweatbox1, and sweatbox2 controller feeds, persists ZDC controller sessions and activation spans, and exposes health information through the readiness endpoint.
+The stats worker polls the live vNAS controller feed only (sweatbox time is training, not controlling time), persists sessions and activation spans for positions vNAS assigns to ZDC (`artccId`, so a ZDC controller working another ARTCC is not counted), skips ATIS connections, resolves tower-cab (`Atct`) positions to delivery/ground/tower by their default callsign, and exposes health information through the readiness endpoint.
 
 Important fields:
 
@@ -23,7 +23,7 @@ Important fields:
 
 ## Staleness
 
-Readiness uses `STATS_SYNC_STALE_SECS` against the `live` feed only to decide whether job health is stale enough to mark the app as degraded. Sweatbox health is reported but does not fail readiness by itself.
+Readiness uses `STATS_SYNC_STALE_SECS` against the `live` feed to decide whether job health is stale enough to mark the app as degraded.
 
 ## Roster Sync
 
