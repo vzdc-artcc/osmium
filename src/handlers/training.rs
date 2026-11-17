@@ -1868,7 +1868,7 @@ pub async fn create_release_request(
     request_body = DecideTrainerReleaseRequestRequest,
     responses(
         (status = 200, description = "Trainer release request updated", body = TrainerReleaseRequest),
-        (status = 400, description = "Invalid request"),
+        (status = 400, description = "Invalid status, or the request is not PENDING"),
         (status = 401, description = "Not authorized"),
         (status = 404, description = "Release request not found")
     )
@@ -1897,7 +1897,9 @@ pub async fn decide_release_request(
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    training_release_requests_repo::decide_release_request_row(
+    // Only a PENDING request can be decided. Re-deciding an approved one would delete
+    // whatever assignment the student holds now, which may postdate the approval.
+    let decided = training_release_requests_repo::decide_release_request_row(
         &mut *tx,
         &request_id,
         &normalized_status,
@@ -1905,6 +1907,9 @@ pub async fn decide_release_request(
         &user.id,
     )
     .await?;
+    if !decided {
+        return Err(ApiError::BadRequest);
+    }
     let row = training_release_requests_repo::fetch_release_request(&mut *tx, &request_id)
         .await?
         .ok_or(ApiError::NotFound)?;

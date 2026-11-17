@@ -14,6 +14,7 @@ Assignment routes now cover:
 - a `primary_trainer_id` plus a full-replace `other_trainer_ids` list (delete-then-reinsert on every update, same pattern as appointment/session additional trainers)
 - update validates `other_trainer_ids` don't duplicate each other or the primary trainer, and that every referenced trainer id exists
 - approving a trainer-release request (`PATCH .../trainer-release-requests/{id}` with `status: APPROVED`) deletes the assignment for that request's student as part of the same decision — there would be nothing left for the request to have accomplished otherwise; a missing assignment (already removed some other way) is not an error
+- only a `PENDING` trainer-release request can be decided: `PATCH .../trainer-release-requests/{id}` on an `APPROVED` or `DENIED` request returns `400 bad_request` and changes nothing, so it deletes no assignment and writes no audit row
 - `TrainingAssignment` is denormalized for list/detail UIs: `student_cid`/`student_name`/`student_controller_status`, `primary_trainer_cid`/`primary_trainer_name`, and a structured `other_trainers: [{id, cid, name}]` alongside the original `other_trainer_ids` (kept for compatibility/validation use)
 - `TrainingAssignmentRequest` and `TrainerReleaseRequest` are similarly denormalized with `student_cid`/`student_name`/`student_controller_status`
 - `TrainingAssignmentRequest` also carries `interested_trainers: [{id, cid, name}]` (joined from the interested-trainers table) — there's no separate endpoint to list interest, it's always inlined on the request

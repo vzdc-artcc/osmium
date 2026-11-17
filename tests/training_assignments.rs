@@ -434,6 +434,242 @@ async fn approving_release_request_ends_the_assignment() {
     app.cleanup().await;
 }
 
+async fn create_assignment_for(
+    app: &TestApp,
+    staff_token: &str,
+    student_id: &str,
+    trainer_id: &str,
+) -> String {
+    let response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/assignments",
+            Some(staff_token),
+            Some(json!({
+                "student_id": student_id,
+                "primary_trainer_id": trainer_id
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let body: Value = json_body(response).await;
+    body["id"].as_str().unwrap().to_string()
+}
+
+async fn decide_release(
+    app: &TestApp,
+    staff_token: &str,
+    request_id: &str,
+    status: &str,
+) -> axum::response::Response {
+    app.json_request(
+        "PATCH",
+        &format!("/api/v1/training/trainer-release-requests/{request_id}"),
+        Some(staff_token),
+        Some(json!({ "status": status })),
+    )
+    .await
+}
+
+/// `(status, decided_at, decided_by)` as stored, with `decided_at` as text so an
+/// equality check catches any rewrite of the timestamp.
+async fn stored_release_decision(
+    app: &TestApp,
+    request_id: &str,
+) -> (String, Option<String>, Option<String>) {
+    sqlx::query_as(
+        "select status, decided_at::text, decided_by from training.trainer_release_requests where id = $1",
+    )
+    .bind(request_id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap()
+}
+
+async fn release_decide_audit_count(app: &TestApp, request_id: &str) -> i64 {
+    sqlx::query_scalar(
+        "select count(*) from access.audit_logs where resource_type = 'TRAINER_RELEASE_REQUEST' and action = 'DECIDE' and resource_id = $1",
+    )
+    .bind(request_id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap()
+}
+
+async fn assignment_exists(app: &TestApp, assignment_id: &str) -> bool {
+    sqlx::query_scalar("select exists(select 1 from training.training_assignments where id = $1)")
+        .bind(assignment_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn re_approving_a_release_request_is_refused_and_keeps_the_newer_assignment() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let permissions = [
+        "training.assignments.create",
+        "training.release_requests.decide",
+    ];
+    let first_staff = app
+        .create_user(10000091, "Release First Staff", &permissions)
+        .await;
+    let second_staff = app
+        .create_user(10000092, "Release Second Staff", &permissions)
+        .await;
+    let student = app
+        .create_user(
+            10000093,
+            "Release Repeat Student",
+            &["training.release_requests_self.request"],
+        )
+        .await;
+    let trainer = app
+        .create_user(10000094, "Release Repeat Trainer", &[])
+        .await;
+
+    let first_assignment_id =
+        create_assignment_for(&app, &first_staff.session_token, &student.id, &trainer.id).await;
+
+    let create_release_response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/trainer-release-requests",
+            Some(&student.session_token),
+            Some(json!({})),
+        )
+        .await;
+    assert_status(&create_release_response, StatusCode::CREATED);
+    let release_request: Value = json_body(create_release_response).await;
+    let release_request_id = release_request["id"].as_str().unwrap().to_string();
+
+    let first_approval = decide_release(
+        &app,
+        &first_staff.session_token,
+        &release_request_id,
+        "APPROVED",
+    )
+    .await;
+    assert_status(&first_approval, StatusCode::OK);
+    assert!(
+        !assignment_exists(&app, &first_assignment_id).await,
+        "the first approval must end the assignment it released"
+    );
+    let decision_after_first = stored_release_decision(&app, &release_request_id).await;
+    assert_eq!(decision_after_first.0, "APPROVED");
+    assert_eq!(
+        decision_after_first.2.as_deref(),
+        Some(first_staff.id.as_str())
+    );
+
+    let newer_assignment_id =
+        create_assignment_for(&app, &first_staff.session_token, &student.id, &trainer.id).await;
+
+    let second_approval = decide_release(
+        &app,
+        &second_staff.session_token,
+        &release_request_id,
+        "APPROVED",
+    )
+    .await;
+    assert_status(&second_approval, StatusCode::BAD_REQUEST);
+    let body: Value = json_body(second_approval).await;
+    assert_eq!(body["error"], "bad_request");
+
+    assert!(
+        assignment_exists(&app, &newer_assignment_id).await,
+        "a refused re-approval must not delete the assignment created after the first approval"
+    );
+    assert_eq!(
+        stored_release_decision(&app, &release_request_id).await,
+        decision_after_first,
+        "a refused re-approval must leave status, decided_at and decided_by as the first decision set them"
+    );
+    assert_eq!(
+        release_decide_audit_count(&app, &release_request_id).await,
+        1,
+        "only the first decision writes a DECIDE audit row"
+    );
+
+    app.cleanup().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn approving_a_denied_release_request_is_refused_and_keeps_the_assignment() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let staff = app
+        .create_user(
+            10000095,
+            "Release Deny Staff",
+            &[
+                "training.assignments.create",
+                "training.release_requests.decide",
+            ],
+        )
+        .await;
+    let student = app
+        .create_user(
+            10000096,
+            "Release Deny Student",
+            &["training.release_requests_self.request"],
+        )
+        .await;
+    let trainer = app.create_user(10000097, "Release Deny Trainer", &[]).await;
+
+    let assignment_id =
+        create_assignment_for(&app, &staff.session_token, &student.id, &trainer.id).await;
+
+    let create_release_response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/trainer-release-requests",
+            Some(&student.session_token),
+            Some(json!({})),
+        )
+        .await;
+    assert_status(&create_release_response, StatusCode::CREATED);
+    let release_request: Value = json_body(create_release_response).await;
+    let release_request_id = release_request["id"].as_str().unwrap().to_string();
+
+    let denial = decide_release(&app, &staff.session_token, &release_request_id, "DENIED").await;
+    assert_status(&denial, StatusCode::OK);
+    assert!(
+        assignment_exists(&app, &assignment_id).await,
+        "a denial keeps the assignment"
+    );
+    let decision_after_denial = stored_release_decision(&app, &release_request_id).await;
+    assert_eq!(decision_after_denial.0, "DENIED");
+
+    let approval =
+        decide_release(&app, &staff.session_token, &release_request_id, "APPROVED").await;
+    assert_status(&approval, StatusCode::BAD_REQUEST);
+
+    assert!(
+        assignment_exists(&app, &assignment_id).await,
+        "approving a denied request must not delete the assignment"
+    );
+    assert_eq!(
+        stored_release_decision(&app, &release_request_id).await,
+        decision_after_denial,
+        "approving a denied request must leave the denial as stored"
+    );
+    assert_eq!(
+        release_decide_audit_count(&app, &release_request_id).await,
+        1,
+        "only the denial writes a DECIDE audit row"
+    );
+
+    app.cleanup().await;
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn release_request_manual_creation_requires_create_permission() {
     let _env_lock = lock_env();
