@@ -1243,13 +1243,10 @@ async fn sync_approved_visitor_to_vatusa(cid: i64) -> Result<(), ApiError> {
         .build()
         .map_err(|_| ApiError::Internal)?;
 
-    let response = client
-        .post(&url)
-        .query(&[("apikey", api_key.as_str())])
-        .send()
+    let response = crate::vatusa::send_with_api_key(client.post(&url), &api_key)
         .await
         .map_err(|error| {
-            tracing::warn!(cid, %url, ?error, "vatusa manageVisitor request failed");
+            tracing::warn!(cid, %url, %error, "vatusa manageVisitor request failed");
             ApiError::ServiceUnavailable
         })?;
 
