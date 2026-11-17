@@ -3,6 +3,7 @@ name = "osmium"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
+publish = false
 
 [lints]
 workspace = true
@@ -42,11 +43,14 @@ axum-extra = { version = "0.12.6", features = ["cookie"] }
 dotenvy = "0.15.7"
 http = "1.3.1"
 aws-config = "1.8.10"
-aws-sdk-sesv2 = "1.91.0"
+# Default features minus `rustls`, which selects the legacy hyper 0.14 client and with it
+# rustls 0.21, rustls-webpki 0.101 and h2 0.3. `default-https-client` is the hyper 1 /
+# rustls 0.23 client the rest of the SDK already uses.
+aws-sdk-sesv2 = { version = "1.91.0", default-features = false, features = ["sigv4a", "default-https-client", "rt-tokio"] }
 reqwest = { version = "0.13.3", default-features = false, features = ["json", "rustls", "form", "query"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-native-tls", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "macros", "migrate", "chrono", "uuid"] }
 thiserror = "2.0.17"
 time = "0.3.44"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal", "fs"] }
@@ -79,8 +83,9 @@ base64 = "0.22.1"
 urlencoding = "2.1.3"
 # FAA preferred-routes ingest (Worker B) — unzip the NASR PFR CSV bundle. Only the
 # deflate codec is needed; default features (bzip2/zstd/aes) are disabled to keep
-# the dependency surface minimal.
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+# the dependency surface minimal. `deflate-flate2-zlib-rs` (pure Rust) decompresses only; zip's `deflate`
+# feature also pulls zopfli for compression, which the ingest never does.
+zip = { version = "9.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 tower = { version = "0.5.2", features = ["util"] }
