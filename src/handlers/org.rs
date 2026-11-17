@@ -1865,14 +1865,13 @@ async fn remove_from_vatusa_roster(cid: i64, by_cid: i64, visitor: bool) -> Resu
         .build()
         .map_err(|_| ApiError::Internal)?;
 
-    let response = client
+    let request = client
         .delete(&url)
-        .query(&[("apikey", api_key.as_str())])
-        .form(&[("reason", "Inactivity"), ("by", &by_cid.to_string())])
-        .send()
+        .form(&[("reason", "Inactivity"), ("by", &by_cid.to_string())]);
+    let response = crate::vatusa::send_with_api_key(request, &api_key)
         .await
         .map_err(|error| {
-            tracing::warn!(cid, %url, ?error, "vatusa roster removal request failed");
+            tracing::warn!(cid, %url, %error, "vatusa roster removal request failed");
             ApiError::ServiceUnavailable
         })?;
 

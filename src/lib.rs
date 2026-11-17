@@ -13,6 +13,7 @@ pub mod repos;
 pub mod router;
 pub mod state;
 pub mod time;
+pub mod vatusa;
 
 use std::net::SocketAddr;
 

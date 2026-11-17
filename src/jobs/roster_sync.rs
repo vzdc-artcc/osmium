@@ -15,6 +15,7 @@ use crate::{
         training_admin as training_admin_repo, users as user_repo,
     },
     state::AppState,
+    vatusa,
 };
 
 const DEFAULT_INTERVAL_SECS: u64 = 900;
@@ -410,7 +411,7 @@ async fn run_roster_sync(
                     facility_id = config.facility_id.as_str(),
                     stage = "decode_user_detail",
                     cid = local_user.cid,
-                    ?error,
+                    %error,
                     "failed to decode vatusa user detail"
                 );
             }
@@ -752,13 +753,12 @@ async fn fetch_roster(
         config.api_base_url, config.facility_id, membership
     );
 
-    send_vatusa_request(client, &url, &config.api_key)
-        .await?
-        .json::<ApiEnvelope<Vec<VatusaRosterUser>>>()
+    let response = send_vatusa_request(client, &url, &config.api_key).await?;
+    vatusa::decode_json::<ApiEnvelope<Vec<VatusaRosterUser>>>(response)
         .await
         .map(|body| body.data)
         .map_err(|error| {
-            tracing::warn!(membership, ?error, "failed to parse vatusa roster response");
+            tracing::warn!(membership, %error, "failed to parse vatusa roster response");
             ApiError::ServiceUnavailable
         })
 }
@@ -782,14 +782,14 @@ async fn fetch_user_detail(
 ) -> Result<VatusaUserDetail, UserDetailFetchError> {
     let url = format!("{}/user/{}", config.api_base_url, cid);
 
-    send_vatusa_request(client, &url, &config.api_key)
+    let response = send_vatusa_request(client, &url, &config.api_key)
         .await
-        .map_err(UserDetailFetchError::Http)?
-        .json::<ApiEnvelope<VatusaUserDetail>>()
+        .map_err(UserDetailFetchError::Http)?;
+    vatusa::decode_json::<ApiEnvelope<VatusaUserDetail>>(response)
         .await
         .map(|body| body.data)
         .map_err(|error| {
-            tracing::warn!(cid, ?error, "failed to parse vatusa user response");
+            tracing::warn!(cid, %error, "failed to parse vatusa user response");
             UserDetailFetchError::Decode(error)
         })
 }
@@ -799,13 +799,10 @@ async fn send_vatusa_request(
     url: &str,
     api_key: &str,
 ) -> Result<reqwest::Response, ApiError> {
-    let response = client
-        .get(url)
-        .query(&[("apikey", api_key)])
-        .send()
+    let response = vatusa::send_with_api_key(client.get(url), api_key)
         .await
         .map_err(|error| {
-            tracing::warn!(%url, ?error, "vatusa request failed");
+            tracing::warn!(%url, %error, "vatusa request failed");
             ApiError::ServiceUnavailable
         })?;
 
@@ -1319,7 +1316,7 @@ fn map_user_detail_fetch_error(err: UserDetailFetchError) -> ApiError {
     match err {
         UserDetailFetchError::Http(error) => error,
         UserDetailFetchError::Decode(error) => {
-            tracing::warn!(?error, "failed to decode vatusa user response");
+            tracing::warn!(%error, "failed to decode vatusa user response");
             ApiError::ServiceUnavailable
         }
     }
