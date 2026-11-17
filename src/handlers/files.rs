@@ -1613,7 +1613,7 @@ fn hex_nibble(value: u8) -> Option<u8> {
 }
 
 #[cfg(test)]
-mod import_fetch_logging_tests {
+mod tests {
     use std::{
         io::Write,
         sync::{Arc, Mutex},
@@ -1659,7 +1659,8 @@ mod import_fetch_logging_tests {
 
     /// Routes this thread's `tracing` output into a buffer until the guard
     /// drops. `#[tokio::test]` runs on a `current_thread` runtime, so the
-    /// helpers under test log on this thread.
+    /// helpers under test log on this thread. reqwest's own `log`-crate lines
+    /// are not captured: no `LogTracer` bridge is installed here.
     fn capture_logs() -> (CapturedLogs, tracing::subscriber::DefaultGuard) {
         let logs = CapturedLogs::default();
         let subscriber = tracing_subscriber::fmt()
