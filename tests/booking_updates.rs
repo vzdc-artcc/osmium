@@ -47,6 +47,8 @@ enum Lookup {
     Status(StatusCode),
     /// `200` with a body that is not JSON.
     Garbage,
+    /// `200` with valid JSON that is not a booking.
+    NotABooking,
 }
 
 #[derive(Clone, Default)]
@@ -83,6 +85,9 @@ async fn serve_upstream(lookup: Lookup, writes: Writes) -> String {
                     Lookup::Owned => Json(json!([booking(OWNER_CID, "DCA_GND")])).into_response(),
                     Lookup::Status(status) => status.into_response(),
                     Lookup::Garbage => "<html>maintenance</html>".into_response(),
+                    Lookup::NotABooking => {
+                        Json(json!([{ "message": "Too Many Requests" }])).into_response()
+                    }
                 }
             })
             .put(
@@ -208,6 +213,11 @@ async fn update_is_refused_when_the_stored_booking_cannot_be_read() {
         (
             "non-JSON body",
             Lookup::Garbage,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        (
+            "JSON that is not a booking",
+            Lookup::NotABooking,
             StatusCode::INTERNAL_SERVER_ERROR,
         ),
     ];
