@@ -277,6 +277,7 @@ struct VnasPosition {
 struct VnasData {
     cid: String,
     real_name: Option<String>,
+    callsign: Option<String>,
     user_rating: Option<String>,
     requested_rating: Option<String>,
 }
@@ -335,6 +336,7 @@ struct ControllerSnapshot {
     cid: i64,
     user_id: Option<String>,
     real_name: Option<String>,
+    callsign: Option<String>,
     role: Option<String>,
     user_rating: Option<String>,
     requested_rating: Option<String>,
@@ -390,6 +392,13 @@ pub fn start_stats_sync_worker(state: AppState) {
             health.stats_sync.environment_mut(environment.as_str())
         });
     }
+}
+
+/// Runs a single poll of one environment's feed. The worker loop calls
+/// `sync_environment` on its own schedule; this exists so tests can drive the
+/// real job against a fixture feed (`VNAS_CONTROLLER_FEED_URL_*`).
+pub async fn run_once(state: AppState, environment: StatsEnvironment) -> Result<(), ApiError> {
+    sync_environment(state, environment).await.map(|_| ())
 }
 
 async fn sync_environment(
@@ -494,6 +503,11 @@ async fn sync_environment(
             cid,
             user_id,
             real_name: controller.vatsim_data.real_name.clone(),
+            callsign: controller
+                .vatsim_data
+                .callsign
+                .clone()
+                .filter(|callsign| !callsign.trim().is_empty()),
             role: controller.role.clone(),
             user_rating: controller.vatsim_data.user_rating.clone(),
             requested_rating: controller.vatsim_data.requested_rating.clone(),
@@ -696,6 +710,7 @@ async fn update_open_session(
             requested_rating = $7,
             primary_facility_id = $8,
             primary_position_id = $9,
+            callsign = coalesce(callsign, $10),
             updated_at = now()
         where id = $1
         "#,
@@ -709,6 +724,7 @@ async fn update_open_session(
     .bind(&snapshot.requested_rating)
     .bind(&snapshot.primary_facility_id)
     .bind(&snapshot.primary_position_id)
+    .bind(&snapshot.callsign)
     .execute(&mut **tx)
     .await
     .map_err(|_| ApiError::Internal)?;
@@ -738,9 +754,10 @@ async fn insert_session(
             login_at,
             primary_facility_id,
             primary_position_id,
-            source_login_time_raw
+            source_login_time_raw,
+            callsign
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         "#,
     )
     .bind(&id)
@@ -756,6 +773,7 @@ async fn insert_session(
     .bind(&snapshot.primary_facility_id)
     .bind(&snapshot.primary_position_id)
     .bind(&snapshot.login_time_raw)
+    .bind(&snapshot.callsign)
     .execute(&mut **tx)
     .await
     .map_err(|_| ApiError::Internal)?;

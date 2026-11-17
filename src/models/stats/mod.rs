@@ -66,6 +66,10 @@ pub struct ControllerPositionsQuery {
 #[derive(Serialize, sqlx::FromRow, ToSchema)]
 pub struct ControllerPositionItem {
     pub position_name: String,
+    /// For the primary position, the callsign the controller logged in with
+    /// (or the position's configured default for sessions recorded before it
+    /// was stored); for a consolidated secondary position, its default callsign.
+    pub callsign: Option<String>,
     pub facility_name: String,
     pub is_primary: bool,
     #[serde(serialize_with = "crate::time::serialize_datetime")]

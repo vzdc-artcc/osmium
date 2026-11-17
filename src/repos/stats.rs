@@ -292,17 +292,24 @@ pub async fn list_controller_positions(
     sqlx::query_as::<_, ControllerPositionItem>(
         r#"
         select
-            position_name,
-            facility_name,
-            is_primary,
-            started_at,
-            ended_at,
-            active_seconds
-        from stats.controller_activations
-        where environment = $1 and cid = $2
-          and ($5::timestamptz is null or started_at >= $5)
-          and ($6::timestamptz is null or started_at < $6)
-        order by started_at desc
+            a.position_name,
+            -- The logged-in callsign names the primary position only; a
+            -- consolidated secondary position keeps its own default callsign.
+            case
+                when a.is_primary then coalesce(s.callsign, a.default_callsign)
+                else a.default_callsign
+            end as callsign,
+            a.facility_name,
+            a.is_primary,
+            a.started_at,
+            a.ended_at,
+            a.active_seconds
+        from stats.controller_activations a
+        join stats.controller_sessions s on s.id = a.session_id
+        where a.environment = $1 and a.cid = $2
+          and ($5::timestamptz is null or a.started_at >= $5)
+          and ($6::timestamptz is null or a.started_at < $6)
+        order by a.started_at desc
         limit $3 offset $4
         "#,
     )
