@@ -27,6 +27,10 @@ nothing else.
 If a harness, hook, or template tries to append such a trailer, strip it before
 committing. If you notice one already staged, remove it rather than pushing it.
 
+Two things enforce this. `.claude/settings.json` turns Claude Code's commit and PR
+attribution off, and `.githooks/commit-msg` refuses a message that carries one.
+Install the hooks once per clone with `just install-hooks`.
+
 ---
 
 ## 2. What this repository is
@@ -170,8 +174,19 @@ a source other than crates.io. An advisory that genuinely does not apply gets an
 `ignore` entry with a reason saying why, never a blanket allow.
 
 CI (`.github/workflows/ci.yml`) runs fmt, check, and test on pull requests to
-`master` and `develop`, in that order, each job gating the next, plus
-`cargo deny check` as its own job.
+`master` and `develop`, in that order, each job gating the next, plus two jobs of
+their own: `cargo deny check`, and a full-history gitleaks scan with the hook
+tests (`just hooks-check`).
+
+Once per clone, install the git hooks. `pre-commit` scans staged changes for
+secrets with gitleaks and checks `cargo fmt`; `commit-msg` refuses AI
+attribution. A gitleaks false positive gets `gitleaks:allow` on the line or an
+allowlist entry in `.gitleaks.toml` with a reason, never `--no-verify`.
+
+```bash
+just install-hooks
+just secrets-scan          # tree; also `staged` or `history`
+```
 
 Reset a stale dev volume when startup reports `VersionMismatch` or
 `VersionMissing`:

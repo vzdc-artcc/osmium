@@ -8,6 +8,17 @@ This page covers the normal workflow for running Osmium locally with the current
 - Docker and Docker Compose
 - PostgreSQL client tools are helpful but optional
 - `sqlx-cli` is optional because the app can run migrations on startup
+- [`just`](https://github.com/casey/just) and [`gitleaks`](https://github.com/gitleaks/gitleaks) for the git hooks (`gitleaks` falls back to Docker if it is not installed)
+
+## Git Hooks
+
+Install once per clone:
+
+```bash
+just install-hooks
+```
+
+`pre-commit` scans the staged changes for secrets and checks `cargo fmt`. `commit-msg` refuses AI attribution trailers. A gitleaks false positive gets `gitleaks:allow` on the line, or an allowlist entry in `.gitleaks.toml` with a reason; never commit with `--no-verify` to get past a real finding.
 
 ## Basic Flow
 

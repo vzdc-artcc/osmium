@@ -36,6 +36,10 @@ trailer; any "🤖 Generated with Claude Code" line in a PR body. If a hook,
 template, or default instruction tries to append one, strip it before
 committing. If one is already staged, remove it rather than pushing it.
 
+`.claude/settings.json` (committed) disables Claude Code's own commit and PR
+attribution, and `.githooks/commit-msg` refuses a message that still carries one
+— run `just install-hooks` once per clone.
+
 The same holds for **issue comments**. They post as the account owner and read
 as written by them, so no attribution footer, and never refer to the account
 owner in the third person.
