@@ -10,6 +10,7 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::email::service::EmailActor;
+use crate::handlers::training_emails::TrainingMailer;
 use crate::{
     auth::{
         acl::{PermissionAction, PermissionPath},
@@ -267,6 +268,11 @@ pub async fn create_assignment(
     )
     .await?;
 
+    TrainingMailer::new(&state.email, &mut tx, user)
+        .await?
+        .assignment_created(&mut tx, &row)
+        .await?;
+
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok((StatusCode::CREATED, ApiJson::new(row, time)))
@@ -327,14 +333,14 @@ pub async fn update_assignment(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let before = training_assignments_repo::fetch_assignment(db, &assignment_id)
+    let current = training_assignments_repo::fetch_assignment(db, &assignment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
     let primary_trainer_id = payload
         .primary_trainer_id
         .as_deref()
-        .unwrap_or(before.primary_trainer_id.as_str());
+        .unwrap_or(current.primary_trainer_id.as_str());
 
     if let Some(other_trainer_ids) = payload.other_trainer_ids.as_ref() {
         let mut seen = HashSet::new();
@@ -358,6 +364,14 @@ pub async fn update_assignment(
 
     let now = Utc::now();
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+
+    // Locked and re-read, since the stored trainer set decides who is emailed.
+    if !training_assignments_repo::lock_assignment(&mut *tx, &assignment_id).await? {
+        return Err(ApiError::NotFound);
+    }
+    let before = training_assignments_repo::fetch_assignment(&mut *tx, &assignment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     if let Some(primary_trainer_id) = payload.primary_trainer_id.as_deref() {
         training_assignments_repo::update_assignment_primary_trainer(
@@ -397,6 +411,11 @@ pub async fn update_assignment(
     )
     .await?;
 
+    TrainingMailer::new(&state.email, &mut tx, user)
+        .await?
+        .assignment_updated(&mut tx, &before, &row)
+        .await?;
+
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok(ApiJson::new(row, time))
@@ -425,11 +444,14 @@ pub async fn delete_assignment(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let before = training_assignments_repo::fetch_assignment(db, &assignment_id)
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+
+    if !training_assignments_repo::lock_assignment(&mut *tx, &assignment_id).await? {
+        return Err(ApiError::NotFound);
+    }
+    let before = training_assignments_repo::fetch_assignment(&mut *tx, &assignment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
-
-    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
 
     let deleted =
         training_assignments_repo::delete_assignment_row(&mut *tx, &assignment_id).await?;
@@ -451,6 +473,18 @@ pub async fn delete_assignment(
         audit_repo::client_ip(&headers),
     )
     .await?;
+
+    TrainingMailer::new(&state.email, &mut tx, user)
+        .await?
+        .assignment_released(
+            &mut tx,
+            &before.student_id,
+            &before.student_name,
+            before.student_cid,
+            Some(&before),
+            false,
+        )
+        .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
@@ -598,6 +632,9 @@ pub async fn update_ots_recommendation(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
+    if !training_ots_repo::lock_ots_recommendation(&mut *tx, &recommendation_id).await? {
+        return Err(ApiError::NotFound);
+    }
     let before = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -635,6 +672,11 @@ pub async fn update_ots_recommendation(
     )
     .await?;
 
+    TrainingMailer::new(&state.email, &mut tx, user)
+        .await?
+        .ots_instructor_changed(&mut tx, &before, &row)
+        .await?;
+
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
     Ok(ApiJson::new(row, time))
@@ -666,6 +708,9 @@ pub async fn delete_ots_recommendation(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
+    if !training_ots_repo::lock_ots_recommendation(&mut *tx, &recommendation_id).await? {
+        return Err(ApiError::NotFound);
+    }
     let deleted = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -688,6 +733,11 @@ pub async fn delete_ots_recommendation(
         audit_repo::client_ip(&headers),
     )
     .await?;
+
+    TrainingMailer::new(&state.email, &mut tx, user)
+        .await?
+        .ots_deleted(&mut tx, &deleted)
+        .await?;
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 
@@ -1893,6 +1943,9 @@ pub async fn decide_release_request(
     let now = Utc::now();
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
 
+    if !training_release_requests_repo::lock_release_request(&mut *tx, &request_id).await? {
+        return Err(ApiError::NotFound);
+    }
     let before = training_release_requests_repo::fetch_release_request(&mut *tx, &request_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -1912,12 +1965,14 @@ pub async fn decide_release_request(
     // Approving a release request ends the assignment it's releasing the student from —
     // there'd be nothing left for the request to have accomplished otherwise. A missing
     // assignment (already removed some other way) is not an error here.
+    let mut released_assignment = None;
     if normalized_status == "APPROVED"
         && let Some(assignment) =
             training_assignments_repo::fetch_assignment_by_student(&mut *tx, &row.student_id)
                 .await?
     {
         training_assignments_repo::delete_assignment_row(&mut *tx, &assignment.id).await?;
+        released_assignment = Some(assignment);
     }
 
     let actor = audit_repo::resolve_audit_actor(&mut *tx, Some(user), None).await?;
@@ -1937,6 +1992,25 @@ pub async fn decide_release_request(
         },
     )
     .await?;
+
+    // The move into APPROVED notifies, and so does any approval that ended an
+    // assignment. Re-deciding an approved request with nothing to release sends
+    // nothing.
+    if normalized_status == "APPROVED"
+        && (before.status != "APPROVED" || released_assignment.is_some())
+    {
+        TrainingMailer::new(&state.email, &mut tx, user)
+            .await?
+            .assignment_released(
+                &mut tx,
+                &row.student_id,
+                &row.student_name,
+                row.student_cid,
+                released_assignment.as_ref(),
+                true,
+            )
+            .await?;
+    }
 
     tx.commit().await.map_err(|_| ApiError::Internal)?;
 

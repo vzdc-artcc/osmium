@@ -86,7 +86,14 @@ pub fn verify_unsubscribe_token(
     serde_json::from_slice(&payload_bytes).map_err(|_| ApiError::BadRequest)
 }
 
-pub async fn is_suppressed(pool: &PgPool, category: &str, email: &str) -> Result<bool, ApiError> {
+pub async fn is_suppressed<'e, E>(
+    executor: E,
+    category: &str,
+    email: &str,
+) -> Result<bool, ApiError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let suppressed = sqlx::query_scalar::<_, bool>(
         r#"
         select exists(
@@ -100,7 +107,7 @@ pub async fn is_suppressed(pool: &PgPool, category: &str, email: &str) -> Result
     )
     .bind(category)
     .bind(email)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await
     .map_err(|_| ApiError::Internal)?;
 

@@ -22,5 +22,6 @@ pub mod routes;
 pub mod stats;
 pub mod training;
 pub mod training_admin;
+mod training_emails;
 pub mod users;
 pub mod welcome_messages;

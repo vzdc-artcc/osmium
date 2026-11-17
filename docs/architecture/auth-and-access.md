@@ -64,8 +64,10 @@ A single session row toggles between the admin and the target: while impersonati
 `user_id` is the target (so ACL resolves as them) and `impersonator_user_id` records
 the real admin. Durable audit is attributed to the impersonator; start/stop are logged
 as server-level `AUTH_IMPERSONATION` rows that facility admins cannot see. While
-impersonating, self-service writes and admin/integration mutations (the outbound
-side-effect surface) are refused with `403` — impersonation is read-only support.
+impersonating, self-service writes, admin/integration mutations (the outbound
+side-effect surface) and the training writes that email students and trainers
+(`/api/v1/training/assignments`, `/ots-recommendations` and
+`/trainer-release-requests`) are refused with `403`. Impersonation is read-only support.
 
 `VATSIM_DEV_MODE=true` does not expose the seed route.
 

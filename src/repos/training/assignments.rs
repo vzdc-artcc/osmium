@@ -272,3 +272,37 @@ where
         .await
         .map_err(|_| ApiError::Internal)
 }
+
+/// Row-lock an assignment for the rest of the transaction, so the state read next is
+/// the state the write replaces. `false` when it does not exist.
+pub async fn lock_assignment<'e, E>(executor: E, id: &str) -> Result<bool, ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    let found = sqlx::query_scalar::<_, String>(
+        "select id from training.training_assignments where id = $1 for update",
+    )
+    .bind(id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(found.is_some())
+}
+
+/// The member's VATSIM rating short code (`S1`, `C1`, ...), when the user has a
+/// membership row with one.
+pub async fn fetch_member_rating<'e, E>(
+    executor: E,
+    user_id: &str,
+) -> Result<Option<String>, ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query_scalar::<_, Option<String>>("select rating from org.memberships where user_id = $1")
+        .bind(user_id)
+        .fetch_optional(executor)
+        .await
+        .map(Option::flatten)
+        .map_err(|_| ApiError::Internal)
+}

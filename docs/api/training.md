@@ -20,6 +20,18 @@ Assignment routes now cover:
 - assignment-request creation (`POST /training/assignment-requests`) accepts an optional `student_id` + `submitted_at`: omit both for the common self-request case (needs only `training.assignment_requests_self.request`), or set `student_id` to log a manual/backdated request on another student's behalf (needs `.create`, the broader permission — see below)
 - release-request creation (`POST /training/trainer-release-requests`) accepts an optional `student_id`, same pattern as assignment-request creation: omit it for the common self-request case (needs only `training.release_requests_self.request`), or set it to submit a release request on another student's behalf — e.g. a trainer releasing their own assigned student (needs `training.release_requests.create`, the broader permission)
 
+Assignment, OTS and release changes email the people they affect, through the email outbox in the same transaction as the change. A change that leaves the trainer set or the OTS instructor as it was sends nothing, and so does re-approving a release request when there is no assignment left to end. When email is disabled nothing is queued, and a recipient with no email address is skipped. A notice that cannot be queued fails the request with `500` and rolls the change back. While impersonating, writes to these three route families are refused with `403`.
+
+| Action | Student gets | Trainers get |
+| --- | --- | --- |
+| assignment created | `training.assignment_created` | primary: `training.assignment_primary_trainer`; others: `training.assignment_other_trainer` |
+| assignment updated | `training.assignment_updated` | removed: `training.assignment_trainer_removed`; added others: `training.assignment_other_trainer`; a new primary: `training.assignment_primary_trainer` |
+| assignment deleted | `training.assignment_released` | all: `training.assignment_trainer_removed` |
+| release request approved (moved to `APPROVED`, or re-approved while an assignment exists) | `training.assignment_released` (approved wording) | the released assignment's trainers: `training.assignment_trainer_removed` |
+| OTS instructor assigned or replaced | `training.ots_assigned_student` | new: `training.ots_assigned_instructor`; replaced: `training.ots_unassigned_instructor` |
+| OTS instructor removed | `training.ots_unassigned_student` | former: `training.ots_unassigned_instructor` |
+| OTS recommendation deleted | `training.ots_deleted` | assigned instructor: `training.ots_deleted` |
+
 OTS recommendation routes now cover:
 
 - recommendation list, create, assign or unassign, and delete

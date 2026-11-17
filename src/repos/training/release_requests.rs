@@ -175,3 +175,20 @@ where
 
     Ok(result.rows_affected() > 0)
 }
+
+/// Row-lock a trainer release request for the rest of the transaction. `false` when
+/// it does not exist.
+pub async fn lock_release_request<'e, E>(executor: E, id: &str) -> Result<bool, ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    let found = sqlx::query_scalar::<_, String>(
+        "select id from training.trainer_release_requests where id = $1 for update",
+    )
+    .bind(id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(found.is_some())
+}
