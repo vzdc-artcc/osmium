@@ -12,7 +12,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::get,
 };
 use chrono::{Duration, Utc};
 use serde_json::{Value, json};
@@ -51,6 +51,38 @@ enum Lookup {
     NotABooking,
 }
 
+/// How the fixture behaves beyond the by-id lookup.
+#[derive(Clone, Copy)]
+struct Upstream {
+    lookup: Lookup,
+    /// How many active bookings `GET /api/booking` lists for `OWNER_CID`.
+    active: usize,
+    /// `PUT /api/booking/{id}` answers `404`, as when the booking is deleted
+    /// between the lookup and the write.
+    put_gone: bool,
+}
+
+impl Upstream {
+    fn new(lookup: Lookup) -> Self {
+        Self {
+            lookup,
+            active: 0,
+            put_gone: false,
+        }
+    }
+
+    fn active(self, active: usize) -> Self {
+        Self { active, ..self }
+    }
+
+    fn put_gone(self) -> Self {
+        Self {
+            put_gone: true,
+            ..self
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct Writes {
     puts: Arc<AtomicUsize>,
@@ -63,7 +95,12 @@ fn stored(mut body: Value) -> Json<Value> {
 }
 
 /// A fixture of the VATSIM booking API that counts upstream PUTs and POSTs.
-async fn serve_upstream(lookup: Lookup, writes: Writes) -> String {
+async fn serve_upstream(upstream: Upstream, writes: Writes) -> String {
+    let Upstream {
+        lookup,
+        active,
+        put_gone,
+    } = upstream;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind fixture upstream");
@@ -71,7 +108,17 @@ async fn serve_upstream(lookup: Lookup, writes: Writes) -> String {
     let app = Router::new()
         .route(
             "/api/booking",
-            post(
+            get(move || async move {
+                let items: Vec<Value> = (0..active)
+                    .map(|n| {
+                        let mut item = booking(OWNER_CID, "DCA_GND");
+                        item["id"] = json!(1000 + n as i64);
+                        item
+                    })
+                    .collect();
+                Json(Value::Array(items))
+            })
+            .post(
                 |State(w): State<Writes>, Json(body): Json<Value>| async move {
                     w.posts.fetch_add(1, Ordering::SeqCst);
                     stored(body)
@@ -91,9 +138,13 @@ async fn serve_upstream(lookup: Lookup, writes: Writes) -> String {
                 }
             })
             .put(
-                |State(w): State<Writes>, Json(body): Json<Value>| async move {
+                move |State(w): State<Writes>, Json(body): Json<Value>| async move {
                     w.puts.fetch_add(1, Ordering::SeqCst);
-                    stored(body)
+                    if put_gone {
+                        StatusCode::NOT_FOUND.into_response()
+                    } else {
+                        stored(body).into_response()
+                    }
                 },
             ),
         )
@@ -125,7 +176,7 @@ async fn update_is_authorized_against_the_stored_booking_owner() {
     let puts = writes.puts.clone();
     let _base = EnvVarGuard::set(
         "ATC_BOOKING_BASE_URL",
-        &serve_upstream(Lookup::Owned, writes).await,
+        &serve_upstream(Upstream::new(Lookup::Owned).active(2), writes).await,
     );
     let _token = EnvVarGuard::set("ATC_BOOKING_TOKEN", "test-token");
 
@@ -161,7 +212,8 @@ async fn update_is_authorized_against_the_stored_booking_owner() {
         "the upstream write must not happen"
     );
 
-    // The owner may update it, and the audit row carries both sides.
+    // The owner may update it although they hold two active bookings (an
+    // update is not counted), and the audit row carries both sides.
     let response = app
         .json_request(
             "PUT",
@@ -225,7 +277,7 @@ async fn update_is_refused_when_the_stored_booking_cannot_be_read() {
         let writes = Writes::default();
         let _base = EnvVarGuard::set(
             "ATC_BOOKING_BASE_URL",
-            &serve_upstream(lookup, writes.clone()).await,
+            &serve_upstream(Upstream::new(lookup), writes.clone()).await,
         );
         let response = app
             .json_request(
@@ -264,7 +316,11 @@ async fn update_of_a_missing_booking_creates_it_and_is_audited_as_create() {
     let writes = Writes::default();
     let _base = EnvVarGuard::set(
         "ATC_BOOKING_BASE_URL",
-        &serve_upstream(Lookup::Status(StatusCode::NOT_FOUND), writes.clone()).await,
+        &serve_upstream(
+            Upstream::new(Lookup::Status(StatusCode::NOT_FOUND)).active(1),
+            writes.clone(),
+        )
+        .await,
     );
     let owner = app
         .create_user(OWNER_CID, "Booking Owner", &["auth.profile.update"])
@@ -288,6 +344,94 @@ async fn update_of_a_missing_booking_creates_it_and_is_audited_as_create() {
     assert_eq!(action, "CREATE");
     assert!(before.is_none(), "a create has no before-state: {before:?}");
     assert_eq!(after.as_ref().expect("after-state")["callsign"], "DCA_TWR");
+
+    app.cleanup().await;
+}
+
+const LIMIT_MESSAGE: &str = "You have reached the maximum number of active bookings (2). Please delete an existing booking before creating a new one.";
+
+/// A PUT that ends in a create is held to the two-active limit, whichever way
+/// it reaches the create: a lookup that finds no booking, or a booking that
+/// disappears between the lookup and the upstream PUT.
+#[tokio::test(flavor = "current_thread")]
+async fn update_that_creates_is_held_to_the_active_booking_limit() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+    let _token = EnvVarGuard::set("ATC_BOOKING_TOKEN", "test-token");
+    let owner = app
+        .create_user(OWNER_CID, "Booking Owner", &["auth.profile.update"])
+        .await;
+
+    let cases = [
+        (
+            "lookup 404",
+            Upstream::new(Lookup::Status(StatusCode::NOT_FOUND)),
+            0,
+        ),
+        (
+            "PUT 404 after the lookup found it",
+            Upstream::new(Lookup::Owned).put_gone(),
+            1,
+        ),
+    ];
+    for (name, upstream, expected_puts) in cases {
+        let writes = Writes::default();
+        let _base = EnvVarGuard::set(
+            "ATC_BOOKING_BASE_URL",
+            &serve_upstream(upstream.active(2), writes.clone()).await,
+        );
+        let response = app
+            .json_request(
+                "PUT",
+                &format!("/api/v1/bookings/{BOOKING_ID}"),
+                Some(&owner.session_token),
+                Some(json!({ "callsign": "DCA_TWR", "cid": OWNER_CID, "start": slot(5), "end": slot(6) })),
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{name}");
+        let body: Value = support::json_body(response).await;
+        assert_eq!(body["message"], LIMIT_MESSAGE, "{name}");
+        assert_eq!(
+            writes.posts.load(Ordering::SeqCst),
+            0,
+            "no create after a {name}"
+        );
+        assert_eq!(writes.puts.load(Ordering::SeqCst), expected_puts, "{name}");
+
+        // Positive control: one active booking leaves room for the create.
+        let writes = Writes::default();
+        let _base = EnvVarGuard::set(
+            "ATC_BOOKING_BASE_URL",
+            &serve_upstream(upstream.active(1), writes.clone()).await,
+        );
+        let response = app
+            .json_request(
+                "PUT",
+                &format!("/api/v1/bookings/{BOOKING_ID}"),
+                Some(&owner.session_token),
+                Some(json!({ "callsign": "DCA_TWR", "cid": OWNER_CID, "start": slot(5), "end": slot(6) })),
+            )
+            .await;
+        assert_status(&response, StatusCode::OK);
+        assert_eq!(
+            writes.posts.load(Ordering::SeqCst),
+            1,
+            "create after a {name}"
+        );
+    }
+
+    let actions: Vec<String> = booking_audit_rows(&app)
+        .await
+        .into_iter()
+        .map(|(action, _, _)| action)
+        .collect();
+    assert_eq!(
+        actions,
+        ["CREATE", "CREATE"],
+        "only the two controls are audited"
+    );
 
     app.cleanup().await;
 }

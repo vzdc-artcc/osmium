@@ -30,7 +30,10 @@ local fixture.
   else's booking, or a training booking, needs `training.appointments.update`
   even when the body carries the caller's own cid. A `PUT` against a booking
   the upstream no longer has (a `404` on the lookup) falls back to a create,
-  audited as `CREATE` (parity with the legacy action). Any other lookup
+  audited as `CREATE` (parity with the legacy action). The same fallback
+  runs when the lookup finds the booking but the upstream answers the `PUT`
+  with a `404`, as when it is deleted in between; both creates are held to
+  the active-booking limit below. Any other lookup
   failure refuses the update: `503` when the upstream errors, `500` when it
   answers with something that is not a booking.
 - `DELETE /api/v1/bookings/{id}` — delete. `404` if the booking doesn't exist,
@@ -55,7 +58,8 @@ through untouched.
 Mirrors the legacy action exactly — applied only when `type` is not
 `"training"`:
 
-- at most 2 active bookings per controller (checked on create)
+- at most 2 active bookings per controller, checked on every write that
+  creates a booking: a `POST`, and a `PUT` that falls back to a create
 - start must be 2–72 hours in the future
 - duration at most 2 hours
 

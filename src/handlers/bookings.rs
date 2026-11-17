@@ -74,6 +74,9 @@ fn parse_booking_time(value: &str) -> Option<DateTime<Utc>> {
         .map(|ndt| ndt.and_utc())
 }
 
+const MAX_ACTIVE_BOOKINGS: usize = 2;
+const ACTIVE_LIMIT_MESSAGE: &str = "You have reached the maximum number of active bookings (2). Please delete an existing booking before creating a new one.";
+
 /// Validation for non-training bookings, mirroring the website's
 /// `createOrUpdateAtcBooking`: ≤2 active on create, made 2–72h in advance, and
 /// ≤2h long. Returns the user-facing error string on failure.
@@ -84,10 +87,8 @@ fn validate_non_training_booking(
     active_count: usize,
     is_update: bool,
 ) -> Result<(), &'static str> {
-    if !is_update && active_count >= 2 {
-        return Err(
-            "You have reached the maximum number of active bookings (2). Please delete an existing booking before creating a new one.",
-        );
+    if !is_update && active_count >= MAX_ACTIVE_BOOKINGS {
+        return Err(ACTIVE_LIMIT_MESSAGE);
     }
     let start_dt = parse_booking_time(start).ok_or("Invalid start time.")?;
     let end_dt = parse_booking_time(end).ok_or("Invalid end time.")?;
@@ -296,10 +297,13 @@ async fn upsert_booking(
 
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
     let is_training = body.r#type.as_deref() == Some("training");
+    // A PUT whose booking the lookup did not find is written as a create, so
+    // it is validated as one.
+    let creates = before.is_none();
 
     // Advance/duration/limit checks apply to non-training bookings only.
     if !is_training {
-        let active_count = if id.is_none() {
+        let active_count = if creates {
             fetch_bookings(Some(body.cid)).await?.len()
         } else {
             0
@@ -309,7 +313,7 @@ async fn upsert_booking(
             &body.end,
             Utc::now(),
             active_count,
-            id.is_some(),
+            !creates,
         ) {
             return Ok(booking_error_response(message));
         }
@@ -336,10 +340,15 @@ async fn upsert_booking(
     // Upstream write; a PUT against a missing booking falls back to create.
     // Only a booking the lookup found is PUT, so the owner check above always
     // ran against the record being overwritten.
-    let update_id = id.filter(|_| before.is_some());
-    let mut created = update_id.is_none();
+    let update_id = id.filter(|_| !creates);
+    let mut created = creates;
     let mut outcome = send_booking_write(update_id, &body).await?;
     if matches!(outcome, UpstreamWrite::NotFound) && update_id.is_some() {
+        // The booking disappeared between the lookup and the PUT, so this
+        // write now creates one and is held to the active limit like any create.
+        if !is_training && fetch_bookings(Some(body.cid)).await?.len() >= MAX_ACTIVE_BOOKINGS {
+            return Ok(booking_error_response(ACTIVE_LIMIT_MESSAGE));
+        }
         outcome = send_booking_write(None, &body).await?;
         created = true;
     }
