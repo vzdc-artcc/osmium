@@ -109,6 +109,8 @@ enum StubMode {
     GarbageRoster,
     /// The rosters list `cid` as HOME; the user detail is not JSON.
     GarbageUserDetail { cid: i64 },
+    /// Every roster request answers 500 with a plain-text body.
+    ServerError,
 }
 
 #[derive(Clone)]
@@ -134,6 +136,9 @@ async fn serve_stub(mode: StubMode) -> (String, Arc<Mutex<Vec<String>>>) {
         record_key(&state, &query);
         match state.mode {
             StubMode::GarbageRoster => "<html>maintenance</html>".into_response(),
+            StubMode::ServerError => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "upstream exploded").into_response()
+            }
             StubMode::GarbageUserDetail { cid } => {
                 let data = if membership == "home" {
                     json!([{ "cid": cid, "facility": "ZDC", "facility_join": null }])
@@ -317,6 +322,30 @@ async fn roster_fetch_send_failure_does_not_log_the_api_key() {
     let logs = refresh_with_captured_logs(&app, target.cid).await;
 
     logs.assert_logged_without_key(&["vatusa request failed", "error sending request"]);
+
+    app.cleanup().await;
+}
+
+/// The non-success branch logs the URL built before the key is added, plus
+/// the response body, so neither carries the key.
+#[tokio::test(flavor = "current_thread")]
+async fn roster_non_success_status_does_not_log_the_api_key() {
+    let _env_lock = lock_env();
+    let (base_url, keys_seen) = serve_stub(StubMode::ServerError).await;
+    let _vatusa_env = vatusa_env(&base_url);
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+    let target = app.create_user(17700014, "Redaction Member", &[]).await;
+
+    let logs = refresh_with_captured_logs(&app, target.cid).await;
+
+    assert_stub_saw_key(&keys_seen);
+    logs.assert_logged_without_key(&[
+        "vatusa request returned non-success status",
+        "status=500 Internal Server Error",
+        "upstream exploded",
+    ]);
 
     app.cleanup().await;
 }
