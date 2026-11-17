@@ -2,6 +2,10 @@
 name = "osmium"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.98"
+
+[lints]
+workspace = true
 
 [workspace]
 members = [
@@ -16,6 +20,21 @@ exclude = [
     "tools/api-load-tester",
 ]
 resolver = "2"
+
+# Lint levels for every workspace member and target. The rustc lints fail `cargo check`; the
+# clippy lints apply wherever `cargo clippy` runs.
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+# A lint is silenced with `#[expect(lint, reason = "...")]`, which also fails once the lint
+# stops firing, rather than a bare `#[allow]`.
+allow_attributes_without_reason = "deny"
+unwrap_used = "warn"
 
 [dependencies]
 axum = { version = "0.8.9", features = ["multipart"] }

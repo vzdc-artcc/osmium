@@ -450,7 +450,10 @@ where
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_publication<'e, E>(
     executor: E,
     id: &str,
@@ -506,7 +509,10 @@ where
     .map_err(super::map_constraint_error)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn update_publication_row<'e, E>(
     executor: E,
     publication_id: &str,

@@ -149,6 +149,11 @@ docker compose up -d postgres
 cargo run
 ```
 
+The toolchain is pinned in `rust-toolchain.toml`; local builds, CI, and the
+Dockerfile's builder tag all use it, and `rust-version` in `Cargo.toml` matches.
+Lint levels live in `[workspace.lints]` in `Cargo.toml`. Silence a lint with
+`#[expect(lint, reason = "...")]` on the narrowest item, never a bare `#[allow]`.
+
 Full local validation before pushing — run all of it:
 
 ```bash

@@ -193,7 +193,10 @@ pub async fn fetch_event(pool: &PgPool, event_id: &str) -> Result<Option<Event>,
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_event(
     pool: &PgPool,
     id: &str,
@@ -233,7 +236,10 @@ pub async fn insert_event(
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn update_event_row(
     pool: &PgPool,
     event_id: &str,
@@ -375,7 +381,10 @@ pub async fn fetch_user_published_event_positions(
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_event_position(
     pool: &PgPool,
     id: &str,
@@ -458,7 +467,10 @@ pub async fn fetch_event_position(
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn update_event_position_row(
     pool: &PgPool,
     position_id: &str,
@@ -581,7 +593,10 @@ pub async fn fetch_event_ops_plan(
     ).bind(event_id).fetch_optional(pool).await.map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn update_event_ops_plan_row(
     pool: &PgPool,
     event_id: &str,
@@ -904,7 +919,10 @@ pub async fn fetch_ops_plan_file(
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_ops_plan_file(
     pool: &PgPool,
     id: &str,

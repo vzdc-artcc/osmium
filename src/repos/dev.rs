@@ -12,7 +12,10 @@ use sqlx::{Postgres, Transaction};
 use crate::errors::ApiError;
 
 /// Upserts a seed user and their org membership, returning the user id.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn upsert_user(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
@@ -249,7 +252,10 @@ pub async fn upsert_event(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn upsert_event_position(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
@@ -418,7 +424,10 @@ pub async fn upsert_training_appointment(
 }
 
 /// Upserts a pilot feedback item about a controller.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn upsert_feedback(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,

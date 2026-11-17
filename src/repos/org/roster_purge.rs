@@ -29,7 +29,6 @@ pub struct PurgeCandidateRow {
     pub has_active_approved_loa: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn list_purge_candidates(
     pool: &PgPool,
     environment: &str,
