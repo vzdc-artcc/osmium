@@ -205,3 +205,66 @@ async fn self_service_initials_without_membership_is_not_found() {
 
     app.cleanup().await;
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn self_service_initials_taken_pair_is_conflict_and_changes_nothing() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let holder = app.create_user(10017940, "Holder", &[]).await;
+    let member = app
+        .create_user(10017941, "Has Membership", &["auth.profile.update"])
+        .await;
+    set_initials(&app, &holder.id, "AA").await;
+    set_initials(&app, &member.id, "BB").await;
+
+    let response = app
+        .json_request(
+            "PATCH",
+            "/api/v1/me",
+            Some(&member.session_token),
+            Some(json!({ "operating_initials": "aa" })),
+        )
+        .await;
+    assert_status(&response, StatusCode::CONFLICT);
+    let body: Value = json_body(response).await;
+    assert_eq!(body["error"], "conflict");
+    assert_eq!(
+        stored_initials(&app, &holder.id).await.as_deref(),
+        Some("AA")
+    );
+    assert_eq!(
+        stored_initials(&app, &member.id).await.as_deref(),
+        Some("BB")
+    );
+
+    app.cleanup().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn admin_reassign_to_the_pair_already_held_succeeds() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let staff = app.create_user(10017950, "OI Staff", &[PERMISSION]).await;
+    let target = app.create_user(10017951, "Target", &[]).await;
+    set_initials(&app, &target.id, "BB").await;
+
+    // Postgres counts a same-value update as an affected row, so re-sending
+    // the held pair is a success, not a missing membership.
+    let response = reassign(&app, &staff.session_token, target.cid, "BB").await;
+    assert_status(&response, StatusCode::OK);
+    let body: Value = json_body(response).await;
+    assert_eq!(body["operating_initials"], "BB");
+    assert_eq!(
+        stored_initials(&app, &target.id).await.as_deref(),
+        Some("BB")
+    );
+    assert_eq!(membership_count(&app, &target.id).await, 1);
+
+    app.cleanup().await;
+}
