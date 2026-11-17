@@ -75,7 +75,8 @@ Behavior notes:
 - timezone values must be valid IANA timezone names such as `America/Chicago`
 - `operating_initials` must be exactly 2 alphabetic characters (case-insensitive,
   normalized to uppercase); returns `409 Conflict` if already held by another
-  user (shares the same manual-reassignment path as the admin endpoint below,
+  user, and `404 not_found` if the user has no roster membership row (the
+  initials live on that row) (shares the same manual-reassignment path as the admin endpoint below,
   not the deterministic login-time auto-generation)
 - email preferences are no longer set here — the retired `new_event_notifications`
   opt-in flag is replaced by per-category preferences at `PUT /api/v1/me/email-preferences`

@@ -286,6 +286,25 @@ fn openapi_patch_me_schema_does_not_advertise_access_mutation_fields() {
 }
 
 #[test]
+fn openapi_operating_initials_routes_document_not_found_and_conflict() {
+    use utoipa::OpenApi;
+
+    let openapi = serde_json::to_value(osmium::docs::ApiDoc::openapi()).unwrap();
+    for (path, method) in [
+        ("/api/v1/admin/users/{cid}/operating-initials", "patch"),
+        ("/api/v1/me", "patch"),
+    ] {
+        let responses = &openapi["paths"][path][method]["responses"];
+        for status in ["400", "404", "409"] {
+            assert!(
+                responses[status].is_object(),
+                "{method} {path} does not document {status}"
+            );
+        }
+    }
+}
+
+#[test]
 fn openapi_paginated_routes_use_envelopes_and_page_params() {
     use utoipa::OpenApi;
 

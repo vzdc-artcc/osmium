@@ -483,9 +483,10 @@ pub async fn admin_update_user_profile(
     request_body = UpdateOperatingInitialsRequest,
     responses(
         (status = 200, description = "Reassigned operating initials", body = UpdateOperatingInitialsResponse),
-        (status = 400, description = "Invalid request, or initials already in use"),
+        (status = 400, description = "Operating initials are not two letters"),
         (status = 401, description = "Not authorized"),
-        (status = 404, description = "User not found")
+        (status = 404, description = "User not found, or the user has no roster membership"),
+        (status = 409, description = "Operating initials already held by another user")
     )
 )]
 pub async fn reassign_user_operating_initials(

@@ -92,7 +92,9 @@ pub async fn me(
     responses(
         (status = 200, description = "Updated current user profile", body = MeBody),
         (status = 400, description = "Invalid request"),
-        (status = 401, description = "Not authenticated")
+        (status = 401, description = "Not authenticated"),
+        (status = 404, description = "`operating_initials` was sent and the user has no roster membership"),
+        (status = 409, description = "`operating_initials` is already held by another user")
     )
 )]
 pub async fn patch_me(
