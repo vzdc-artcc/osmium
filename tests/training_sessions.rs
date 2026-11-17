@@ -598,6 +598,7 @@ async fn session_rubric_scores_survive_rubric_edits_and_deletes() {
             &[
                 "training.sessions.create",
                 "training.sessions.read",
+                "training.sessions.update",
                 "training.lessons.read",
                 "training.lessons.create",
                 "training.lessons.update",
@@ -860,37 +861,150 @@ async fn session_rubric_scores_survive_rubric_edits_and_deletes() {
     assert_eq!(deleted["cell_points"], 5);
     assert_eq!(deleted["cell_description"], "No losses");
 
+    // Saving the session again takes a fresh copy from the rubric as it now
+    // stands: the renamed criterion and the edited cell's new points.
+    let response = app
+        .json_request(
+            "PATCH",
+            &format!("/api/v1/training/sessions/{session_id}"),
+            token,
+            Some(json!({
+                "student_id": student.id,
+                "start": "2026-02-01T12:00:00Z",
+                "end": "2026-02-01T13:00:00Z",
+                "additional_comments": null,
+                "trainer_comments": null,
+                "enable_markdown": false,
+                "tickets": [{
+                    "lesson_id": lesson_id,
+                    "passed": true,
+                    "scores": [
+                        {"criteria_id": criteria_ids[0], "cell_id": scored_cell_ids[0], "passed": true}
+                    ]
+                }],
+                "performance_indicator": null,
+                "additional_trainers": []
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+
+    let response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/training/sessions/{session_id}"),
+            token,
+            None,
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+    let body: Value = json_body(response).await;
+    let session = if body["session"].is_object() {
+        &body["session"]
+    } else {
+        &body
+    };
+    let scores = session["tickets"][0]["scores"].as_array().unwrap();
+    assert_eq!(scores.len(), 1, "re-saved session: {session}");
+    let resaved = &scores[0];
+    assert_eq!(resaved["criteria_id"], criteria_ids[0].as_str());
+    assert_eq!(resaved["criteria"], "Renamed criterion");
+    assert_eq!(resaved["criteria_description"], "Renamed description");
+    assert_eq!(resaved["max_points"], 6);
+    assert_eq!(resaved["passing"], 5);
+    assert_eq!(resaved["cell_points"], 2);
+    assert_eq!(resaved["cell_description"], "Renamed cell");
+
     app.cleanup().await;
 }
 
-/// A score insert whose criterion and cell no longer exist writes nothing and
-/// reports a conflict, instead of inserting an empty snapshot or succeeding.
+/// A score insert copies its criterion and cell from the live rubric. A pair
+/// that does not resolve to a criterion and one of its own cells writes
+/// nothing and reports a conflict.
 #[tokio::test(flavor = "current_thread")]
-async fn rubric_score_insert_refuses_a_missing_criterion_or_cell() {
+async fn rubric_score_insert_refuses_an_unresolved_criterion_and_cell() {
     let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
         return;
     };
 
-    let mut tx = app.pool.begin().await.unwrap();
-    let result = osmium::repos::training::sessions::insert_rubric_score_row(
-        &mut tx,
-        "score-1",
-        "ticket-1",
-        "missing-criteria",
-        "missing-cell",
-        true,
+    let instructor = app.create_user(10001192, "Rubric Instructor", &[]).await;
+    let student = app.create_user(10001193, "Rubric Trainee", &[]).await;
+    sqlx::raw_sql(
+        r#"
+        insert into training.lesson_rubrics (id) values ('r1');
+        insert into training.lessons (id, identifier, location, name, description, position, facility, rubric_id)
+        values ('l1', 'TWR1', 2, 'Tower', 'desc', 'TWR', 'DCA', 'r1');
+        insert into training.lesson_rubric_criteria (id, rubric_id, criteria, description, passing, max_points)
+        values ('c1', 'r1', 'Phraseology', 'desc', 3, 4), ('c2', 'r1', 'Separation', 'desc', 4, 5);
+        insert into training.lesson_rubric_cells (id, criteria_id, points, description)
+        values ('x1', 'c1', 4, 'Always standard'), ('x2', 'c2', 5, 'No losses');
+        "#,
     )
-    .await;
-    assert!(
-        matches!(result, Err(osmium::errors::ApiError::Conflict)),
-        "expected Conflict, got {result:?}"
-    );
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into training.training_sessions (id, student_id, instructor_id, start, "end")
+        values ('s1', $1, $2, now(), now())
+        "#,
+    )
+    .bind(&student.id)
+    .bind(&instructor.id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "insert into training.training_tickets (id, session_id, lesson_id, passed) values ('t1', 's1', 'l1', true)",
+    )
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let mut tx = app.pool.begin().await.unwrap();
+    for (score_id, criteria_id, cell_id, case) in [
+        (
+            "score-missing",
+            "missing-criteria",
+            "missing-cell",
+            "both missing",
+        ),
+        ("score-foreign", "c1", "x2", "cell of another criterion"),
+    ] {
+        let result = osmium::repos::training::sessions::insert_rubric_score_row(
+            &mut tx,
+            score_id,
+            "t1",
+            criteria_id,
+            cell_id,
+            true,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(osmium::errors::ApiError::Conflict)),
+            "{case}: expected Conflict, got {result:?}"
+        );
+    }
     let stored: i64 = sqlx::query_scalar("select count(*)::bigint from training.rubric_scores")
         .fetch_one(&mut *tx)
         .await
         .unwrap();
-    assert_eq!(stored, 0);
+    assert_eq!(stored, 0, "no row for an unresolved pair");
+
+    // Positive control: the criterion with its own cell inserts one copy.
+    osmium::repos::training::sessions::insert_rubric_score_row(
+        &mut tx, "score-ok", "t1", "c1", "x1", true,
+    )
+    .await
+    .expect("criterion with its own cell inserts");
+    let (criteria, cell_points): (String, i32) = sqlx::query_as(
+        "select criteria, cell_points from training.rubric_scores where id = 'score-ok'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!((criteria.as_str(), cell_points), ("Phraseology", 4));
     tx.rollback().await.unwrap();
 
     app.cleanup().await;

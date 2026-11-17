@@ -184,7 +184,7 @@ pub async fn fetch_score_rows(
         where training_ticket_id in (
             select id from training.training_tickets where session_id = $1
         )
-        order by criteria asc, id asc
+        order by id asc
         "#,
     )
     .bind(session_id)
