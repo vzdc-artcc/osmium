@@ -12,6 +12,17 @@ Timestamped admin responses follow the shared response-timezone contract via `X-
 - fallback: UTC/Zulu when no authenticated human timezone exists
 - audit `before_state` and `after_state` snapshots remain stored JSON and are not rewritten
 
+## Audit Snapshots
+
+An audit row's `before_state` is the persisted record as it was read before the write (`null` on a create), and for record changes its `after_state` is the same record read back after the write (`null` on a delete), so the two can be diffed field by field. Neither side is the request payload. Actions that are events rather than record changes (session revokes, impersonation start/stop, queued emails and notifications, job runs, exports) carry a summary object in `after_state` instead.
+
+Before a snapshot is stored, any credential-shaped key has its value replaced with `"[REDACTED]"`, at any nesting depth. Stored keys keep their original spelling; only the match normalizes a key to lower snake case first, so `accessToken` matches as `access_token` and `x-api-key` as `x_api_key`. The match covers:
+
+- exact names: `authorization`, `cookie`, `token`, `access_token`, `refresh_token`, `id_token`, `session_token`, `secret`, `client_secret`, `password`, `api_key`, `apikey`, `signature`, `code_verifier`, `sig`, `secret_hash`
+- names ending in `_secret`, `_token`, `_password`, `_hash`, `_signature`, `_cookie`, `api_key`, `authorization`, `private_key`, `signing_key`, or `auth_code`
+
+Ordinary fields that merely contain one of those words, such as `callsign`, `session_id`, `category_key`, or `state`, are stored as-is.
+
 ## Main Routes
 
 - `GET /api/v1/admin/acl`

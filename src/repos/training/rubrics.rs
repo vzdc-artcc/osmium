@@ -6,7 +6,7 @@ use crate::{
     models::{LessonRubricCellDetail, LessonRubricCriteriaDetail, LessonRubricDetail},
 };
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct CriteriaRow {
     pub id: String,
     pub rubric_id: String,
