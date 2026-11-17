@@ -132,21 +132,25 @@ where
         .map_err(|_| ApiError::Internal)
 }
 
+/// Decides a `PENDING` request. Returns `false` when no `PENDING` row has this id, so a
+/// request that is already decided stays as it was. The status check is in the update
+/// itself: a concurrent decide waits on the row lock, re-evaluates the `where` against the
+/// committed row, and matches nothing.
 pub async fn decide_release_request_row<'e, E>(
     executor: E,
     request_id: &str,
     status: &str,
     now: DateTime<Utc>,
     decided_by: &str,
-) -> Result<(), ApiError>
+) -> Result<bool, ApiError>
 where
     E: Executor<'e, Database = Postgres>,
 {
-    sqlx::query(
+    let result = sqlx::query(
         r#"
         update training.trainer_release_requests
         set status = $1, decided_at = $2, decided_by = $3
-        where id = $4
+        where id = $4 and status = 'PENDING'
         "#,
     )
     .bind(status)
@@ -157,7 +161,7 @@ where
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    Ok(())
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn delete_release_request_row<'e, E>(
