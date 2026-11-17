@@ -92,6 +92,8 @@ pub struct UserEventPositionItem {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct UserEventPositionListResponse {
     pub items: Vec<UserEventPositionItem>,
+    #[serde(flatten)]
+    pub pagination: crate::models::PaginationMeta,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]

@@ -366,11 +366,12 @@ pub async fn list_event_positions(
     ))
 }
 
-#[utoipa::path(get, path = "/api/v1/users/{cid}/event-positions", tag = "events", params(("cid" = i64, Path, description = "User CID")), responses((status = 200, description = "User's published event positions, most recent event first", body = UserEventPositionListResponse), (status = 401, description = "Not authenticated")))]
+#[utoipa::path(get, path = "/api/v1/users/{cid}/event-positions", tag = "events", params(("cid" = i64, Path, description = "User CID"), PaginationQuery), responses((status = 200, description = "User's published event positions, most recent event first", body = UserEventPositionListResponse), (status = 401, description = "Not authenticated")))]
 pub async fn get_user_event_positions(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(cid): Path<i64>,
+    Query(query): Query<PaginationQuery>,
     time: ResponseTimeContext,
 ) -> Result<ApiJson<UserEventPositionListResponse>, ApiError> {
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
@@ -395,9 +396,23 @@ pub async fn get_user_event_positions(
     }
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let items = events_repo::fetch_user_published_event_positions(db, cid).await?;
+    let pagination = query.resolve(25, 200);
+    let total = events_repo::count_user_published_event_positions(db, cid).await?;
+    let items = events_repo::fetch_user_published_event_positions(
+        db,
+        cid,
+        pagination.page_size,
+        pagination.offset,
+    )
+    .await?;
 
-    Ok(ApiJson::new(UserEventPositionListResponse { items }, time))
+    Ok(ApiJson::new(
+        UserEventPositionListResponse {
+            items,
+            pagination: PaginationMeta::new(total, pagination.page, pagination.page_size),
+        },
+        time,
+    ))
 }
 
 // Create event position (self-service signup, or admin manual-add on behalf of another user)
