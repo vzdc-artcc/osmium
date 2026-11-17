@@ -42,7 +42,7 @@ Named event-position-preset bundles (standalone, not scoped to one event):
 
 - event list/get, position list, ops-plan get, TMI list, preset-positions get, and ops-plan-files list are public
 - `POST /events` requires `events.items.create`; `PATCH /events/{event_id}` and every `event-ops` mutation (ops-plan, TMIs, preset-positions, lock/unlock) require `events.items.update`; `DELETE /events/{event_id}` requires `events.items.delete`
-- event position self-signup (`POST /events/{event_id}/positions`) requires an authenticated session with `events.positions.self.request`
+- event position self-signup (`POST /events/{event_id}/positions`) requires an authenticated session with `events.positions_self.request`
 - `PATCH /events/{event_id}/positions/{position_id}` (reassign/finalize/publish-toggle/status) requires `events.positions.assign`; `DELETE` requires `events.positions.delete`; bulk `POST .../positions/publish` requires `events.positions.publish`
 - named event-position-preset bundles (`/event-position-presets*`) are an admin-only tool — even listing requires `events.presets.read`, plus `.create`/`.update`/`.delete` for mutation
 - ops-plan file attachments: listing is public (the published ops-plan page shows them), `POST`/`DELETE` require `events.ops_plan_files.create`/`.delete`

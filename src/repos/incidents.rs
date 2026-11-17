@@ -51,7 +51,10 @@ impl From<IncidentItemRow> for IncidentItem {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_incident(
     pool: &PgPool,
     id: &str,

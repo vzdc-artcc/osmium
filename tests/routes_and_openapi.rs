@@ -11,6 +11,10 @@ struct EnvVarGuard {
     previous: Option<String>,
 }
 
+#[expect(
+    unsafe_code,
+    reason = "test-only env guard: edition 2024 makes env::set_var and env::remove_var unsafe because the environment is process-global"
+)]
 impl EnvVarGuard {
     fn set(key: &'static str, value: &str) -> Self {
         let previous = std::env::var(key).ok();
@@ -22,6 +26,10 @@ impl EnvVarGuard {
     }
 }
 
+#[expect(
+    unsafe_code,
+    reason = "test-only env guard: edition 2024 makes env::set_var and env::remove_var unsafe because the environment is process-global"
+)]
 impl Drop for EnvVarGuard {
     fn drop(&mut self) {
         if let Some(previous) = self.previous.as_deref() {
@@ -372,7 +380,42 @@ fn collect_schema_properties(
 }
 
 #[tokio::test]
-async fn swagger_ui_route_renders() {
+async fn api_reference_page_renders_scalar_with_the_document_embedded() {
+    let state = osmium::state::AppState::without_db();
+    let app = osmium::router::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/docs/api/v1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers()[axum::http::header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/html"),
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+    // The pinned script and its integrity hash, not utoipa-scalar's unversioned default.
+    assert!(
+        html.contains("@scalar/api-reference@1.76.4/"),
+        "{html:.400}"
+    );
+    assert!(html.contains(r#"integrity="sha384-"#), "{html:.400}");
+    // The template's placeholder is replaced by the document itself.
+    assert!(!html.contains("$spec"));
+    assert!(html.contains(r#""/api/v1/me""#));
+}
+
+#[tokio::test]
+async fn api_reference_trailing_slash_redirects_to_the_page() {
     let state = osmium::state::AppState::without_db();
     let app = osmium::router::build_router(state);
 
@@ -386,7 +429,11 @@ async fn swagger_ui_route_renders() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(
+        response.headers()[axum::http::header::LOCATION],
+        "/docs/api/v1"
+    );
 }
 
 #[tokio::test]

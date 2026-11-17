@@ -65,7 +65,10 @@ pub async fn find_user_id_by_cid(pool: &PgPool, cid: i64) -> Result<Option<Strin
         .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_feedback_item(
     pool: &PgPool,
     id: &str,

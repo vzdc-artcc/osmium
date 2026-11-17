@@ -1335,6 +1335,10 @@ mod tests {
         previous: Option<String>,
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "test-only env guard: edition 2024 makes env::set_var and env::remove_var unsafe because the environment is process-global"
+    )]
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let previous = std::env::var(key).ok();
@@ -1355,6 +1359,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "test-only env guard: edition 2024 makes env::set_var and env::remove_var unsafe because the environment is process-global"
+    )]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(previous) = self.previous.as_deref() {

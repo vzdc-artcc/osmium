@@ -23,7 +23,7 @@ async fn event_staff_flow_works_end_to_end() {
         )
         .await;
     let user = app
-        .create_user(10000042, "Event User", &["events.positions.self.request"])
+        .create_user(10000042, "Event User", &["events.positions_self.request"])
         .await;
 
     let create_event_response = app

@@ -806,14 +806,14 @@ pub(crate) const BASELINE_SELF_SERVICE_PERMISSIONS: &[&str] = &[
     "auth.teamspeak_uids.create",
     "auth.teamspeak_uids.delete",
     "auth.sessions.delete",
-    "users.vatusa_refresh.self.request",
+    "users.vatusa_refresh_self.request",
     "users.visit_artcc.request",
-    "users.visitor_applications.self.read",
-    "users.visitor_applications.self.request",
+    "users.visitor_applications_self.read",
+    "users.visitor_applications_self.request",
     "users.directory.read",
     "feedback.items_self.read",
     "feedback.items.create",
-    "events.positions.self.request",
+    "events.positions_self.request",
 ];
 
 /// Seeds baseline permissions once (only for a newly-created user) and keeps the
@@ -1017,6 +1017,10 @@ mod tests {
         previous: Option<String>,
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "test-only env guard: edition 2024 makes env::set_var and env::remove_var unsafe because the environment is process-global"
+    )]
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let previous = std::env::var(key).ok();
@@ -1037,6 +1041,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        unsafe_code,
+        reason = "test-only env guard: edition 2024 makes env::set_var and env::remove_var unsafe because the environment is process-global"
+    )]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(previous) = self.previous.as_deref() {

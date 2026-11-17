@@ -25,6 +25,12 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let state = state::AppState::from_env().await?;
     run_startup_migrations(&state).await?;
     sync_email_templates(&state).await;
+    // Backgrounded, not awaited: unlike the template sync above (bounded by
+    // the small, fixed number of email templates), this scans every active
+    // membership missing operating initials — potentially a real backlog on
+    // first boot after a legacy migration — and must not gate readiness
+    // (the HTTP listener binding, and every job worker starting) on it.
+    tokio::spawn(backfill_operating_initials(state.clone()));
     jobs::email_delivery::start_email_delivery_worker(state.clone());
     jobs::stats_sync::start_stats_sync_worker(state.clone());
     jobs::roster_sync::start_roster_sync_worker(state.clone());
@@ -70,6 +76,77 @@ async fn sync_email_templates(state: &state::AppState) {
         Err(error) => {
             tracing::error!(?error, "failed to sync email template registry")
         }
+    }
+}
+
+/// Assigns operating initials to any active-roster membership
+/// (`controller_status` `HOME`/`VISITOR`) that doesn't have them yet — the
+/// same generation `ensure_operating_initials` already runs on login
+/// (`bootstrap_login_user`) and on an admin controller-status change
+/// (`update_controller_lifecycle`), covering any membership row that reached
+/// `HOME`/`VISITOR` some other way (a data migration, most commonly).
+/// Idempotent and cheap when there's nothing to do: the backing query
+/// (`fetch_active_memberships_missing_operating_initials`) is a partial
+/// index scan that returns empty once every active member has initials.
+/// Best-effort like `sync_email_templates` above — logged, not fatal.
+pub async fn backfill_operating_initials(state: state::AppState) {
+    let Some(pool) = state.db.as_ref() else {
+        return;
+    };
+
+    let rows = match repos::users::fetch_active_memberships_missing_operating_initials(pool).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                "failed to fetch memberships missing operating initials"
+            );
+            return;
+        }
+    };
+
+    let mut assigned = 0u32;
+    for row in rows {
+        let mut tx = match pool.begin().await {
+            Ok(tx) => tx,
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "failed to open transaction for operating initials backfill"
+                );
+                continue;
+            }
+        };
+
+        let result = repos::users::ensure_operating_initials(
+            &mut tx,
+            &row.user_id,
+            row.first_name.as_deref(),
+            row.last_name.as_deref(),
+            &row.display_name,
+        )
+        .await;
+
+        match result {
+            Ok(Some(_)) => {
+                if let Err(error) = tx.commit().await {
+                    tracing::error!(?error, user_id = %row.user_id, "failed to commit operating initials backfill");
+                } else {
+                    assigned += 1;
+                }
+            }
+            Ok(None) => {
+                let _ = tx.rollback().await;
+            }
+            Err(error) => {
+                tracing::error!(?error, user_id = %row.user_id, "failed to backfill operating initials");
+                let _ = tx.rollback().await;
+            }
+        }
+    }
+
+    if assigned > 0 {
+        tracing::info!(assigned, "backfilled operating initials on startup");
     }
 }
 

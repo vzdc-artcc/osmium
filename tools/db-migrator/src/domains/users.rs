@@ -9,7 +9,7 @@ use crate::{
     helpers::{assume_utc, assume_utc_opt, record_warning},
     mapping::{
         legacy_numeric_rating_to_code, normalize_controller_status, normalize_role,
-        normalize_staff_position,
+        normalize_staff_position, staff_position_source,
     },
     state::AppState,
     target,
@@ -31,6 +31,7 @@ struct SourceUser {
     rating: Option<i32>,
     division: Option<String>,
     roles: Vec<String>,
+    staff_positions: Vec<String>,
     bio: Option<String>,
     controller_status: Option<String>,
     updated_at: NaiveDateTime,
@@ -87,6 +88,7 @@ struct UserPayload {
     updated_at: DateTime<Utc>,
     email_verified_at: Option<DateTime<Utc>>,
     roles: Vec<String>,
+    staff_positions: Vec<String>,
     teamspeak_uid: Option<String>,
     discord_uid: Option<String>,
     discord_tag: Option<String>,
@@ -109,6 +111,7 @@ pub async fn migrate(state: &mut AppState) -> Result<()> {
             rating,
             division,
             coalesce(roles::text[], '{}'::text[]) as roles,
+            coalesce("staffPositions"::text[], '{}'::text[]) as staff_positions,
             bio,
             "controllerStatus"::text as controller_status,
             "updatedAt" as updated_at,
@@ -233,6 +236,28 @@ async fn build_payload(
         roles.insert("USER".to_string());
     }
 
+    let mut staff_positions = BTreeSet::new();
+    for position in &user.staff_positions {
+        if let Some(mapped) = normalize_staff_position(position) {
+            staff_positions.insert(mapped.to_string());
+            continue;
+        }
+        if state.config.strict {
+            bail!(
+                "unknown legacy staff position `{position}` for user {}",
+                user.id
+            );
+        }
+        record_warning(
+            state,
+            DOMAIN,
+            "user-staff-position",
+            &user.id,
+            format!("skipping unmapped staff position `{position}`"),
+        )
+        .await?;
+    }
+
     let display_name = user
         .preferred_name
         .as_deref()
@@ -298,6 +323,7 @@ async fn build_payload(
         updated_at: assume_utc(user.updated_at),
         email_verified_at: assume_utc_opt(user.email_verified_at),
         roles: roles.into_iter().collect(),
+        staff_positions: staff_positions.into_iter().collect(),
         teamspeak_uid: user.teamspeak_uid.clone(),
         discord_uid: user.discord_uid.clone(),
         discord_tag: user.discord_tag.clone(),
@@ -453,6 +479,23 @@ async fn upsert_user(state: &mut AppState, source_id: &str, payload: &UserPayloa
             )
             .bind(&target_id)
             .bind(role_name)
+            .execute(&state.target)
+            .await?;
+        }
+
+        // `do nothing`: a re-run must not override what roster sync or an
+        // admin has set on the target since the first migration.
+        for position in &payload.staff_positions {
+            sqlx::query(
+                r#"
+                insert into identity.staff_positions (user_id, position, held, source)
+                values ($1, $2, true, $3)
+                on conflict (user_id, position) do nothing
+                "#,
+            )
+            .bind(&target_id)
+            .bind(position)
+            .bind(staff_position_source(position))
             .execute(&state.target)
             .await?;
         }

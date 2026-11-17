@@ -282,10 +282,7 @@ pub async fn refresh_my_vatusa(
         &state,
         Some(viewer),
         None,
-        PermissionPath::from_segments(
-            ["users", "vatusa_refresh", "self"],
-            PermissionAction::Request,
-        ),
+        PermissionPath::from_segments(["users", "vatusa_refresh_self"], PermissionAction::Request),
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -357,7 +354,7 @@ pub async fn get_my_visitor_application(
         Some(user),
         None,
         PermissionPath::from_segments(
-            ["users", "visitor_applications", "self"],
+            ["users", "visitor_applications_self"],
             PermissionAction::Read,
         ),
     )
@@ -392,7 +389,7 @@ pub async fn create_visitor_application(
         Some(user),
         None,
         PermissionPath::from_segments(
-            ["users", "visitor_applications", "self"],
+            ["users", "visitor_applications_self"],
             PermissionAction::Request,
         ),
     )
