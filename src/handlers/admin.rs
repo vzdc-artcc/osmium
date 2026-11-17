@@ -884,7 +884,17 @@ pub async fn decide_visitor_application(
         &configured_artcc(),
     )
     .await?
-    .ok_or(ApiError::BadRequest)?;
+    .ok_or_else(|| {
+        // A concurrent decide committed between the status check and this update.
+        if normalized_status == "APPROVED" {
+            tracing::warn!(
+                application_id = %application_id,
+                cid = ?before.cid,
+                "visitor approval reached VATUSA but lost the race to decide locally; reconcile the VATUSA roster"
+            );
+        }
+        ApiError::BadRequest
+    })?;
 
     audit_repo::record_audit(
         &mut *tx,

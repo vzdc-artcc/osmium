@@ -447,6 +447,7 @@ async fn deciding_a_decided_visitor_application_is_refused_and_changes_nothing()
         "refused decisions on an approved application write no audit row and queue no email"
     );
 
+    // This direct call is the only coverage of the repo's `status = 'PENDING'` guard.
     // The repo refuses on its own, for a decide that passed the handler's status check
     // before a concurrent one committed.
     let mut tx = app.pool.begin().await.expect("begin tx");
