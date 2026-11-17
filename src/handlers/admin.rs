@@ -823,7 +823,7 @@ pub async fn list_visitor_applications(
     request_body = DecideVisitorApplicationRequest,
     responses(
         (status = 200, description = "Visitor application updated", body = VisitorApplicationItem),
-        (status = 400, description = "Invalid request"),
+        (status = 400, description = "Invalid request, or the application is not PENDING"),
         (status = 401, description = "Not authorized"),
         (status = 404, description = "Visitor application or user not found")
     )
@@ -857,6 +857,12 @@ pub async fn decide_visitor_application(
         .await?
         .ok_or(ApiError::NotFound)?;
 
+    // Refuse a decided application before the VATUSA call, which runs outside the
+    // transaction. The conditional update below is still the guard against a concurrent decide.
+    if before.status != "PENDING" {
+        return Err(ApiError::BadRequest);
+    }
+
     if normalized_status == "APPROVED" {
         sync_approved_visitor_to_vatusa(before.cid.ok_or(ApiError::BadRequest)?).await?;
     }
@@ -878,7 +884,7 @@ pub async fn decide_visitor_application(
         &configured_artcc(),
     )
     .await?
-    .ok_or(ApiError::NotFound)?;
+    .ok_or(ApiError::BadRequest)?;
 
     audit_repo::record_audit(
         &mut *tx,

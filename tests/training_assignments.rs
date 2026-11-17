@@ -214,6 +214,110 @@ async fn assignment_request_self_cancel_and_admin_delete_work() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn deciding_a_decided_assignment_request_is_refused_and_changes_nothing() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let decide = &["training.assignment_requests.decide"];
+    let first_decider = app.create_user(10017311, "First Decider", decide).await;
+    let second_decider = app.create_user(10017312, "Second Decider", decide).await;
+    let student = app
+        .create_user(
+            10017313,
+            "Decided Request Student",
+            &["training.assignment_requests_self.request"],
+        )
+        .await;
+
+    let create_response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/assignment-requests",
+            Some(&student.session_token),
+            Some(json!({})),
+        )
+        .await;
+    assert_status(&create_response, StatusCode::CREATED);
+    let created: Value = json_body(create_response).await;
+    let request_id = created["id"].as_str().unwrap().to_string();
+    let decide_path = format!("/api/v1/training/assignment-requests/{request_id}");
+
+    let approve_response = app
+        .json_request(
+            "PATCH",
+            &decide_path,
+            Some(&first_decider.session_token),
+            Some(json!({"status": "APPROVED"})),
+        )
+        .await;
+    assert_status(&approve_response, StatusCode::OK);
+
+    let stored_decision = || async {
+        sqlx::query_as::<
+            _,
+            (
+                String,
+                Option<String>,
+                Option<chrono::DateTime<chrono::Utc>>,
+            ),
+        >(
+            "select status, decided_by, decided_at \
+             from training.training_assignment_requests where id = $1",
+        )
+        .bind(&request_id)
+        .fetch_one(&app.pool)
+        .await
+        .expect("assignment request row")
+    };
+    let decide_audit_rows = || async {
+        sqlx::query_scalar::<_, i64>(
+            "select count(*) from access.audit_logs \
+             where resource_type = 'TRAINING_ASSIGNMENT_REQUEST' and action = 'DECIDE' \
+               and resource_id = $1",
+        )
+        .bind(&request_id)
+        .fetch_one(&app.pool)
+        .await
+        .expect("count audit rows")
+    };
+
+    let first_decision = stored_decision().await;
+    assert_eq!(first_decision.0, "APPROVED");
+    assert_eq!(first_decision.1.as_deref(), Some(first_decider.id.as_str()));
+    assert_eq!(
+        decide_audit_rows().await,
+        1,
+        "the first decision writes one audit row"
+    );
+
+    for status in ["DENIED", "APPROVED"] {
+        let response = app
+            .json_request(
+                "PATCH",
+                &decide_path,
+                Some(&second_decider.session_token),
+                Some(json!({ "status": status })),
+            )
+            .await;
+        assert_status(&response, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            stored_decision().await,
+            first_decision,
+            "{status} on an approved request keeps the first decision and decider"
+        );
+    }
+    assert_eq!(
+        decide_audit_rows().await,
+        1,
+        "a refused decision writes no audit row"
+    );
+
+    app.cleanup().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn assignment_request_interest_is_listed_with_trainer_details() {
     let _env_lock = lock_env();
     let Some(app) = TestApp::new().await else {
