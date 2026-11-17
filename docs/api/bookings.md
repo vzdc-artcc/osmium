@@ -55,7 +55,8 @@ through untouched.
 Mirrors the legacy action exactly — applied only when `type` is not
 `"training"`:
 
-- at most 2 active bookings per controller (checked on create)
+- at most 2 active bookings per controller, checked on every write that
+  creates a booking: a `POST`, and a `PUT` that falls back to a create
 - start must be 2–72 hours in the future
 - duration at most 2 hours
 
