@@ -251,6 +251,40 @@ pub struct ListTrainingAppointmentsQuery {
     pub trainer_id: Option<String>,
     pub student_id: Option<String>,
     pub user_id: Option<String>,
+    /// `true` keeps appointments starting now or later; `false` keeps those that already started.
+    pub upcoming: Option<bool>,
+    /// Filter on the appointment's `double_booking` flag.
+    pub double_booking: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ListOtsRecommendationsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    /// `true` keeps recommendations with an assigned instructor; `false` keeps unassigned ones.
+    pub assigned: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ListTrainingAssignmentRequestsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    /// `HOME` or `VISITOR` (case-insensitive); matches the response's `student_controller_status`.
+    pub student_controller_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+pub struct ListTrainerReleaseRequestsQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    /// `PENDING`, `APPROVED`, or `DENIED` (case-insensitive).
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

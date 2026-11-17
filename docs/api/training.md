@@ -49,6 +49,18 @@ Lesson routes now cover:
 
 All training list routes that can grow large now use the shared pagination envelope. Canonical query params are `page` and `page_size`, with `limit` and `offset` still accepted for compatibility.
 
+Several queue-style lists also take a filter. The filter narrows both `items` and `pagination.total`, so a client that only needs a count can request `page_size=1` and read `total`. Each route keeps its usual read permission; the filter adds no access of its own.
+
+| Route | Param | Values | Meaning |
+| --- | --- | --- | --- |
+| `GET /training/ots-recommendations` | `assigned` | `true` / `false` | `true` keeps recommendations with an assigned instructor, `false` keeps unassigned ones |
+| `GET /training/assignment-requests` | `student_controller_status` | `HOME` / `VISITOR` (case-insensitive) | matches the item's `student_controller_status`; any other value returns `400 bad_request` |
+| `GET /training/trainer-release-requests` | `status` | `PENDING` / `APPROVED` / `DENIED` (case-insensitive) | matches the item's `status`; any other value returns `400 bad_request` |
+| `GET /training/appointments` | `upcoming` | `true` / `false` | `true` keeps appointments whose `start` is now or later, `false` keeps those already started |
+| `GET /training/appointments` | `double_booking` | `true` / `false` | matches the appointment's `double_booking` flag |
+
+The appointment filters compose with the existing `trainer_id`, `student_id`, and `user_id` filters. Omitting a filter leaves that list unfiltered, exactly as before. A boolean param that is not `true` or `false` is rejected by query parsing with `400`.
+
 Training appointment routes now cover:
 
 - appointment create, update, delete, list, and detail reads
