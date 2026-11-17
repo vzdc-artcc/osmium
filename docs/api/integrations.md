@@ -12,7 +12,7 @@ Timestamped Discord config and outbound-job responses follow the shared response
 
 - `GET /api/v1/me/discord`
 - `POST /api/v1/me/discord/link/start` — body `{ "return_url": "<website page to return to>" }`; returns `{ auth_url }`. The browser is sent to `auth_url`; Discord's `redirect_uri` is osmium's own callback below.
-- `GET /api/v1/me/discord/link/callback` — Discord redirects the browser here with `?code&state`. osmium exchanges the code server-side, links the identity, and 302s back to the caller's `return_url` with `?discord_linked=1&discord_username=…` on success or `?discord_error=<reason>` on failure. Public (bound to the user via the `state` token).
+- `GET /api/v1/me/discord/link/callback` — Discord redirects the browser here with `?code&state`. osmium exchanges the code server-side, links the identity, and 303s back to the caller's `return_url` with `?discord_linked=1&discord_username=…` on success or `?discord_error=<reason>` on failure. No permission is required, but the browser's osmium session must belong to the user who called `link/start`: a missing session, an impersonating session, or a session for anyone else gets `?discord_error=session_mismatch` and nothing is linked.
 - `POST /api/v1/me/discord/unlink`
 
 ## Admin Integration Routes

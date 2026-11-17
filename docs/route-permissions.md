@@ -36,7 +36,7 @@ Permission-gated routes:
 - `GET /api/v1/routes/preferred` -> authenticated (any logged-in member; no specific permission — public FAA reference data, deliberately not exposed unauthenticated)
 - `GET /api/v1/me/discord` -> `auth.profile.read`
 - `POST /api/v1/me/discord/link/start` -> `auth.profile.read`
-- `GET /api/v1/me/discord/link/callback` -> public (identifies the user from the single-use OAuth `state` token; Discord redirects the browser here, osmium exchanges the code server-side and 302s back to the website)
+- `GET /api/v1/me/discord/link/callback` -> no permission, but requires the session of the user who started the flow (the single-use OAuth `state` token names that user, and a missing, impersonating or other user's session is redirected with `discord_error=session_mismatch`; Discord redirects the browser here, osmium exchanges the code server-side and 303s back to the website)
 - `POST /api/v1/me/discord/unlink` -> `auth.profile.read`
 - `GET /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.read`
 - `POST /api/v1/me/teamspeak-uids` -> `auth.teamspeak_uids.create`
