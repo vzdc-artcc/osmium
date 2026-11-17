@@ -1,0 +1,59 @@
+# cargo-deny: advisories, licences, bans and sources for the whole workspace. Run by
+# `cargo deny check` locally and by the CI `deny` job.
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+ignore = [
+    # zip 3.0.0 is a build-dependency of utoipa-swagger-ui 9, whose build script unpacks the
+    # Swagger UI release archive it downloads; no zip from outside reaches it at run time. The
+    # FAA ingest's own zip is 9.x, which carries the fix. Remove these with the move to utoipa 6
+    # and utoipa-swagger-ui 10, which drop zip 3.
+    { id = "RUSTSEC-2026-0367", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
+    { id = "RUSTSEC-2026-0429", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
+]
+
+[licenses]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+# Licences compatible with distributing the whole as GPL-3.0 (LICENSE): permissive licences,
+# MPL-2.0 (file-level copyleft), and the LGPL/GPL-3.0 family. Anything not listed is refused.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "LGPL-2.1-or-later",
+    "GPL-3.0-or-later",
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    # TLS is rustls throughout (sqlx, reqwest, the AWS SDK). OpenSSL needs system libraries and
+    # was where most of the advisories fixed alongside this file came from.
+    { crate = "openssl-sys", reason = "use rustls" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

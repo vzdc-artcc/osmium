@@ -33,6 +33,7 @@ Before pushing, run:
 cargo fmt --all -- --check
 cargo check --workspace --all-targets
 cargo test --workspace --all-targets -- --test-threads=1
+cargo deny check   # cargo install cargo-deny
 docker build -f Dockerfile .
 ```
 

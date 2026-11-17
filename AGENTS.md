@@ -160,11 +160,18 @@ Full local validation before pushing — run all of it:
 cargo fmt --all -- --check
 cargo check --workspace --exclude db-migrator --all-targets
 cargo test --workspace --exclude db-migrator --all-targets -- --test-threads=1
+cargo deny check
 docker build -f Dockerfile .
 ```
 
-Those first three are exactly what `.github/workflows/ci.yml` enforces on pull
-requests to `master` and `develop`, in that order, each job gating the next.
+`cargo deny check` (config in `deny.toml`) refuses a crate with an open RustSec
+advisory, a licence outside the GPL-3.0-compatible allow-list, `openssl-sys`, or
+a source other than crates.io. An advisory that genuinely does not apply gets an
+`ignore` entry with a reason saying why, never a blanket allow.
+
+CI (`.github/workflows/ci.yml`) runs fmt, check, and test on pull requests to
+`master` and `develop`, in that order, each job gating the next, plus
+`cargo deny check` as its own job.
 
 Reset a stale dev volume when startup reports `VersionMismatch` or
 `VersionMissing`:

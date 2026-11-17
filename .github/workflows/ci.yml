@@ -15,6 +15,20 @@ permissions:
   contents: read
 
 jobs:
+  deny:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check advisories, licences, bans and sources
+        # Config: deny.toml. Runs on every PR, so an advisory published against a locked crate
+        # fails the next PR rather than going unnoticed.
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
   fmt:
     runs-on: ubuntu-latest
 
