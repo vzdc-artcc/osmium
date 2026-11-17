@@ -657,12 +657,32 @@ pub struct TrainingTicketDetail {
     pub scores: Vec<RubricScoreDetail>,
 }
 
+/// A rubric score on a training ticket, with a copy of the criterion and cell
+/// it was scored against taken when the session was saved. Scores recorded
+/// before that copy existed carry the rubric as it stood when migration 0079
+/// ran, not when their session was saved.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct RubricScoreDetail {
     pub id: String,
+    /// Id of the rubric criterion the score was given against. The criterion
+    /// may since have been edited or deleted; the fields below are as scored.
     pub criteria_id: String,
+    /// Id of the rubric cell chosen. The cell may since have been edited or
+    /// deleted; `cell_points` and `cell_description` are as scored.
     pub cell_id: String,
     pub passed: bool,
+    /// Criterion name at the time the session was saved.
+    pub criteria: String,
+    /// Criterion description at the time the session was saved.
+    pub criteria_description: String,
+    /// Points needed to pass the criterion at the time the session was saved.
+    pub passing: i32,
+    /// Criterion maximum points at the time the session was saved.
+    pub max_points: i32,
+    /// Points of the chosen cell at the time the session was saved.
+    pub cell_points: i32,
+    /// Description of the chosen cell at the time the session was saved.
+    pub cell_description: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
