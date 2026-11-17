@@ -2138,6 +2138,7 @@ pub async fn list_training_appointments(
         user_id: query.user_id.as_deref(),
         upcoming: query.upcoming,
         double_booking: query.double_booking,
+        ended: query.ended,
         as_of: Utc::now(),
     };
 
