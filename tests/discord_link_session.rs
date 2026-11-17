@@ -35,10 +35,19 @@ async fn start_link(test: &TestApp, user: &TestUser) -> String {
 
 /// Calls the callback with `state` and a dummy code, returning the redirect target.
 async fn callback(test: &TestApp, session_token: Option<&str>, state: &str) -> String {
+    callback_with_query(
+        test,
+        session_token,
+        &format!("code=dummy-code&state={state}"),
+    )
+    .await
+}
+
+async fn callback_with_query(test: &TestApp, session_token: Option<&str>, query: &str) -> String {
     let response = test
         .json_request(
             "GET",
-            &format!("/api/v1/me/discord/link/callback?code=dummy-code&state={state}"),
+            &format!("/api/v1/me/discord/link/callback?{query}"),
             session_token,
             None,
         )
@@ -126,6 +135,75 @@ async fn callback_refuses_a_browser_with_no_session() {
     assert_eq!(discord_identity_count(&test).await, 0);
 
     assert_starter_passes_binding(&test, &starter, &state).await;
+
+    test.cleanup().await;
+}
+
+#[tokio::test]
+async fn callback_refuses_an_impersonating_session() {
+    let _env = support::lock_env();
+    let Some(test) = TestApp::new().await else {
+        return;
+    };
+    let _discord = unset_discord_config();
+    let starter = test
+        .create_user(575_104, "Link Starter", &["auth.profile.read"])
+        .await;
+    let admin = test
+        .create_user(575_105, "Impersonator", &["auth.impersonate.create"])
+        .await;
+    let state = start_link(&test, &starter).await;
+
+    let impersonate = test
+        .json_request(
+            "POST",
+            "/api/v1/admin/impersonate/575104",
+            Some(&admin.session_token),
+            Some(json!({})),
+        )
+        .await;
+    assert_status(&impersonate, StatusCode::OK);
+
+    // The admin's session now resolves as the starter, so only the impersonation
+    // check stands between it and the link.
+    let location = callback(&test, Some(&admin.session_token), &state).await;
+    assert_eq!(
+        location,
+        format!("{RETURN_URL}?discord_error=session_mismatch")
+    );
+    assert_eq!(discord_identity_count(&test).await, 0);
+
+    assert_starter_passes_binding(&test, &starter, &state).await;
+
+    test.cleanup().await;
+}
+
+#[tokio::test]
+async fn callback_checks_the_session_before_discords_error_param() {
+    let _env = support::lock_env();
+    let Some(test) = TestApp::new().await else {
+        return;
+    };
+    let _discord = unset_discord_config();
+    let starter = test
+        .create_user(575_106, "Link Starter", &["auth.profile.read"])
+        .await;
+    let other = test
+        .create_user(575_107, "Other Browser", &["auth.profile.read"])
+        .await;
+    let state = start_link(&test, &starter).await;
+
+    let query = format!("error=access_denied&state={state}");
+
+    assert_eq!(
+        callback_with_query(&test, Some(&other.session_token), &query).await,
+        format!("{RETURN_URL}?discord_error=session_mismatch")
+    );
+    // Positive control: the starter's session reaches Discord's error.
+    assert_eq!(
+        callback_with_query(&test, Some(&starter.session_token), &query).await,
+        format!("{RETURN_URL}?discord_error=access_denied")
+    );
 
     test.cleanup().await;
 }

@@ -128,7 +128,7 @@ pub async fn unlink_discord(
     path = "/api/v1/me/discord/link/callback",
     tag = "integrations",
     params(DiscordLinkCallbackQuery),
-    responses((status = 303, description = "Redirects back to the website with the link outcome. `discord_error=session_mismatch` when the browser has no osmium session, or a session for a different user than the one who started the flow"))
+    responses((status = 303, description = "Redirects back to the website with the link outcome. `discord_error=session_mismatch` when the browser has no osmium session, an impersonating session, or a session for a different user than the one who started the flow"))
 )]
 pub async fn discord_link_callback(
     State(state): State<AppState>,
@@ -183,7 +183,10 @@ async fn run_discord_link_callback(
 
     // Checked before anything else touches Discord or the database: a browser that
     // is not the starter's gets nothing linked and the state stays with its owner.
-    if current_user.is_none_or(|user| user.id != state_row.external_id) {
+    // An impersonating session resolves `id` to the target, so it is refused
+    // explicitly; linking is a self-service write, and the impersonation block only
+    // covers mutating methods, not this GET.
+    if current_user.is_none_or(|user| user.is_impersonated() || user.id != state_row.external_id) {
         return fail(return_url, "session_mismatch");
     }
 
