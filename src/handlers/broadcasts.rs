@@ -400,7 +400,10 @@ fn normalize_optional(value: Option<&str>) -> Option<String> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the audit row's actor, target and before/after state are each a separate input"
+)]
 async fn record_audit_entry<TBefore, TAfter>(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     current_user: Option<&CurrentUser>,

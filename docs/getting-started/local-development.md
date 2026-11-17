@@ -4,7 +4,7 @@ This page covers the normal workflow for running Osmium locally with the current
 
 ## Required Tools
 
-- Rust toolchain compatible with `Cargo.toml`
+- [`rustup`](https://rustup.rs). The toolchain is pinned in `rust-toolchain.toml`, and rustup installs it on the first `cargo` command
 - Docker and Docker Compose
 - PostgreSQL client tools are helpful but optional
 - `sqlx-cli` is optional because the app can run migrations on startup

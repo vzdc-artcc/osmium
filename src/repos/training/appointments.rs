@@ -111,7 +111,10 @@ impl AppointmentListRow {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per optional filter the query binds"
+)]
 pub async fn list_appointments(
     pool: &PgPool,
     trainer_id: Option<&str>,
@@ -460,7 +463,10 @@ where
     Ok(lessons)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_appointment<'e, E>(
     executor: E,
     id: &str,
@@ -531,7 +537,10 @@ pub async fn replace_appointment_lessons(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn update_appointment_row<'e, E>(
     executor: E,
     appointment_id: &str,

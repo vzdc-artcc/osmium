@@ -234,7 +234,6 @@ pub async fn fetch_performance_indicator_criteria(
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn count_sessions(
     pool: &PgPool,
     student_id: Option<&str>,
@@ -341,7 +340,10 @@ impl TrainingSessionListRow {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per optional filter the query binds"
+)]
 pub async fn list_sessions(
     pool: &PgPool,
     student_id: Option<&str>,
@@ -646,7 +648,10 @@ pub async fn fetch_session_additional_trainers(
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn update_session_row(
     tx: &mut Transaction<'_, Postgres>,
     session_id: &str,
@@ -685,7 +690,10 @@ pub async fn update_session_row(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_session_row(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
@@ -835,7 +843,6 @@ pub async fn insert_performance_indicator_category_row(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn insert_performance_indicator_criteria_row(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
@@ -925,7 +932,6 @@ pub async fn delete_solo_certification_for_roster(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn upsert_user_certification(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,

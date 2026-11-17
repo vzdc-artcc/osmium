@@ -190,7 +190,10 @@ pub async fn list_visible_files(
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_file_asset(
     pool: &PgPool,
     id: &str,

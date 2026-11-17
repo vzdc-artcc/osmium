@@ -4,7 +4,6 @@ use super::branding::EmailTheme;
 use super::rsx::find_rsx_template;
 use super::templates::{RenderedEmail, TemplateDefinition, unsubscribe_link};
 
-#[allow(clippy::too_many_arguments)]
 pub fn render_template(
     template: &TemplateDefinition,
     payload: &serde_json::Value,

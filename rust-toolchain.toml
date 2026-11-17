@@ -1,0 +1,7 @@
+# Pinned stable toolchain, used by local builds, CI, and (through the Dockerfile's builder tag)
+# the image. Bump deliberately in its own commit, together with `rust-version` in Cargo.toml and
+# the Dockerfile's `rust:` tag.
+[toolchain]
+channel = "1.98"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
