@@ -1,13 +1,37 @@
-use axum::Router;
+use std::sync::Arc;
+
+use axum::{Json, Router, response::Redirect, routing::get};
 use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
+use utoipa_scalar::{Scalar, Servable};
 
 use crate::state::AppState;
 
+const API_REFERENCE_PATH: &str = "/docs/api/v1";
+/// Clients generate their types from this document (the website's codegen reads it), so its path
+/// and content are part of the API contract, independent of the reference page's renderer.
+const OPENAPI_JSON_PATH: &str = "/docs/api/v1/openapi.json";
+
+/// utoipa-scalar's own template loads an unversioned script from jsDelivr, so every page load
+/// would run whatever Scalar published last. This one pins the version and its SRI hash.
+const SCALAR_HTML: &str = include_str!("scalar.html");
+
 pub fn build_docs_router() -> Router<AppState> {
-    Router::<AppState>::from(
-        SwaggerUi::new("/docs/api/v1").url("/docs/api/v1/openapi.json", ApiDoc::openapi()),
-    )
+    let document = ApiDoc::openapi();
+    let json = Arc::new(document.clone());
+    Router::<AppState>::new()
+        .route(
+            OPENAPI_JSON_PATH,
+            get(move || {
+                let json = Arc::clone(&json);
+                async move { Json(json) }
+            }),
+        )
+        // Swagger UI answered on the trailing-slash form; keep old links working.
+        .route(
+            "/docs/api/v1/",
+            get(|| async { Redirect::permanent(API_REFERENCE_PATH) }),
+        )
+        .merge(Scalar::with_url(API_REFERENCE_PATH, document).custom_html(SCALAR_HTML))
 }
 
 #[derive(OpenApi)]
