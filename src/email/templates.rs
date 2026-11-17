@@ -155,6 +155,116 @@ pub fn registry() -> &'static [TemplateDefinition] {
             respect_user_event_pref: false,
             payload_schema: session_created_schema,
         },
+        TemplateDefinition {
+            id: "training.ots_assigned_student",
+            name: "OTS Assigned (Student)",
+            category: "training",
+            description: "OTS instructor assigned, sent to the student",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: ots_assigned_student_schema,
+        },
+        TemplateDefinition {
+            id: "training.ots_assigned_instructor",
+            name: "OTS Assigned (Instructor)",
+            category: "training",
+            description: "OTS assignment, sent to the assigned instructor",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: ots_assigned_instructor_schema,
+        },
+        TemplateDefinition {
+            id: "training.ots_unassigned_student",
+            name: "OTS Unassigned (Student)",
+            category: "training",
+            description: "OTS instructor removed, sent to the student",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: ots_unassigned_student_schema,
+        },
+        TemplateDefinition {
+            id: "training.ots_unassigned_instructor",
+            name: "OTS Unassigned (Instructor)",
+            category: "training",
+            description: "OTS assignment removed, sent to the former instructor",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: ots_unassigned_instructor_schema,
+        },
+        TemplateDefinition {
+            id: "training.ots_deleted",
+            name: "OTS Recommendation Deleted",
+            category: "training",
+            description: "OTS recommendation deleted, sent to the student and assigned instructor",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: ots_deleted_schema,
+        },
+        TemplateDefinition {
+            id: "training.assignment_created",
+            name: "Training Assignment Created",
+            category: "training",
+            description: "Trainers assigned, sent to the student",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: assignment_created_schema,
+        },
+        TemplateDefinition {
+            id: "training.assignment_primary_trainer",
+            name: "Primary Trainer Assigned",
+            category: "training",
+            description: "Assigned as primary trainer, sent to that trainer",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: assignment_primary_trainer_schema,
+        },
+        TemplateDefinition {
+            id: "training.assignment_other_trainer",
+            name: "Other Trainer Assigned",
+            category: "training",
+            description: "Assigned as an additional trainer, sent to those trainers",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: assignment_other_trainer_schema,
+        },
+        TemplateDefinition {
+            id: "training.assignment_updated",
+            name: "Training Assignment Updated",
+            category: "training",
+            description: "Trainer set changed, sent to the student",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: assignment_updated_schema,
+        },
+        TemplateDefinition {
+            id: "training.assignment_trainer_removed",
+            name: "Trainer Released",
+            category: "training",
+            description: "Released from a training assignment, sent to the removed trainers",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: assignment_trainer_removed_schema,
+        },
+        TemplateDefinition {
+            id: "training.assignment_released",
+            name: "Training Assignment Released",
+            category: "training",
+            description: "Assignment ended by deletion or an approved release request, sent to the student",
+            is_transactional: true,
+            allow_arbitrary_addresses: false,
+            respect_user_event_pref: false,
+            payload_schema: assignment_released_schema,
+        },
         // Visitor templates
         TemplateDefinition {
             id: "visitor.accepted",
@@ -454,6 +564,125 @@ fn session_created_schema() -> Value {
     })
 }
 
+fn ots_assigned_student_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "instructor_name"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "instructor_name": prop("Instructor Name", None)
+        }
+    })
+}
+
+fn ots_assigned_instructor_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "instructor_name"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "instructor_name": prop("Instructor Name", None)
+        }
+    })
+}
+
+fn ots_unassigned_student_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name"],
+        "properties": {
+            "student_name": prop("Student Name", None)
+        }
+    })
+}
+
+fn ots_unassigned_instructor_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "instructor_name"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "instructor_name": prop("Instructor Name", None)
+        }
+    })
+}
+
+fn ots_deleted_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name"],
+        "properties": {
+            "student_name": prop("Student Name", None)
+        }
+    })
+}
+
+fn assignment_created_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "primary_trainer_name"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "primary_trainer_name": prop("Primary Trainer Name", None),
+            "other_trainer_names": prop("Other Trainer Names", None)
+        }
+    })
+}
+
+fn assignment_primary_trainer_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "primary_trainer_name"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "primary_trainer_name": prop("Primary Trainer Name", None)
+        }
+    })
+}
+
+fn assignment_other_trainer_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "primary_trainer_name"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "primary_trainer_name": prop("Primary Trainer Name", None)
+        }
+    })
+}
+
+fn assignment_updated_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name"],
+        "properties": {
+            "student_name": prop("Student Name", None)
+        }
+    })
+}
+
+fn assignment_trainer_removed_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name", "student_cid"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "student_cid": prop("Student CID", None)
+        }
+    })
+}
+
+fn assignment_released_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["student_name"],
+        "properties": {
+            "student_name": prop("Student Name", None),
+            "release_request_approved": json!({ "type": "boolean", "title": "Release Request Approved" })
+        }
+    })
+}
+
 fn visitor_accepted_schema() -> Value {
     json!({
         "type": "object",
@@ -616,6 +845,17 @@ mod tests {
             "training.appointment_updated",
             "training.appointment_warning",
             "training.session_created",
+            "training.ots_assigned_student",
+            "training.ots_assigned_instructor",
+            "training.ots_unassigned_student",
+            "training.ots_unassigned_instructor",
+            "training.ots_deleted",
+            "training.assignment_created",
+            "training.assignment_primary_trainer",
+            "training.assignment_other_trainer",
+            "training.assignment_updated",
+            "training.assignment_trainer_removed",
+            "training.assignment_released",
             "visitor.accepted",
             "visitor.rejected",
             "solo.added",

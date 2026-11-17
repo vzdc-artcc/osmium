@@ -52,6 +52,17 @@ Templates are repo-managed and rendered in Rust using maud RSX components.
 - `training.appointment_updated` - Appointment update notification
 - `training.appointment_warning` - Appointment reminder notification
 - `training.session_created` - Training session recorded notification
+- `training.ots_assigned_student` - OTS instructor assigned, to the student
+- `training.ots_assigned_instructor` - OTS assignment, to the assigned instructor
+- `training.ots_unassigned_student` - OTS instructor removed, to the student
+- `training.ots_unassigned_instructor` - OTS assignment removed, to the former instructor
+- `training.ots_deleted` - OTS recommendation deleted, to the student and assigned instructor
+- `training.assignment_created` - Trainers assigned, to the student
+- `training.assignment_primary_trainer` - Assigned as primary trainer
+- `training.assignment_other_trainer` - Assigned as an additional trainer
+- `training.assignment_updated` - Trainer set changed, to the student
+- `training.assignment_trainer_removed` - Released from a training assignment, to the removed trainers
+- `training.assignment_released` - Assignment ended (deleted, or a release request approved), to the student
 
 **Visitor**
 - `visitor.accepted` - Visitor application acceptance
@@ -381,6 +392,38 @@ the `event_notifications` suppression category.
   "session_date": "2026-05-12",
   "position": "DCA_TWR",
   "details_url": "https://example.com/training/sessions/789"
+}
+
+// training.ots_assigned_student, training.ots_assigned_instructor,
+// training.ots_unassigned_instructor
+{
+  "student_name": "Jane Smith",
+  "instructor_name": "John Instructor"
+}
+
+// training.ots_unassigned_student, training.ots_deleted, training.assignment_updated
+{
+  "student_name": "Jane Smith"
+}
+
+// training.assignment_created, training.assignment_primary_trainer,
+// training.assignment_other_trainer (other_trainer_names is optional)
+{
+  "student_name": "Jane Smith",
+  "primary_trainer_name": "John Trainer",
+  "other_trainer_names": "Amy Trainer, Bob Trainer"
+}
+
+// training.assignment_trainer_removed
+{
+  "student_name": "Jane Smith",
+  "student_cid": "1234567"
+}
+
+// training.assignment_released (release_request_approved defaults to false)
+{
+  "student_name": "Jane Smith",
+  "release_request_approved": true
 }
 ```
 

@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     auth::context::{CurrentServiceAccount, CurrentUser},
@@ -31,7 +31,7 @@ use super::{
         list_active_suppressions_for_email, list_suppression_categories, revoke_suppression,
         verify_unsubscribe_token,
     },
-    templates::{find_template, registry},
+    templates::{TemplateDefinition, find_template, registry},
 };
 
 #[derive(Clone)]
@@ -179,24 +179,7 @@ impl EmailService {
             )
             .await?;
 
-        let preview = render_template(
-            template,
-            &request.payload,
-            &branding,
-            self.config.unsubscribe_base_url.as_deref(),
-            self.config.unsubscribe_secret.as_deref(),
-            resolved
-                .deliverable
-                .first()
-                .map(|recipient| recipient.email.as_str()),
-            resolved
-                .deliverable
-                .first()
-                .and_then(|recipient| recipient.user_id.as_deref()),
-        )?;
-        if preview.subject.trim().is_empty() {
-            return Err(ApiError::BadRequest);
-        }
+        self.render_check(template, &request.payload, &branding, &resolved)?;
 
         if request.dry_run.unwrap_or(false) {
             return Ok(EmailSendResponse {
@@ -210,8 +193,9 @@ impl EmailService {
         }
 
         let mut tx = pool.begin().await.map_err(|_| ApiError::Internal)?;
-        let (id, queued_at) = outbox::queue_email(
+        let (id, queued_at) = queue_with_audit(
             &mut tx,
+            actor.actor_id.clone(),
             outbox::QueueEmailInput {
                 template_id: template.id.to_string(),
                 category: template.category.to_string(),
@@ -227,29 +211,6 @@ impl EmailService {
                 audience_filter: audience_to_value(request.audience.as_ref()),
                 recipients: resolved.deliverable.clone(),
                 suppressed_recipients: resolved.suppressed.clone(),
-            },
-        )
-        .await?;
-
-        audit::record_audit(
-            &mut *tx,
-            audit::AuditEntryInput {
-                actor_id: actor.actor_id,
-                action: "QUEUE".to_string(),
-                resource_type: "EMAIL".to_string(),
-                resource_id: Some(id.to_string()),
-                scope_type: "global".to_string(),
-                scope_key: Some(template.id.to_string()),
-                message: None,
-                before_state: None,
-                after_state: Some(audit::sanitize_value(serde_json::json!({
-                    "template_id": template.id,
-                    "category": template.category,
-                    "recipient_count": resolved.deliverable.len(),
-                    "suppressed_count": resolved.suppressed.len(),
-                    "request_source": actor.request_source,
-                }))),
-                ip_address: None,
             },
         )
         .await?;
@@ -291,6 +252,62 @@ impl EmailService {
             },
         )
         .await
+    }
+
+    /// Queue `template_id` to `user_ids` on the caller's transaction, so the outbox
+    /// row and its QUEUE audit row commit or roll back with the change that caused
+    /// them. Returns `Ok(None)` without queuing when email is disabled (the
+    /// sanctioned off switch) or when none of the users has an email address.
+    pub async fn queue_to_users_in_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        actor: &EmailActor,
+        template_id: &str,
+        payload: Value,
+        user_ids: &[String],
+    ) -> Result<Option<uuid::Uuid>, ApiError> {
+        if !self.is_available() {
+            tracing::debug!(template_id, "email disabled; notification not queued");
+            return Ok(None);
+        }
+        let template = find_template(template_id).ok_or(ApiError::Internal)?;
+        let branding = email_branding::fetch_branding(&mut **tx)
+            .await?
+            .ok_or(ApiError::Internal)?;
+        let users = fetch_explicit_users(&mut **tx, user_ids).await?;
+        if users.is_empty() {
+            tracing::warn!(
+                template_id,
+                recipient_count = user_ids.len(),
+                "no recipient has an email address; notification not queued"
+            );
+            return Ok(None);
+        }
+        let resolved = partition_suppressed(&mut **tx, template, users).await?;
+        self.render_check(template, &payload, &branding, &resolved)?;
+
+        let (id, _) = queue_with_audit(
+            tx,
+            actor.actor_id.clone(),
+            outbox::QueueEmailInput {
+                template_id: template.id.to_string(),
+                category: template.category.to_string(),
+                is_transactional: template.is_transactional,
+                requested_by_actor_id: actor.actor_id.clone(),
+                requested_by_user_id: actor.user_id.clone(),
+                requested_by_service_account_id: actor.service_account_id.clone(),
+                request_source: actor.request_source.clone(),
+                subject_override: None,
+                reply_to_address: None,
+                payload,
+                recipient_mode: "explicit".to_string(),
+                audience_filter: None,
+                recipients: resolved.deliverable,
+                suppressed_recipients: resolved.suppressed,
+            },
+        )
+        .await?;
+        Ok(Some(id))
     }
 
     pub async fn enqueue_to_addresses(
@@ -355,7 +372,7 @@ impl EmailService {
         let mut deduped = BTreeMap::<String, ResolvedRecipient>::new();
 
         if let Some(recipients) = recipients {
-            for recipient in self.fetch_explicit_users(pool, &recipients.users).await? {
+            for recipient in fetch_explicit_users(pool, &recipients.users).await? {
                 deduped.entry(recipient.email.clone()).or_insert(recipient);
             }
 
@@ -389,60 +406,33 @@ impl EmailService {
         }
 
         let template = find_template(template_id).ok_or(ApiError::BadRequest)?;
-        let mut deliverable = Vec::new();
-        let mut suppressed = Vec::new();
-
-        for recipient in deduped.into_values() {
-            if !template.is_transactional
-                && is_suppressed(pool, template.category, &recipient.email).await?
-            {
-                suppressed.push(recipient);
-            } else {
-                deliverable.push(recipient);
-            }
-        }
-
-        Ok(ResolvedRecipients {
-            deliverable,
-            suppressed,
-        })
+        let mut conn = pool.acquire().await.map_err(|_| ApiError::Internal)?;
+        partition_suppressed(&mut conn, template, deduped.into_values()).await
     }
 
-    async fn fetch_explicit_users(
+    /// Render the template once for the first deliverable recipient, so a payload
+    /// the template cannot render is refused before anything is queued.
+    fn render_check(
         &self,
-        pool: &PgPool,
-        user_ids: &[String],
-    ) -> Result<Vec<ResolvedRecipient>, ApiError> {
-        if user_ids.is_empty() {
-            return Ok(Vec::new());
+        template: &TemplateDefinition,
+        payload: &Value,
+        branding: &EmailBranding,
+        resolved: &ResolvedRecipients,
+    ) -> Result<(), ApiError> {
+        let first = resolved.deliverable.first();
+        let preview = render_template(
+            template,
+            payload,
+            branding,
+            self.config.unsubscribe_base_url.as_deref(),
+            self.config.unsubscribe_secret.as_deref(),
+            first.map(|recipient| recipient.email.as_str()),
+            first.and_then(|recipient| recipient.user_id.as_deref()),
+        )?;
+        if preview.subject.trim().is_empty() {
+            return Err(ApiError::BadRequest);
         }
-
-        let rows = sqlx::query_as::<_, ExplicitUserRow>(
-            r#"
-            select
-                id,
-                coalesce(email::text, '') as email,
-                display_name
-            from identity.users
-            where id = any($1)
-            "#,
-        )
-        .bind(user_ids)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| ApiError::Internal)?;
-
-        Ok(rows
-            .into_iter()
-            .filter_map(|row| {
-                normalize_email(&row.email).map(|email| ResolvedRecipient {
-                    user_id: Some(row.id),
-                    email,
-                    display_name: Some(row.display_name),
-                    source: "explicit_user".to_string(),
-                })
-            })
-            .collect())
+        Ok(())
     }
 
     pub async fn list_outbox(
@@ -1020,6 +1010,104 @@ pub fn actor_from_context(
         service_account_id: current_service_account.map(|account| account.id.clone()),
         request_source: request_source.to_string(),
     }
+}
+
+async fn fetch_explicit_users<'e, E>(
+    executor: E,
+    user_ids: &[String],
+) -> Result<Vec<ResolvedRecipient>, ApiError>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query_as::<_, ExplicitUserRow>(
+        r#"
+            select
+                id,
+                coalesce(email::text, '') as email,
+                display_name
+            from identity.users
+            where id = any($1)
+            "#,
+    )
+    .bind(user_ids)
+    .fetch_all(executor)
+    .await
+    .map_err(|_| ApiError::Internal)?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            normalize_email(&row.email).map(|email| ResolvedRecipient {
+                user_id: Some(row.id),
+                email,
+                display_name: Some(row.display_name),
+                source: "explicit_user".to_string(),
+            })
+        })
+        .collect())
+}
+async fn partition_suppressed(
+    conn: &mut sqlx::PgConnection,
+    template: &TemplateDefinition,
+    recipients: impl IntoIterator<Item = ResolvedRecipient>,
+) -> Result<ResolvedRecipients, ApiError> {
+    let mut deliverable = Vec::new();
+    let mut suppressed = Vec::new();
+
+    for recipient in recipients {
+        if !template.is_transactional
+            && is_suppressed(&mut *conn, template.category, &recipient.email).await?
+        {
+            suppressed.push(recipient);
+        } else {
+            deliverable.push(recipient);
+        }
+    }
+
+    Ok(ResolvedRecipients {
+        deliverable,
+        suppressed,
+    })
+}
+
+/// Insert the outbox row and its QUEUE audit row on one transaction.
+async fn queue_with_audit(
+    tx: &mut Transaction<'_, Postgres>,
+    audit_actor_id: Option<String>,
+    input: outbox::QueueEmailInput,
+) -> Result<(uuid::Uuid, DateTime<Utc>), ApiError> {
+    let after_state = serde_json::json!({
+        "template_id": input.template_id,
+        "category": input.category,
+        "recipient_count": input.recipients.len(),
+        "suppressed_count": input.suppressed_recipients.len(),
+        "request_source": input.request_source,
+    });
+    let scope_key = input.template_id.clone();
+    let (id, queued_at) = outbox::queue_email(tx, input).await?;
+
+    audit::record_audit(
+        &mut **tx,
+        audit::AuditEntryInput {
+            actor_id: audit_actor_id,
+            action: "QUEUE".to_string(),
+            resource_type: "EMAIL".to_string(),
+            resource_id: Some(id.to_string()),
+            scope_type: "global".to_string(),
+            scope_key: Some(scope_key),
+            message: None,
+            before_state: None,
+            after_state: Some(audit::sanitize_value(after_state)),
+            ip_address: None,
+        },
+    )
+    .await?;
+
+    Ok((id, queued_at))
 }
 
 fn normalize_optional_email(value: Option<&str>) -> Option<String> {

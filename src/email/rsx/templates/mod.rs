@@ -9,6 +9,7 @@ mod roster;
 mod solo;
 mod system;
 mod training;
+mod training_assignment;
 mod visitor;
 
 use serde_json::Value;
@@ -46,6 +47,17 @@ static RSX_TEMPLATES: &[&dyn RsxTemplate] = &[
     &training::AppointmentUpdatedTemplate,
     &training::AppointmentWarningTemplate,
     &training::SessionCreatedTemplate,
+    &training_assignment::OTS_ASSIGNED_STUDENT,
+    &training_assignment::OTS_ASSIGNED_INSTRUCTOR,
+    &training_assignment::OTS_UNASSIGNED_STUDENT,
+    &training_assignment::OTS_UNASSIGNED_INSTRUCTOR,
+    &training_assignment::OTS_DELETED,
+    &training_assignment::ASSIGNMENT_CREATED,
+    &training_assignment::ASSIGNMENT_PRIMARY_TRAINER,
+    &training_assignment::ASSIGNMENT_OTHER_TRAINER,
+    &training_assignment::ASSIGNMENT_UPDATED,
+    &training_assignment::ASSIGNMENT_TRAINER_REMOVED,
+    &training_assignment::ASSIGNMENT_RELEASED,
     // Visitor
     &visitor::VisitorAcceptedTemplate,
     &visitor::VisitorRejectedTemplate,
@@ -121,6 +133,17 @@ mod tests {
             "training.appointment_updated",
             "training.appointment_warning",
             "training.session_created",
+            "training.ots_assigned_student",
+            "training.ots_assigned_instructor",
+            "training.ots_unassigned_student",
+            "training.ots_unassigned_instructor",
+            "training.ots_deleted",
+            "training.assignment_created",
+            "training.assignment_primary_trainer",
+            "training.assignment_other_trainer",
+            "training.assignment_updated",
+            "training.assignment_trainer_removed",
+            "training.assignment_released",
             "visitor.accepted",
             "visitor.rejected",
             "solo.added",
@@ -145,6 +168,57 @@ mod tests {
             RSX_TEMPLATES.len(),
             expected.len(),
             "template count mismatch"
+        );
+    }
+
+    #[test]
+    fn training_notices_render_their_names_and_refuse_a_missing_field() {
+        let branding = test_branding();
+        let theme = test_theme(&branding);
+        let payload = json!({
+            "student_name": "Sam Student",
+            "student_cid": "1260002",
+            "instructor_name": "Ivy Instructor",
+            "primary_trainer_name": "Pat Primary",
+            "other_trainer_names": "Olly Other",
+        });
+        let cases = [
+            ("training.ots_assigned_student", "Ivy Instructor"),
+            ("training.ots_assigned_instructor", "Sam Student"),
+            ("training.ots_unassigned_student", "Sam Student"),
+            ("training.ots_unassigned_instructor", "Sam Student"),
+            ("training.ots_deleted", "Sam Student"),
+            ("training.assignment_created", "Olly Other"),
+            ("training.assignment_primary_trainer", "Sam Student"),
+            ("training.assignment_other_trainer", "Pat Primary"),
+            ("training.assignment_updated", "Sam Student"),
+            ("training.assignment_trainer_removed", "1260002"),
+            ("training.assignment_released", "Sam Student"),
+        ];
+        for (id, expected) in cases {
+            let template = find_rsx_template(id).unwrap();
+            let result = template.render(&payload, &theme, None).unwrap();
+            assert!(!result.subject.is_empty(), "{id} subject");
+            assert!(result.html.contains(expected), "{id} html names {expected}");
+            assert!(result.text.contains(expected), "{id} text names {expected}");
+            assert!(
+                template.render(&json!({}), &theme, None).is_err(),
+                "{id} refuses an empty payload"
+            );
+        }
+
+        let released = find_rsx_template("training.assignment_released").unwrap();
+        let forced = released.render(&payload, &theme, None).unwrap();
+        assert_eq!(forced.subject, "Training Assignment Released");
+        assert!(!forced.text.contains("release request has been approved"));
+        let mut approved_payload = payload.clone();
+        approved_payload["release_request_approved"] = json!(true);
+        let approved = released.render(&approved_payload, &theme, None).unwrap();
+        assert_eq!(approved.subject, "Release Request Approved");
+        assert!(
+            approved
+                .text
+                .contains("Your release request has been approved.")
         );
     }
 

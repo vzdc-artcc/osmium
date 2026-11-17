@@ -311,6 +311,54 @@ async fn admin_outbound_write_is_blocked_while_impersonating() {
 }
 
 #[tokio::test]
+async fn training_write_that_emails_is_blocked_while_impersonating() {
+    let Some(test) = TestApp::new().await else {
+        return;
+    };
+    let admin = make_server_admin(&test, 700_070, "Admin").await;
+    // The target holds the permission, so a 403 comes from the impersonation block,
+    // not from the permission gate.
+    let _target = test
+        .create_user(700_071, "Training Staff", &["training.assignments.create"])
+        .await;
+    let student = test.create_user(700_072, "Student", &[]).await;
+    let trainer = test.create_user(700_073, "Trainer", &[]).await;
+
+    test.json_request(
+        "POST",
+        "/api/v1/admin/impersonate/700071",
+        Some(&admin.session_token),
+        Some(json!({})),
+    )
+    .await;
+
+    let response = test
+        .json_request(
+            "POST",
+            "/api/v1/training/assignments",
+            Some(&admin.session_token),
+            Some(json!({
+                "student_id": student.id,
+                "primary_trainer_id": trainer.id,
+                "other_trainer_ids": []
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
+
+    let assignments: i64 = sqlx::query_scalar("select count(*) from training.training_assignments")
+        .fetch_one(&test.pool)
+        .await
+        .expect("count assignments");
+    assert_eq!(
+        assignments, 0,
+        "a refused write must not create the assignment"
+    );
+
+    test.cleanup().await;
+}
+
+#[tokio::test]
 async fn requires_the_impersonate_permission() {
     let Some(test) = TestApp::new().await else {
         return;

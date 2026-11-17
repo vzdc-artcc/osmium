@@ -68,7 +68,22 @@ pub fn is_blocked_while_impersonating(method: &Method, path: &str) -> bool {
         return true;
     }
 
-    is_self_service_write(path)
+    is_self_service_write(path) || is_training_email_write(path)
+}
+
+/// Training writes outside `/api/v1/admin/` that queue email to students and
+/// trainers.
+fn is_training_email_write(path: &str) -> bool {
+    [
+        "/api/v1/training/assignments",
+        "/api/v1/training/ots-recommendations",
+        "/api/v1/training/trainer-release-requests",
+    ]
+    .iter()
+    .any(|prefix| {
+        path.strip_prefix(prefix)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    })
 }
 
 /// Self-service mutations (#6) that change the acting user's own account.
@@ -151,6 +166,35 @@ mod tests {
         assert!(is_blocked_while_impersonating(
             &Method::POST,
             "/api/v1/admin/users/123/refresh-vatusa"
+        ));
+    }
+
+    #[test]
+    fn blocks_training_writes_that_queue_email() {
+        for (method, path) in [
+            (Method::POST, "/api/v1/training/assignments"),
+            (Method::PATCH, "/api/v1/training/assignments/abc"),
+            (Method::DELETE, "/api/v1/training/assignments/abc"),
+            (Method::PATCH, "/api/v1/training/ots-recommendations/abc"),
+            (Method::DELETE, "/api/v1/training/ots-recommendations/abc"),
+            (
+                Method::PATCH,
+                "/api/v1/training/trainer-release-requests/abc",
+            ),
+        ] {
+            assert!(
+                is_blocked_while_impersonating(&method, path),
+                "{method} {path} must be blocked"
+            );
+        }
+        assert!(!is_blocked_while_impersonating(
+            &Method::GET,
+            "/api/v1/training/assignments"
+        ));
+        // A sibling path sharing the prefix text is not part of the family.
+        assert!(!is_blocked_while_impersonating(
+            &Method::POST,
+            "/api/v1/training/assignments-archive"
         ));
     }
 
