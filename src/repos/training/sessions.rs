@@ -47,6 +47,12 @@ pub struct ScoreRow {
     pub criteria_id: String,
     pub cell_id: String,
     pub passed: bool,
+    pub criteria: String,
+    pub criteria_description: String,
+    pub passing: i32,
+    pub max_points: i32,
+    pub cell_points: i32,
+    pub cell_description: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -170,12 +176,15 @@ pub async fn fetch_score_rows(
 ) -> Result<Vec<ScoreRow>, ApiError> {
     sqlx::query_as::<_, ScoreRow>(
         r#"
-        select id, training_ticket_id, criteria_id, cell_id, passed
+        select
+            id, training_ticket_id, criteria_id, cell_id, passed,
+            criteria, criteria_description, passing, max_points,
+            cell_points, cell_description
         from training.rubric_scores
         where training_ticket_id in (
             select id from training.training_tickets where session_id = $1
         )
-        order by id asc
+        order by criteria asc, id asc
         "#,
     )
     .bind(session_id)
@@ -774,16 +783,30 @@ pub async fn insert_rubric_score_row(
     cell_id: &str,
     passed: bool,
 ) -> Result<(), ApiError> {
-    sqlx::query(
+    // The score copies the criterion and cell as they stand now, so later
+    // edits to or deletion of the lesson rubric leave it as recorded.
+    let result = sqlx::query(
         r#"
         insert into training.rubric_scores (
             id,
             training_ticket_id,
             criteria_id,
             cell_id,
-            passed
+            passed,
+            criteria,
+            criteria_description,
+            passing,
+            max_points,
+            cell_points,
+            cell_description
         )
-        values ($1, $2, $3, $4, $5)
+        select
+            $1, $2, c.id, cell.id, $5,
+            c.criteria, c.description, c.passing, c.max_points,
+            cell.points, cell.description
+        from training.lesson_rubric_criteria c
+        join training.lesson_rubric_cells cell on cell.criteria_id = c.id
+        where c.id = $3 and cell.id = $4
         "#,
     )
     .bind(id)
@@ -793,7 +816,16 @@ pub async fn insert_rubric_score_row(
     .bind(passed)
     .execute(&mut **tx)
     .await
-    .map_err(|_| ApiError::Internal)?;
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to insert rubric score");
+        ApiError::Internal
+    })?;
+
+    // Validation checked the pair earlier in this transaction; no row here
+    // means the criterion or cell was deleted since.
+    if result.rows_affected() != 1 {
+        return Err(ApiError::Conflict);
+    }
     Ok(())
 }
 
@@ -1149,6 +1181,12 @@ pub async fn fetch_session_detail(
                 criteria_id: row.criteria_id,
                 cell_id: row.cell_id,
                 passed: row.passed,
+                criteria: row.criteria,
+                criteria_description: row.criteria_description,
+                passing: row.passing,
+                max_points: row.max_points,
+                cell_points: row.cell_points,
+                cell_description: row.cell_description,
             });
     }
 

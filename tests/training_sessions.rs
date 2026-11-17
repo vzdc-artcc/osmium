@@ -580,3 +580,318 @@ async fn session_performance_indicator_survives_template_edits_and_deletes() {
 
     app.cleanup().await;
 }
+
+/// A session records its rubric scores as assessed at the time: editing a
+/// criterion or cell, or deleting them, must not change or remove what a past
+/// session shows it was scored against.
+#[tokio::test(flavor = "current_thread")]
+async fn session_rubric_scores_survive_rubric_edits_and_deletes() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let staff = app
+        .create_user(
+            10001190,
+            "Rubric Staff",
+            &[
+                "training.sessions.create",
+                "training.sessions.read",
+                "training.lessons.read",
+                "training.lessons.create",
+                "training.lessons.update",
+                "training.lessons.delete",
+                "users.directory.read",
+            ],
+        )
+        .await;
+    let student = app.create_user(10001191, "Rubric Student", &[]).await;
+    let token = Some(staff.session_token.as_str());
+
+    let response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/lessons",
+            token,
+            Some(json!({
+                "identifier": "TWR1",
+                "location": 2,
+                "name": "Tower Basics",
+                "description": "desc",
+                "position": "TWR",
+                "facility": "DCA",
+                "duration": 60,
+                "trainee_preparation": null,
+                "instructor_only": false,
+                "notify_instructor_on_pass": false,
+                "release_request_on_pass": false,
+                "performance_indicator_template_id": null
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let lesson_id = json_body::<Value>(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let criteria_path = format!("/api/v1/training/lessons/{lesson_id}/rubric-criteria");
+
+    // Two criteria, each with a cell to score and a second cell left alone.
+    let mut criteria_ids = Vec::new();
+    let mut scored_cell_ids = Vec::new();
+    for (name, description, max_points, passing, cells) in [
+        (
+            "Phraseology",
+            "Uses standard phraseology",
+            4,
+            3,
+            [(4, "Always standard"), (1, "Rarely standard")],
+        ),
+        (
+            "Separation",
+            "Maintains runway separation",
+            5,
+            4,
+            [(5, "No losses"), (0, "Loss of separation")],
+        ),
+    ] {
+        let response = app
+            .json_request(
+                "POST",
+                &criteria_path,
+                token,
+                Some(json!({
+                    "criteria": name,
+                    "description": description,
+                    "max_points": max_points,
+                    "passing": passing
+                })),
+            )
+            .await;
+        assert_status(&response, StatusCode::CREATED);
+        let criteria_id = json_body::<Value>(response).await["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        for (index, (points, cell_description)) in cells.into_iter().enumerate() {
+            let response = app
+                .json_request(
+                    "POST",
+                    &format!("{criteria_path}/{criteria_id}/cells"),
+                    token,
+                    Some(json!({"points": points, "description": cell_description})),
+                )
+                .await;
+            assert_status(&response, StatusCode::CREATED);
+            let cell_id = json_body::<Value>(response).await["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            if index == 0 {
+                scored_cell_ids.push(cell_id);
+            }
+        }
+        criteria_ids.push(criteria_id);
+    }
+
+    let response = app
+        .json_request(
+            "POST",
+            "/api/v1/training/sessions",
+            token,
+            Some(json!({
+                "student_id": student.id,
+                "start": "2026-02-01T12:00:00Z",
+                "end": "2026-02-01T13:00:00Z",
+                "additional_comments": null,
+                "trainer_comments": null,
+                "enable_markdown": false,
+                "tickets": [{
+                    "lesson_id": lesson_id,
+                    "passed": true,
+                    "scores": [
+                        {"criteria_id": criteria_ids[0], "cell_id": scored_cell_ids[0], "passed": true},
+                        {"criteria_id": criteria_ids[1], "cell_id": scored_cell_ids[1], "passed": true}
+                    ]
+                }],
+                "performance_indicator": null,
+                "additional_trainers": []
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::CREATED);
+    let session_id = json_body::<Value>(response).await["session"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Edit the first criterion and its scored cell.
+    let response = app
+        .json_request(
+            "PATCH",
+            &format!("{criteria_path}/{}", criteria_ids[0]),
+            token,
+            Some(json!({
+                "criteria": "Renamed criterion",
+                "description": "Renamed description",
+                "max_points": 6,
+                "passing": 5
+            })),
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+    let response = app
+        .json_request(
+            "PATCH",
+            &format!(
+                "{criteria_path}/{}/cells/{}",
+                criteria_ids[0], scored_cell_ids[0]
+            ),
+            token,
+            Some(json!({"points": 2, "description": "Renamed cell"})),
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+
+    // Positive control: the live rubric shows the edit.
+    let response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/training/lessons/{lesson_id}/rubric"),
+            token,
+            None,
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+    let rubric: Value = json_body(response).await;
+    let live = rubric["criteria"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == criteria_ids[0].as_str())
+        .expect("edited criterion in live rubric");
+    assert_eq!(
+        live["criteria"], "Renamed criterion",
+        "live rubric: {rubric}"
+    );
+
+    // Delete the second criterion's scored cell on its own, then the criterion.
+    for path in [
+        format!(
+            "{criteria_path}/{}/cells/{}",
+            criteria_ids[1], scored_cell_ids[1]
+        ),
+        format!("{criteria_path}/{}", criteria_ids[1]),
+    ] {
+        let response = app.json_request("DELETE", &path, token, None).await;
+        assert!(
+            response.status().is_success(),
+            "DELETE {path} returned {}",
+            response.status()
+        );
+    }
+    let remaining: i64 = sqlx::query_scalar(
+        "select count(*)::bigint from training.lesson_rubric_criteria where id = $1",
+    )
+    .bind(&criteria_ids[1])
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining, 0, "second criterion was deleted");
+
+    let stored: i64 = sqlx::query_scalar(
+        r#"
+        select count(*)::bigint
+        from training.rubric_scores s
+        join training.training_tickets t on t.id = s.training_ticket_id
+        where t.session_id = $1
+        "#,
+    )
+    .bind(&session_id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, 2, "both score rows survive");
+
+    let response = app
+        .json_request(
+            "GET",
+            &format!("/api/v1/training/sessions/{session_id}"),
+            token,
+            None,
+        )
+        .await;
+    assert_status(&response, StatusCode::OK);
+    let body: Value = json_body(response).await;
+    let session = if body["session"].is_object() {
+        &body["session"]
+    } else {
+        &body
+    };
+    let scores = session["tickets"][0]["scores"].as_array().unwrap();
+    assert_eq!(scores.len(), 2, "session: {session}");
+    let score_for = |criteria_id: &str| {
+        scores
+            .iter()
+            .find(|s| s["criteria_id"] == criteria_id)
+            .unwrap_or_else(|| panic!("score for {criteria_id} in {session}"))
+    };
+
+    let edited = score_for(&criteria_ids[0]);
+    assert_eq!(edited["cell_id"], scored_cell_ids[0].as_str());
+    assert_eq!(edited["criteria"], "Phraseology");
+    assert_eq!(edited["criteria_description"], "Uses standard phraseology");
+    assert_eq!(edited["max_points"], 4);
+    assert_eq!(edited["passing"], 3);
+    assert_eq!(edited["cell_points"], 4);
+    assert_eq!(edited["cell_description"], "Always standard");
+
+    let deleted = score_for(&criteria_ids[1]);
+    assert_eq!(deleted["cell_id"], scored_cell_ids[1].as_str());
+    assert_eq!(deleted["passed"], true);
+    assert_eq!(deleted["criteria"], "Separation");
+    assert_eq!(
+        deleted["criteria_description"],
+        "Maintains runway separation"
+    );
+    assert_eq!(deleted["max_points"], 5);
+    assert_eq!(deleted["passing"], 4);
+    assert_eq!(deleted["cell_points"], 5);
+    assert_eq!(deleted["cell_description"], "No losses");
+
+    app.cleanup().await;
+}
+
+/// A score insert whose criterion and cell no longer exist writes nothing and
+/// reports a conflict, instead of inserting an empty snapshot or succeeding.
+#[tokio::test(flavor = "current_thread")]
+async fn rubric_score_insert_refuses_a_missing_criterion_or_cell() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let mut tx = app.pool.begin().await.unwrap();
+    let result = osmium::repos::training::sessions::insert_rubric_score_row(
+        &mut tx,
+        "score-1",
+        "ticket-1",
+        "missing-criteria",
+        "missing-cell",
+        true,
+    )
+    .await;
+    assert!(
+        matches!(result, Err(osmium::errors::ApiError::Conflict)),
+        "expected Conflict, got {result:?}"
+    );
+    let stored: i64 = sqlx::query_scalar("select count(*)::bigint from training.rubric_scores")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(stored, 0);
+    tx.rollback().await.unwrap();
+
+    app.cleanup().await;
+}

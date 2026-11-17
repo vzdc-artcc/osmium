@@ -876,17 +876,31 @@ async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
         let cell_id = mapped_id(&state.target, "lesson_rubric_cell", &row.cell_id).await?;
         let target_id = mapped_or_same(&state.target, "rubric_score", &row.id).await?;
         if !state.config.dry_run {
-            sqlx::query(
+            let result = sqlx::query(
                 r#"
                 insert into training.rubric_scores (
-                    id, training_ticket_id, criteria_id, cell_id, passed
+                    id, training_ticket_id, criteria_id, cell_id, passed,
+                    criteria, criteria_description, passing, max_points,
+                    cell_points, cell_description
                 )
-                values ($1, $2, $3, $4, $5)
+                select
+                    $1, $2, c.id, cell.id, $5,
+                    c.criteria, c.description, c.passing, c.max_points,
+                    cell.points, cell.description
+                from training.lesson_rubric_criteria c
+                join training.lesson_rubric_cells cell on cell.criteria_id = c.id
+                where c.id = $3 and cell.id = $4
                 on conflict (id) do update set
                     training_ticket_id = excluded.training_ticket_id,
                     criteria_id = excluded.criteria_id,
                     cell_id = excluded.cell_id,
-                    passed = excluded.passed
+                    passed = excluded.passed,
+                    criteria = excluded.criteria,
+                    criteria_description = excluded.criteria_description,
+                    passing = excluded.passing,
+                    max_points = excluded.max_points,
+                    cell_points = excluded.cell_points,
+                    cell_description = excluded.cell_description
                 "#,
             )
             .bind(&target_id)
@@ -896,6 +910,16 @@ async fn migrate_training_sessions(state: &mut AppState) -> Result<()> {
             .bind(row.passed)
             .execute(&state.target)
             .await?;
+            // The insert copies the criterion and cell it scores, so a pair
+            // missing from the target inserts nothing instead of failing a
+            // foreign key.
+            if result.rows_affected() != 1 {
+                anyhow::bail!(
+                    "rubric score {} references criterion {criteria_id} and cell {cell_id}, \
+                     which are not a migrated criterion and one of its cells",
+                    row.id
+                );
+            }
             target::upsert_mapping(
                 &state.target,
                 &state.config.run_id,

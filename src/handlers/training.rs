@@ -2663,7 +2663,8 @@ pub async fn get_training_session(
     responses(
         (status = 201, description = "Training session created", body = CreateOrUpdateTrainingSessionResult),
         (status = 400, description = "Invalid request", body = CreateOrUpdateTrainingSessionResult),
-        (status = 401, description = "Not authorized")
+        (status = 401, description = "Not authorized"),
+        (status = 409, description = "A scored rubric criterion or cell was deleted while the session was saved")
     )
 )]
 pub async fn create_training_session(
@@ -2712,7 +2713,8 @@ pub async fn create_training_session(
         (status = 200, description = "Training session updated", body = CreateOrUpdateTrainingSessionResult),
         (status = 400, description = "Invalid request", body = CreateOrUpdateTrainingSessionResult),
         (status = 401, description = "Not authorized"),
-        (status = 404, description = "Training session not found")
+        (status = 404, description = "Training session not found"),
+        (status = 409, description = "A scored rubric criterion or cell was deleted while the session was saved")
     )
 )]
 pub async fn update_training_session(
