@@ -355,7 +355,9 @@ pub async fn upsert_user_flags(
 /// error) if the initials are already held by a different user, matching
 /// the live site's "already in use" UX rather than a hard 500 — this is a
 /// distinct, admin/self-driven manual reassignment, not the deterministic
-/// auto-generation in `ensure_operating_initials` above.
+/// auto-generation in `ensure_operating_initials` above. Returns
+/// `ApiError::NotFound` when `user_id` has no `org.memberships` row, since
+/// the initials live on that row and nothing would be stored.
 pub async fn reassign_operating_initials(
     pool: &PgPool,
     user_id: &str,
@@ -375,9 +377,13 @@ pub async fn reassign_operating_initials(
     .await;
 
     match result {
+        Ok(done) if done.rows_affected() == 0 => Err(ApiError::NotFound),
         Ok(_) => Ok(true),
         Err(error) if is_unique_violation(&error) => Ok(false),
-        Err(_) => Err(ApiError::Internal),
+        Err(error) => {
+            tracing::error!(user_id = %user_id, error = %error, "reassign operating initials failed");
+            Err(ApiError::Internal)
+        }
     }
 }
 
