@@ -570,6 +570,79 @@ async fn appointments_filter_by_ended_counts_lesson_durations() {
     app.cleanup().await;
 }
 
+/// An appointment whose estimated end equals `as_of` has not ended. `as_of` is fixed here, since
+/// the route takes it from the clock and cannot hit the boundary exactly.
+#[tokio::test(flavor = "current_thread")]
+async fn appointment_ending_exactly_at_as_of_has_not_ended() {
+    use osmium::repos::training::appointments::{
+        AppointmentListFilter, count_appointments, list_appointments,
+    };
+
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let trainer = app.create_user(10016351, "Boundary Trainer", &[]).await;
+    let student = app.create_user(10016352, "Boundary Student", &[]).await;
+
+    // No lessons, so the estimated end is `start` itself.
+    let (id, start): (String, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+        "insert into training.training_appointments (student_id, trainer_id, start) values ($1, $2, now() + interval '1 day') returning id, start",
+    )
+    .bind(&student.id)
+    .bind(&trainer.id)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+
+    let filter = |ended: bool, as_of| AppointmentListFilter {
+        trainer_id: None,
+        student_id: None,
+        user_id: None,
+        upcoming: None,
+        double_booking: None,
+        ended: Some(ended),
+        as_of,
+    };
+    let at_end = start;
+    let after_end = start + chrono::Duration::microseconds(1);
+
+    assert_eq!(
+        count_appointments(&app.pool, filter(false, at_end))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        count_appointments(&app.pool, filter(true, at_end))
+            .await
+            .unwrap(),
+        0
+    );
+    let items = list_appointments(&app.pool, filter(false, at_end), "ta.start", "asc", 25, 0)
+        .await
+        .unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].id, id);
+
+    // One microsecond later it has ended.
+    assert_eq!(
+        count_appointments(&app.pool, filter(true, after_end))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        count_appointments(&app.pool, filter(false, after_end))
+            .await
+            .unwrap(),
+        0
+    );
+
+    app.cleanup().await;
+}
+
 /// `ensure_permission` answers 401 on master and 403 once #99 lands; either
 /// way the caller is refused.
 fn assert_refused(response: &axum::http::Response<axum::body::Body>) {

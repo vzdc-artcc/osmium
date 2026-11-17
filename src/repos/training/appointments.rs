@@ -48,8 +48,8 @@ pub struct AppointmentListFilter<'a> {
 /// or ending between them.
 ///
 /// `ended` sums lesson durations in its own subquery because the list query's lesson join is
-/// grouped after this clause runs. An appointment with no lessons ends at its `start`, matching
-/// the `null` `estimated_end` the list returns for it.
+/// grouped after this clause runs. An appointment with no lessons ends at its `start`; the list
+/// reports its `estimated_end` as `null`.
 const APPOINTMENT_FILTER: &str = r#"
         where ($1::text is null or ta.trainer_id = $1)
           and ($2::text is null or ta.student_id = $2)

@@ -258,7 +258,7 @@ pub struct ListTrainingAppointmentsQuery {
     /// `true` keeps appointments that have ended; `false` keeps those in progress or not yet
     /// started. An appointment has ended when its estimated end is before the request time. The
     /// estimated end is `start` plus the summed `duration` of its lessons, or `start` itself
-    /// when it has no lessons.
+    /// when it has no lessons; the returned `estimated_end` is `null` for those.
     pub ended: Option<bool>,
 }
 

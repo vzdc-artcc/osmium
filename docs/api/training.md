@@ -58,7 +58,7 @@ Several queue-style lists also take a filter. The filter narrows both `items` an
 | `GET /training/trainer-release-requests` | `status` | `PENDING` / `APPROVED` / `DENIED` (case-insensitive) | matches the item's `status`; any other value returns `400 bad_request` |
 | `GET /training/appointments` | `upcoming` | `true` / `false` | `true` keeps appointments whose `start` is now or later, `false` keeps those already started |
 | `GET /training/appointments` | `double_booking` | `true` / `false` | matches the appointment's `double_booking` flag |
-| `GET /training/appointments` | `ended` | `true` / `false` | `true` keeps appointments whose estimated end is before now, `false` keeps those in progress or not yet started. The estimated end is `start` plus the summed lesson `duration`, or `start` when the appointment has no lessons |
+| `GET /training/appointments` | `ended` | `true` / `false` | `true` keeps appointments whose estimated end is before now, `false` keeps those in progress or not yet started. The estimated end is `start` plus the summed lesson `duration`, or `start` when the appointment has no lessons, whose returned `estimated_end` is `null` |
 
 The appointment filters compose with the existing `trainer_id`, `student_id`, and `user_id` filters. Omitting a filter leaves that list unfiltered, exactly as before. A boolean param that is not `true` or `false` is rejected by query parsing with `400`.
 
