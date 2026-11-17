@@ -38,19 +38,32 @@ pub struct AppointmentListFilter<'a> {
     pub user_id: Option<&'a str>,
     pub upcoming: Option<bool>,
     pub double_booking: Option<bool>,
+    pub ended: Option<bool>,
     pub as_of: DateTime<Utc>,
 }
 
-/// Binds `$1..$6` from [`AppointmentListFilter`]. `upcoming` compares against one `as_of`
-/// instant bound into both queries rather than `now()`, which each statement would evaluate
-/// separately and could let `total` and `items` disagree about an appointment starting between
-/// them.
+/// Binds `$1..$7` from [`AppointmentListFilter`]. `upcoming` and `ended` compare against one
+/// `as_of` instant bound into both queries rather than `now()`, which each statement would
+/// evaluate separately and could let `total` and `items` disagree about an appointment starting
+/// or ending between them.
+///
+/// `ended` sums lesson durations in its own subquery because the list query's lesson join is
+/// grouped after this clause runs. An appointment with no lessons ends at its `start`, matching
+/// the `null` `estimated_end` the list returns for it.
 const APPOINTMENT_FILTER: &str = r#"
         where ($1::text is null or ta.trainer_id = $1)
           and ($2::text is null or ta.student_id = $2)
           and ($3::text is null or (ta.trainer_id = $3 or ta.student_id = $3))
           and ($4::boolean is null or (ta.start >= $6) = $4)
           and ($5::boolean is null or ta.double_booking = $5)
+          and ($7::boolean is null or (
+                ta.start + make_interval(mins => coalesce((
+                    select sum(el.duration)::int
+                    from training.training_appointment_lessons etal
+                    join training.lessons el on el.id = etal.lesson_id
+                    where etal.appointment_id = ta.id
+                ), 0)) < $6
+              ) = $7)
 "#;
 
 pub async fn count_appointments(
@@ -67,6 +80,7 @@ pub async fn count_appointments(
         .bind(filter.upcoming)
         .bind(filter.double_booking)
         .bind(filter.as_of)
+        .bind(filter.ended)
         .fetch_one(pool)
         .await
         .map_err(|_| ApiError::Internal)
@@ -210,7 +224,7 @@ pub async fn list_appointments(
         group by
             ta.id, su.cid, su.full_name, tu.cid, tu.full_name
         order by {sort_column} {sort_direction}, ta.id asc
-        limit $7 offset $8
+        limit $8 offset $9
         "#
     );
 
@@ -221,6 +235,7 @@ pub async fn list_appointments(
         .bind(filter.upcoming)
         .bind(filter.double_booking)
         .bind(filter.as_of)
+        .bind(filter.ended)
         .bind(page_size)
         .bind(offset)
         .fetch_all(pool)

@@ -432,6 +432,144 @@ async fn appointments_filter_by_upcoming_and_double_booking() {
     app.cleanup().await;
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn appointments_filter_by_ended_counts_lesson_durations() {
+    let _env_lock = lock_env();
+    let Some(app) = TestApp::new().await else {
+        return;
+    };
+
+    let reader = app
+        .create_user(
+            10016341,
+            "Ended Filter Reader",
+            &["training.appointments.read"],
+        )
+        .await;
+    let trainer = app.create_user(10016342, "Ended Filter Trainer", &[]).await;
+    let student = app.create_user(10016343, "Ended Filter Student", &[]).await;
+
+    let mut lesson_ids = Vec::new();
+    for (identifier, duration) in [("END1", 60), ("END2", 45)] {
+        let id: String = sqlx::query_scalar(
+            "insert into training.lessons (identifier, location, name, description, position, facility, duration) values ($1, 0, $1, '', 'DEN_GND', 'DEN', $2) returning id",
+        )
+        .bind(identifier)
+        .bind(duration)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+        lesson_ids.push(id);
+    }
+
+    // (label, start offset from now, lesson indexes). Estimated end is start plus the summed
+    // lesson durations, or start when there are no lessons.
+    let seeds: [(&str, &str, &[usize]); 5] = [
+        // -90m + 105m: in progress; a max or single-lesson duration (60m) would call it ended.
+        ("in_progress", "-90 minutes", &[0, 1]),
+        // -100m + 60m: ended 40 minutes ago.
+        ("ended_with_lesson", "-100 minutes", &[0]),
+        // No lessons: ends at its start, ten minutes ago.
+        ("ended_no_lessons", "-10 minutes", &[]),
+        ("future_no_lessons", "+1 day", &[]),
+        ("future_with_lesson", "+2 days", &[1]),
+    ];
+    let mut ids = std::collections::HashMap::new();
+    for (label, offset, lessons) in seeds {
+        let id: String = sqlx::query_scalar(
+            "insert into training.training_appointments (student_id, trainer_id, start) values ($1, $2, now() + $3::interval) returning id",
+        )
+        .bind(&student.id)
+        .bind(&trainer.id)
+        .bind(offset)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+        for &lesson in lessons {
+            sqlx::query(
+                "insert into training.training_appointment_lessons (appointment_id, lesson_id) values ($1, $2)",
+            )
+            .bind(&id)
+            .bind(&lesson_ids[lesson])
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        }
+        ids.insert(label, id);
+    }
+
+    let item_ids = |body: &Value| -> Vec<String> {
+        body["items"]
+            .as_array()
+            .expect("items array")
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let expect = |labels: &[&str]| -> Vec<String> {
+        labels.iter().map(|label| ids[label].clone()).collect()
+    };
+
+    let all = get_list(&app, &reader, "/api/v1/training/appointments").await;
+    assert_items_and_total(&all, 5);
+
+    let not_ended = get_list(&app, &reader, "/api/v1/training/appointments?ended=false").await;
+    assert_items_and_total(&not_ended, 3);
+    assert_eq!(
+        item_ids(&not_ended),
+        expect(&["in_progress", "future_no_lessons", "future_with_lesson"]),
+        "ended=false: {not_ended}"
+    );
+
+    let ended = get_list(&app, &reader, "/api/v1/training/appointments?ended=true").await;
+    assert_items_and_total(&ended, 2);
+    assert_eq!(
+        item_ids(&ended),
+        expect(&["ended_with_lesson", "ended_no_lessons"]),
+        "ended=true: {ended}"
+    );
+
+    // The in-progress appointment is what separates `ended=false` from `upcoming=true`.
+    let upcoming = get_list(&app, &reader, "/api/v1/training/appointments?upcoming=true").await;
+    assert_eq!(
+        item_ids(&upcoming),
+        expect(&["future_no_lessons", "future_with_lesson"]),
+        "upcoming=true: {upcoming}"
+    );
+
+    let count_only = get_list(
+        &app,
+        &reader,
+        "/api/v1/training/appointments?ended=false&page_size=1",
+    )
+    .await;
+    assert_eq!(count_only["items"].as_array().unwrap().len(), 1);
+    assert_eq!(count_only["total"], 3);
+
+    let invalid = app
+        .json_request(
+            "GET",
+            "/api/v1/training/appointments?ended=soon",
+            Some(&reader.session_token),
+            None,
+        )
+        .await;
+    assert_status(&invalid, StatusCode::BAD_REQUEST);
+
+    let no_permission = app.create_user(10016344, "Ended Filter No Perm", &[]).await;
+    let denied_response = app
+        .json_request(
+            "GET",
+            "/api/v1/training/appointments?ended=false",
+            Some(&no_permission.session_token),
+            None,
+        )
+        .await;
+    assert_refused(&denied_response);
+
+    app.cleanup().await;
+}
+
 /// `ensure_permission` answers 401 on master and 403 once #99 lands; either
 /// way the caller is refused.
 fn assert_refused(response: &axum::http::Response<axum::body::Body>) {

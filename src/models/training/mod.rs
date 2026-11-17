@@ -255,6 +255,11 @@ pub struct ListTrainingAppointmentsQuery {
     pub upcoming: Option<bool>,
     /// Filter on the appointment's `double_booking` flag.
     pub double_booking: Option<bool>,
+    /// `true` keeps appointments that have ended; `false` keeps those in progress or not yet
+    /// started. An appointment has ended when its estimated end is before the request time. The
+    /// estimated end is `start` plus the summed `duration` of its lessons, or `start` itself
+    /// when it has no lessons.
+    pub ended: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
