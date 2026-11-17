@@ -244,7 +244,7 @@ pub async fn list_atc_bookings(
     Ok(ApiJson::new(AtcBookingListResponse { items }, time))
 }
 
-#[utoipa::path(get, path = "/api/v1/bookings/{id}", tag = "workflows", params(("id" = i64, Path, description = "Booking ID")), responses((status = 200, description = "ATC booking", body = AtcBookingItem), (status = 401, description = "Not authenticated"), (status = 404, description = "Booking not found"), (status = 503, description = "ATC booking service unavailable")))]
+#[utoipa::path(get, path = "/api/v1/bookings/{id}", tag = "workflows", params(("id" = i64, Path, description = "Booking ID")), responses((status = 200, description = "ATC booking", body = AtcBookingItem), (status = 401, description = "Not authenticated"), (status = 404, description = "Booking not found"), (status = 500, description = "Upstream answered with something that is not a booking"), (status = 503, description = "ATC booking service unavailable")))]
 pub async fn get_atc_booking(
     Extension(current_user): Extension<Option<CurrentUser>>,
     Path(id): Path<i64>,
@@ -374,7 +374,7 @@ pub async fn create_atc_booking(
     upsert_booking(&state, user, &headers, None, body).await
 }
 
-#[utoipa::path(put, path = "/api/v1/bookings/{id}", tag = "workflows", params(("id" = i64, Path, description = "Booking ID")), request_body = CreateOrUpdateAtcBookingRequest, responses((status = 200, description = "Updated booking", body = AtcBookingItem), (status = 400, description = "Validation or upstream error", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Not authorized"), (status = 503, description = "ATC booking service unavailable")))]
+#[utoipa::path(put, path = "/api/v1/bookings/{id}", tag = "workflows", params(("id" = i64, Path, description = "Booking ID")), request_body = CreateOrUpdateAtcBookingRequest, responses((status = 200, description = "Updated booking", body = AtcBookingItem), (status = 400, description = "Validation or upstream error", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Not authorized"), (status = 500, description = "Upstream answered with something that is not a booking"), (status = 503, description = "ATC booking service unavailable")))]
 pub async fn update_atc_booking(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,
@@ -386,7 +386,7 @@ pub async fn update_atc_booking(
     upsert_booking(&state, user, &headers, Some(id), body).await
 }
 
-#[utoipa::path(delete, path = "/api/v1/bookings/{id}", tag = "workflows", params(("id" = i64, Path, description = "Booking ID")), responses((status = 200, description = "Deleted booking", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Not authorized"), (status = 404, description = "Booking not found"), (status = 503, description = "ATC booking service unavailable")))]
+#[utoipa::path(delete, path = "/api/v1/bookings/{id}", tag = "workflows", params(("id" = i64, Path, description = "Booking ID")), responses((status = 200, description = "Deleted booking", body = ApiMessageBody), (status = 401, description = "Not authenticated"), (status = 403, description = "Not authorized"), (status = 404, description = "Booking not found"), (status = 500, description = "Upstream answered with something that is not a booking"), (status = 503, description = "ATC booking service unavailable")))]
 pub async fn delete_atc_booking(
     State(state): State<AppState>,
     Extension(current_user): Extension<Option<CurrentUser>>,

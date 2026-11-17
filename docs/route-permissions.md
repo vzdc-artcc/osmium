@@ -140,7 +140,7 @@ Permission-gated routes:
 - `GET /api/v1/bookings` -> any authenticated user (ARTCC-wide ATC-booking calendar; `?cid=` filters to one controller)
 - `GET /api/v1/bookings/{id}` -> any authenticated user
 - `POST /api/v1/bookings` -> self non-training booking (`body.cid == caller` and `type != training`) needs `auth.profile.update`; another cid or a `training` booking needs `training.appointments.update`
-- `PUT /api/v1/bookings/{id}` -> same self-vs-privileged split as POST (on the request body's cid/type)
+- `PUT /api/v1/bookings/{id}` -> same self-vs-privileged split as POST, evaluated against both the request body's cid/type and the stored booking's cid/type; privileged if either side is
 - `DELETE /api/v1/bookings/{id}` -> same split, evaluated against the fetched booking's cid/type
 - `GET /api/v1/users/{cid}/progression` -> self `auth.profile.read`, otherwise `training.lessons.read`
 - `POST /api/v1/users/{cid}/progression/complete` -> self `auth.profile.update` (honors the `no_force_progression_finish` opt-out flag), otherwise `training.lessons.update`
