@@ -21,16 +21,20 @@ local fixture.
   Optional `?cid=<int>` restricts to one controller (self "your bookings"
   view); omit for the ARTCC-wide calendar. Returns `{ items: AtcBookingItem[] }`.
 - `GET /api/v1/bookings/{id}` — proxies `GET /api/booking/{id}` (the upstream
-  returns an array; the first entry is unwrapped). `404` if not found.
+  returns an array; the first entry is unwrapped). `404` if not found, `503`
+  if the upstream lookup fails.
 - `POST /api/v1/bookings` — create. Returns the created `AtcBookingItem` on
   success, or `400 { message }` on a validation / upstream error.
 - `PUT /api/v1/bookings/{id}` — update. Authorization considers the stored
   booking's owner and type as well as the request body: updating someone
   else's booking, or a training booking, needs `training.appointments.update`
   even when the body carries the caller's own cid. A `PUT` against a booking
-  the upstream no longer has falls back to a create (parity with the legacy
-  action).
-- `DELETE /api/v1/bookings/{id}` — delete. `404` if the booking doesn't exist.
+  the upstream no longer has (a `404` on the lookup) falls back to a create,
+  audited as `CREATE` (parity with the legacy action). Any other lookup
+  failure refuses the update: `503` when the upstream errors, `500` when it
+  answers with something that is not a booking.
+- `DELETE /api/v1/bookings/{id}` — delete. `404` if the booking doesn't exist,
+  `503` if the upstream lookup fails.
 
 `AtcBookingItem`: `{ id, callsign, cid, type?, division?, subdivision?, start,
 end }`. Times are the upstream `"YYYY-MM-DD HH:mm:ss"` UTC strings, passed

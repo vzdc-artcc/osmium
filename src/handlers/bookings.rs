@@ -133,6 +133,10 @@ async fn fetch_bookings(cid: Option<i64>) -> Result<Vec<AtcBookingItem>, ApiErro
         .map_err(|_| ApiError::Internal)
 }
 
+/// `Ok(None)` only when the upstream says the booking does not exist (a `404`
+/// or an empty array). Any other failure is an error: callers authorize
+/// against the stored booking, so an unanswered lookup must refuse the request
+/// instead of reading as "no booking".
 async fn fetch_single_booking(id: i64) -> Result<Option<AtcBookingItem>, ApiError> {
     let token = atc_token()?;
     let client = atc_client()?;
@@ -141,18 +145,32 @@ async fn fetch_single_booking(id: i64) -> Result<Option<AtcBookingItem>, ApiErro
         .bearer_auth(&token)
         .send()
         .await
-        .map_err(|_| ApiError::ServiceUnavailable)?;
-    if !res.status().is_success() {
+        .map_err(|e| {
+            tracing::warn!(booking_id = id, error = %e.without_url(), "ATC booking lookup failed");
+            ApiError::ServiceUnavailable
+        })?;
+    let status = res.status();
+    if status == StatusCode::NOT_FOUND {
         return Ok(None);
     }
-    let value: serde_json::Value = res.json().await.map_err(|_| ApiError::Internal)?;
+    if !status.is_success() {
+        tracing::warn!(booking_id = id, status = %status, "ATC booking lookup refused upstream");
+        return Err(ApiError::ServiceUnavailable);
+    }
+    let value: serde_json::Value = res.json().await.map_err(|e| {
+        tracing::error!(booking_id = id, error = %e.without_url(), "ATC booking lookup returned invalid JSON");
+        ApiError::Internal
+    })?;
     // The upstream returns an array for the by-id lookup.
     let candidate = match value {
         serde_json::Value::Array(mut arr) if !arr.is_empty() => arr.remove(0),
         serde_json::Value::Array(_) => return Ok(None),
         other => other,
     };
-    Ok(serde_json::from_value(candidate).ok())
+    serde_json::from_value(candidate).map(Some).map_err(|e| {
+        tracing::error!(booking_id = id, error = %e, "ATC booking lookup returned an unreadable booking");
+        ApiError::Internal
+    })
 }
 
 /// Result of one upstream create/update call.
@@ -316,9 +334,12 @@ async fn upsert_booking(
     }
 
     // Upstream write; a PUT against a missing booking falls back to create.
-    let mut created = id.is_none();
-    let mut outcome = send_booking_write(id, &body).await?;
-    if matches!(outcome, UpstreamWrite::NotFound) && id.is_some() {
+    // Only a booking the lookup found is PUT, so the owner check above always
+    // ran against the record being overwritten.
+    let update_id = id.filter(|_| before.is_some());
+    let mut created = update_id.is_none();
+    let mut outcome = send_booking_write(update_id, &body).await?;
+    if matches!(outcome, UpstreamWrite::NotFound) && update_id.is_some() {
         outcome = send_booking_write(None, &body).await?;
         created = true;
     }
