@@ -6,16 +6,8 @@ all-features = true
 [advisories]
 yanked = "deny"
 unmaintained = "workspace"
-ignore = [
-    # zip 3.0.0 is a build-dependency of utoipa-swagger-ui 9, whose build script unpacks the
-    # Swagger UI release archive it downloads; no zip from outside reaches it at run time. The
-    # FAA ingest's own zip is 9.x, which carries the fix. Remove these with the move to utoipa 6
-    # and utoipa-swagger-ui 10, which drop zip 3.
-    { id = "RUSTSEC-2026-0367", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
-    { id = "RUSTSEC-2026-0368", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
-    { id = "RUSTSEC-2026-0369", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
-    { id = "RUSTSEC-2026-0429", reason = "zip 3.0.0: build-time only, via utoipa-swagger-ui 9's build script" },
-]
+# An advisory that does not apply gets an entry here with its reason: { id = "RUSTSEC-...", reason = "..." }.
+ignore = []
 
 [licenses]
 confidence-threshold = 0.9

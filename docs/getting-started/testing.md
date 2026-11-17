@@ -61,7 +61,7 @@ For this documentation system, the important checks are:
 - docs index loads
 - registered docs pages load
 - OpenAPI JSON route loads
-- Swagger UI route loads
+- API reference (Scalar) route loads
 - docs health route loads
 
 ## What Tests Do Not Guarantee

@@ -78,7 +78,9 @@ maud = "0.27.0"
 # off — we never load remote stylesheets during render.
 css-inline = { version = "0.16", default-features = false }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono"] }
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+# The API reference page at /docs/api/v1. 0.3 is the release for utoipa 5 and axum 0.8; the page
+# itself is src/docs/scalar.html, which pins the Scalar script it loads.
+utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 base64 = "0.22.1"
 urlencoding = "2.1.3"
 # FAA preferred-routes ingest (Worker B) — unzip the NASR PFR CSV bundle. Only the

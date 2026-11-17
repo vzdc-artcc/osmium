@@ -39,7 +39,7 @@ Machine auth:
 ## Docs Serving Flow
 
 - `/docs` and `/docs/{section}/{page}` render compiled-in markdown
-- `/docs/api/v1` is Swagger UI
+- `/docs/api/v1` is the Scalar API reference (`src/docs/scalar.html`, which pins the Scalar script); `/docs/api/v1/` redirects to it
 - `/docs/api/v1/openapi.json` is generated from `utoipa`
 
 ## Failure Modes

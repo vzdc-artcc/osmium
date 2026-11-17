@@ -82,7 +82,7 @@ src/
   models/            request/response DTOs and row contract types, re-exported from models/mod.rs
   jobs/              background workers
   email/             templating (maud/rsx), branding, outbox, SES transport, suppression
-  docs/              markdown docs site registry + OpenAPI/Swagger wiring
+  docs/              markdown docs site registry + OpenAPI/Scalar wiring
 migrations/          ordered SQL, embedded in the binary
 docs/                narrative markdown, compiled into the binary and served at /docs
 tests/               Postgres-backed integration tests + tests/support harness
