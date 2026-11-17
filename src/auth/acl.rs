@@ -158,11 +158,11 @@ fn default_permission_names() -> Vec<String> {
         "users.directory.read",
         "users.directory_private.read",
         "users.controller_status.update",
-        "users.vatusa_refresh.self.request",
+        "users.vatusa_refresh_self.request",
         "users.vatusa_refresh.request",
         "users.visit_artcc.request",
-        "users.visitor_applications.self.read",
-        "users.visitor_applications.self.request",
+        "users.visitor_applications_self.read",
+        "users.visitor_applications_self.request",
         "users.visitor_applications.read",
         "users.visitor_applications.decide",
         "audit.logs.read",
@@ -185,12 +185,12 @@ fn default_permission_names() -> Vec<String> {
         "training.sessions.update",
         "training.sessions.delete",
         "training.assignment_requests.read",
-        "training.assignment_requests.self.request",
+        "training.assignment_requests_self.request",
         "training.assignment_requests.decide",
-        "training.assignment_requests.interest.request",
-        "training.assignment_requests.interest.delete",
+        "training.assignment_requests_interest.request",
+        "training.assignment_requests_interest.delete",
         "training.release_requests.read",
-        "training.release_requests.self.request",
+        "training.release_requests_self.request",
         "training.release_requests.decide",
         "feedback.items_self.read",
         "feedback.items.read",
@@ -199,7 +199,7 @@ fn default_permission_names() -> Vec<String> {
         "events.items.create",
         "events.items.update",
         "events.items.delete",
-        "events.positions.self.request",
+        "events.positions_self.request",
         "events.positions.assign",
         "events.positions.delete",
         "events.positions.publish",
@@ -215,7 +215,7 @@ fn default_permission_names() -> Vec<String> {
         "files.assets.read",
         "files.assets.create",
         "files.assets.update",
-        "files.assets.policy.update",
+        "files.assets_policy.update",
         "files.assets.delete",
         "files.content.read",
         "files.content.create",
@@ -460,9 +460,9 @@ mod tests {
         );
         assert_eq!(PermissionPath::from_db_value("unknown"), None);
         assert_eq!(
-            PermissionPath::from_db_value("training.assignment_requests.self.request"),
+            PermissionPath::from_db_value("training.assignment_requests_self.request"),
             Some(PermissionPath::from_segments(
-                ["training", "assignment_requests", "self"],
+                ["training", "assignment_requests_self"],
                 PermissionAction::Request
             ))
         );
@@ -534,9 +534,7 @@ mod tests {
     fn normalizes_nested_permissions() {
         let normalized = normalize_permission_tree(&json!({
             "events": {
-                "positions": {
-                    "self": ["request"]
-                }
+                "positions_self": ["request"]
             },
             "files": {
                 "assets": ["create"]
@@ -547,7 +545,7 @@ mod tests {
         assert_eq!(
             normalized,
             vec![
-                "events.positions.self.request".to_string(),
+                "events.positions_self.request".to_string(),
                 "files.assets.create".to_string()
             ]
         );
@@ -562,7 +560,7 @@ mod tests {
     fn builds_tree_from_permission_names() {
         let tree = permission_tree_from_names(&[
             "training.sessions.read".to_string(),
-            "training.assignment_requests.self.request".to_string(),
+            "training.assignment_requests_self.request".to_string(),
         ])
         .unwrap();
 
@@ -570,9 +568,7 @@ mod tests {
             tree,
             json!({
                 "training": {
-                    "assignment_requests": {
-                        "self": ["request"]
-                    },
+                    "assignment_requests_self": ["request"],
                     "sessions": ["read"]
                 }
             })

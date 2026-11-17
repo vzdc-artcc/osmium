@@ -6,7 +6,7 @@ use crate::{
     models::{LessonRubricCellDetail, LessonRubricCriteriaDetail, LessonRubricDetail},
 };
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct CriteriaRow {
     pub id: String,
     pub rubric_id: String,
@@ -76,7 +76,10 @@ where
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn insert_criteria<'e, E>(
     executor: E,
     id: &str,
@@ -136,7 +139,10 @@ where
     .map_err(|_| ApiError::Internal)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per column the statement binds"
+)]
 pub async fn update_criteria_row<'e, E>(
     executor: E,
     criteria_id: &str,

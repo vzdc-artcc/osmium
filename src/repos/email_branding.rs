@@ -52,7 +52,6 @@ where
         .map(|value| value.unwrap_or(false))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn upsert_branding<'e, E>(
     executor: E,
     input: &UpdateEmailBrandingRequest,

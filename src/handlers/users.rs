@@ -236,6 +236,7 @@ pub async fn visit_artcc(
         roster_added: true,
     };
 
+    let after = user_repo::find_roster_user_by_cid(pool, viewer.cid).await?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(viewer), None).await?;
     audit_repo::record_audit(
         pool,
@@ -251,7 +252,10 @@ pub async fn visit_artcc(
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
                 .transpose()?,
-            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            after_state: after
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
             ip_address: audit_repo::client_ip(&headers),
         },
     )
@@ -282,10 +286,7 @@ pub async fn refresh_my_vatusa(
         &state,
         Some(viewer),
         None,
-        PermissionPath::from_segments(
-            ["users", "vatusa_refresh", "self"],
-            PermissionAction::Request,
-        ),
+        PermissionPath::from_segments(["users", "vatusa_refresh_self"], PermissionAction::Request),
     )
     .await?;
     let pool = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
@@ -313,6 +314,7 @@ pub async fn refresh_my_vatusa(
         },
     };
 
+    let after = user_repo::find_roster_user_by_cid(pool, viewer.cid).await?;
     let actor = audit_repo::resolve_audit_actor(pool, Some(viewer), None).await?;
     audit_repo::record_audit(
         pool,
@@ -328,7 +330,10 @@ pub async fn refresh_my_vatusa(
                 .as_ref()
                 .map(audit_repo::sanitized_snapshot)
                 .transpose()?,
-            after_state: Some(audit_repo::sanitized_snapshot(&response)?),
+            after_state: after
+                .as_ref()
+                .map(audit_repo::sanitized_snapshot)
+                .transpose()?,
             ip_address: audit_repo::client_ip(&headers),
         },
     )
@@ -357,7 +362,7 @@ pub async fn get_my_visitor_application(
         Some(user),
         None,
         PermissionPath::from_segments(
-            ["users", "visitor_applications", "self"],
+            ["users", "visitor_applications_self"],
             PermissionAction::Read,
         ),
     )
@@ -392,7 +397,7 @@ pub async fn create_visitor_application(
         Some(user),
         None,
         PermissionPath::from_segments(
-            ["users", "visitor_applications", "self"],
+            ["users", "visitor_applications_self"],
             PermissionAction::Request,
         ),
     )

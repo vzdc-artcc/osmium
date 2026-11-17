@@ -91,7 +91,14 @@ Run `plan` first. It is the supported preflight step for the legacy dump shape.
 
 `migrator.sh` rebuilds the Compose-managed migrator image before running it.
 
-Legacy controller stats are migrated into `stats.controller_monthly_rollups` for `environment = 'live'`. This is enough for the existing stats API to return historical hours. It does not backfill old `stats.controller_sessions` or `stats.controller_activations`, so `last_activity_at` may still be `null` for legacy-only history.
+Legacy controller stats are migrated into `stats.controller_monthly_rollups` for `environment = 'live'`, which carries historical hours. Legacy `ControllerPosition` rows are backfilled as one closed `stats.controller_sessions` row plus one `stats.controller_activations` row each, which is what the per-controller positions list and `last_activity_at` read. Skipped, with a warning:
+
+- positions still open in the dump;
+- OBS/FSS or unknown facility codes;
+- any position ending after the first login osmium's own sync recorded on the target, so the two never overlap;
+- any position whose start collides with an existing session for the same controller.
+
+Backfilled rows carry `source_login_time_raw` and `position_id` values of `legacy:<id>`, so re-running the stats domain never duplicates them, even after a partial failure. It does rewrite legacy months in `controller_monthly_rollups`. Only re-run it before the target has taken live stats.
 
 ## Service Endpoints
 

@@ -15,21 +15,19 @@ use crate::{
 const DEFAULT_SYNC_INTERVAL_SECS: u64 = 5;
 const TARGET_ARTCC_ID: &str = "ZDC";
 
+/// Statistics only ever record the live network. Sweatbox (training) time
+/// is not controlling time, so those feeds are neither polled nor served.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatsEnvironment {
     Live,
-    Sweatbox1,
-    Sweatbox2,
 }
 
 impl StatsEnvironment {
-    pub const ALL: [Self; 3] = [Self::Live, Self::Sweatbox1, Self::Sweatbox2];
+    pub const ALL: [Self; 1] = [Self::Live];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Live => "live",
-            Self::Sweatbox1 => "sweatbox1",
-            Self::Sweatbox2 => "sweatbox2",
         }
     }
 
@@ -38,16 +36,6 @@ impl StatsEnvironment {
             Self::Live => std::env::var("VNAS_CONTROLLER_FEED_URL_LIVE").unwrap_or_else(|_| {
                 "https://live.env.vnas.vatsim.net/data-feed/controllers.json".to_string()
             }),
-            Self::Sweatbox1 => {
-                std::env::var("VNAS_CONTROLLER_FEED_URL_SWEATBOX1").unwrap_or_else(|_| {
-                    "https://sweatbox1.env.vnas.vatsim.net/data-feed/controllers.json".to_string()
-                })
-            }
-            Self::Sweatbox2 => {
-                std::env::var("VNAS_CONTROLLER_FEED_URL_SWEATBOX2").unwrap_or_else(|_| {
-                    "https://sweatbox2.env.vnas.vatsim.net/data-feed/controllers.json".to_string()
-                })
-            }
         }
     }
 }
@@ -55,8 +43,6 @@ impl StatsEnvironment {
 pub fn parse_environment(value: Option<&str>) -> Result<StatsEnvironment, ApiError> {
     match value.unwrap_or("live").trim().to_ascii_lowercase().as_str() {
         "live" => Ok(StatsEnvironment::Live),
-        "sweatbox1" => Ok(StatsEnvironment::Sweatbox1),
-        "sweatbox2" => Ok(StatsEnvironment::Sweatbox2),
         _ => Err(ApiError::BadRequest),
     }
 }
@@ -277,6 +263,7 @@ struct VnasPosition {
 struct VnasData {
     cid: String,
     real_name: Option<String>,
+    callsign: Option<String>,
     user_rating: Option<String>,
     requested_rating: Option<String>,
 }
@@ -335,6 +322,7 @@ struct ControllerSnapshot {
     cid: i64,
     user_id: Option<String>,
     real_name: Option<String>,
+    callsign: Option<String>,
     role: Option<String>,
     user_rating: Option<String>,
     requested_rating: Option<String>,
@@ -392,6 +380,13 @@ pub fn start_stats_sync_worker(state: AppState) {
     }
 }
 
+/// Runs a single poll of one environment's feed. The worker loop calls
+/// `sync_environment` on its own schedule; this exists so tests can drive the
+/// real job against a fixture feed (`VNAS_CONTROLLER_FEED_URL_LIVE`).
+pub async fn run_once(state: AppState, environment: StatsEnvironment) -> Result<(), ApiError> {
+    sync_environment(state, environment).await.map(|_| ())
+}
+
 async fn sync_environment(
     state: AppState,
     environment: StatsEnvironment,
@@ -421,7 +416,13 @@ async fn sync_environment(
     let mut controllers = feed
         .controllers
         .into_iter()
-        .filter(|controller| controller.artcc_id == TARGET_ARTCC_ID && !controller.is_observer)
+        .filter(|controller| {
+            // `artccId` is the ARTCC of the position being worked, so a ZDC
+            // controller staffing another ARTCC is excluded here too.
+            controller.artcc_id == TARGET_ARTCC_ID
+                && !controller.is_observer
+                && !is_atis(&controller.vatsim_data)
+        })
         .collect::<Vec<_>>();
 
     let online = controllers
@@ -494,6 +495,11 @@ async fn sync_environment(
             cid,
             user_id,
             real_name: controller.vatsim_data.real_name.clone(),
+            callsign: controller
+                .vatsim_data
+                .callsign
+                .clone()
+                .filter(|callsign| !callsign.trim().is_empty()),
             role: controller.role.clone(),
             user_rating: controller.vatsim_data.user_rating.clone(),
             requested_rating: controller.vatsim_data.requested_rating.clone(),
@@ -511,7 +517,11 @@ async fn sync_environment(
                     facility_id: position.facility_id.clone(),
                     facility_name: position.facility_name.clone(),
                     position_name: position.position_name.clone(),
-                    position_type: position.position_type.clone(),
+                    position_type: cab_position_type(
+                        &position.position_type,
+                        position.default_callsign.as_deref(),
+                    )
+                    .to_string(),
                     radio_name: position.radio_name.clone(),
                     default_callsign: position.default_callsign.clone(),
                     frequency: position.frequency,
@@ -696,6 +706,7 @@ async fn update_open_session(
             requested_rating = $7,
             primary_facility_id = $8,
             primary_position_id = $9,
+            callsign = coalesce(callsign, $10),
             updated_at = now()
         where id = $1
         "#,
@@ -709,6 +720,7 @@ async fn update_open_session(
     .bind(&snapshot.requested_rating)
     .bind(&snapshot.primary_facility_id)
     .bind(&snapshot.primary_position_id)
+    .bind(&snapshot.callsign)
     .execute(&mut **tx)
     .await
     .map_err(|_| ApiError::Internal)?;
@@ -738,9 +750,10 @@ async fn insert_session(
             login_at,
             primary_facility_id,
             primary_position_id,
-            source_login_time_raw
+            source_login_time_raw,
+            callsign
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         "#,
     )
     .bind(&id)
@@ -756,6 +769,7 @@ async fn insert_session(
     .bind(&snapshot.primary_facility_id)
     .bind(&snapshot.primary_position_id)
     .bind(&snapshot.login_time_raw)
+    .bind(&snapshot.callsign)
     .execute(&mut **tx)
     .await
     .map_err(|_| ApiError::Internal)?;
@@ -964,15 +978,20 @@ async fn close_activation(
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    add_monthly_rollup(
-        tx,
-        &activation.environment,
-        activation.cid,
-        activation.started_at,
-        ended_at,
-        RollupKind::Position(&activation.position_type),
-    )
-    .await?;
+    // A connection is credited once, to its primary position. Secondary
+    // (consolidated) positions are listed but add no hours, so controlling
+    // time never exceeds the time actually online.
+    if activation.is_primary {
+        add_monthly_rollup(
+            tx,
+            &activation.environment,
+            activation.cid,
+            activation.started_at,
+            ended_at,
+            RollupKind::Position(&activation.position_type),
+        )
+        .await?;
+    }
 
     emitted_events.push(ControllerLifecycleEvent::PositionDeactivated(
         build_position_event(session, &activation, ended_at),
@@ -1318,6 +1337,34 @@ enum PositionBucket {
     Tracon,
     Center,
     Unknown,
+}
+
+/// ATIS connections are not controlling time.
+fn is_atis(vatsim_data: &VnasData) -> bool {
+    vatsim_data
+        .callsign
+        .as_deref()
+        .is_some_and(|callsign| callsign.to_ascii_uppercase().ends_with("_ATIS"))
+}
+
+/// vNAS reports every tower-cab position as `Atct`; the role is only in the
+/// position's default callsign suffix. Resolve it so cab time lands in the
+/// delivery/ground/tower buckets. Migration 0076 applies the same rule to
+/// rows stored before this existed.
+fn cab_position_type<'a>(position_type: &'a str, default_callsign: Option<&str>) -> &'a str {
+    if position_type != "Atct" {
+        return position_type;
+    }
+    match default_callsign
+        .and_then(|callsign| callsign.rsplit_once('_'))
+        .map(|(_, suffix)| suffix.to_ascii_uppercase())
+        .as_deref()
+    {
+        Some("DEL") => "Delivery",
+        Some("GND") => "Ground",
+        Some("TWR") => "Tower",
+        _ => position_type,
+    }
 }
 
 fn map_position_type(value: &str) -> PositionBucket {

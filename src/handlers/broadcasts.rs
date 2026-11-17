@@ -155,6 +155,9 @@ pub async fn create_broadcast(
         broadcasts_repo::insert_staff_agreed_state(&mut *tx, &id, now).await?;
     }
 
+    let after = broadcasts_repo::fetch_broadcast_row(&mut *tx, &id)
+        .await?
+        .ok_or(ApiError::Internal)?;
     record_audit_entry(
         &mut tx,
         current_user.as_ref(),
@@ -162,7 +165,7 @@ pub async fn create_broadcast(
         "CREATE",
         &id,
         None::<&broadcasts_repo::BroadcastRow>,
-        Some(&payload),
+        Some(&after),
         &headers,
     )
     .await?;
@@ -221,6 +224,9 @@ pub async fn update_broadcast(
     )
     .await?;
 
+    let after = broadcasts_repo::fetch_broadcast_row(&mut *tx, &broadcast_id)
+        .await?
+        .ok_or(ApiError::Internal)?;
     record_audit_entry(
         &mut tx,
         current_user.as_ref(),
@@ -228,7 +234,7 @@ pub async fn update_broadcast(
         "UPDATE",
         &broadcast_id,
         Some(&before),
-        Some(&payload),
+        Some(&after),
         &headers,
     )
     .await?;
@@ -400,7 +406,10 @@ fn normalize_optional(value: Option<&str>) -> Option<String> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the audit row's actor, target and before/after state are each a separate input"
+)]
 async fn record_audit_entry<TBefore, TAfter>(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     current_user: Option<&CurrentUser>,

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Refuses a commit message carrying AI attribution (AGENTS.md §1). Installed by
+# `just install-hooks`; tested by `just hooks-check`.
+#
+# Matches a Co-Authored-By trailer naming an assistant, a "Generated with/by <tool>" line, a
+# session link, or the robot badge. Text inside backticks is ignored, so prose quoting the rule
+# passes. "AI" matches only as a whole capitalised word, so names containing "ai" pass.
+set -uo pipefail
+
+tools='(Claude|Anthropic|ChatGPT|GPT|Codex|OpenAI|Copilot|Gemini)'
+pattern="(co-authored-by:.*\\b${tools}\\b)|(^[[:space:]>*_-]*(🤖[[:space:]]*)?(generated|drafted) (with|by) \\[?${tools}\\b)|(claude-session:)|(claude\\.ai/code)|(claude\\.com/claude-code)|(🤖)"
+pattern_ai='([Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:.*\bAI\b)|(^[[:space:]>*_-]*([Gg]enerated|[Dd]rafted) ([Ww]ith|[Bb]y) \[?AI\b)'
+
+# Drop git's comment lines and anything in backticks before matching.
+text="$(grep -v '^#' "$1" | sed -E 's/`[^`]*`//g')"
+hits="$( { grep -inE "$pattern" <<<"$text"; grep -nE "$pattern_ai" <<<"$text"; } || true)"
+if [[ -n "$hits" ]]; then
+    echo "commit-msg: the message carries AI attribution:" >&2
+    printf '  %s\n' "$hits" >&2
+    echo "Commits in this repo carry no AI attribution; remove the trailer, link or credit line." >&2
+    exit 1
+fi
+exit 0

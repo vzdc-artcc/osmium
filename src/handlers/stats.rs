@@ -38,7 +38,7 @@ pub async fn get_online_controllers(
     path = "/api/v1/stats/artcc",
     tag = "stats",
     params(
-        ("environment" = Option<String>, Query, description = "Environment: live, sweatbox1, or sweatbox2"),
+        ("environment" = Option<String>, Query, description = "Only `live` is accepted (the default); anything else is bad_request"),
         ("all_time" = Option<bool>, Query, description = "Return all-time totals"),
         ("month" = Option<i32>, Query, description = "Month 1-12"),
         ("year" = Option<i32>, Query, description = "Calendar year"),
@@ -200,7 +200,7 @@ pub async fn get_artcc_stats(
     tag = "stats",
     params(
         ("cid" = i64, Path, description = "VATSIM CID"),
-        ("environment" = Option<String>, Query, description = "Environment: live, sweatbox1, or sweatbox2"),
+        ("environment" = Option<String>, Query, description = "Only `live` is accepted (the default); anything else is bad_request"),
         ("year" = Option<i32>, Query, description = "Calendar year")
     ),
     responses(
@@ -411,7 +411,7 @@ pub async fn list_controller_positions(
     path = "/api/v1/stats/controller-events",
     tag = "stats",
     params(
-        ("environment" = Option<String>, Query, description = "Environment: live, sweatbox1, or sweatbox2"),
+        ("environment" = Option<String>, Query, description = "Only `live` is accepted (the default); anything else is bad_request"),
         ("after_id" = Option<i64>, Query, description = "Return events after this durable event id"),
         ("limit" = Option<i64>, Query, description = "Max events to return")
     ),
@@ -456,6 +456,8 @@ pub async fn list_controller_events(
     ))
 }
 
+/// The prefix list only validates callsigns on typed ATC bookings. It does
+/// not filter statistics, which count every position vNAS assigns to ZDC.
 #[utoipa::path(
     get,
     path = "/api/v1/admin/stats/prefixes",
@@ -480,6 +482,8 @@ pub async fn get_statistics_prefixes(
     Ok(ApiJson::new(prefixes, time))
 }
 
+/// The prefix list only validates callsigns on typed ATC bookings. It does
+/// not filter statistics, which count every position vNAS assigns to ZDC.
 #[utoipa::path(
     patch,
     path = "/api/v1/admin/stats/prefixes",

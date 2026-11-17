@@ -5,14 +5,17 @@ use crate::{errors::ApiError, models::WelcomeMessageContent};
 
 const WELCOME_MESSAGES_KEY: &str = "welcome_messages";
 
-pub async fn fetch_welcome_message_content(
-    pool: &PgPool,
-) -> Result<WelcomeMessageContent, ApiError> {
+pub async fn fetch_welcome_message_content<'e, E>(
+    executor: E,
+) -> Result<WelcomeMessageContent, ApiError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
     let value = sqlx::query_scalar::<_, serde_json::Value>(
         "select value from web.site_settings where key = $1",
     )
     .bind(WELCOME_MESSAGES_KEY)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map_err(|_| ApiError::Internal)?;
 

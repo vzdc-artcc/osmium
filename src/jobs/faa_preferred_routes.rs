@@ -676,4 +676,39 @@ mod tests {
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].route_string, "NEW");
     }
+
+    fn deflated_zip(entries: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, body) in entries {
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(body.as_bytes()).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn extracts_named_deflated_entry_from_zip() {
+        let bytes = deflated_zip(&[
+            ("README.txt", "not this one"),
+            ("PFR_RMT_FMT.csv", "ORIG,DEST\nIAD,BOS\n"),
+        ]);
+        let csv = extract_csv_from_zip(&bytes, "PFR_RMT_FMT.csv").expect("entry present");
+        assert_eq!(csv, "ORIG,DEST\nIAD,BOS\n");
+    }
+
+    #[test]
+    fn missing_zip_entry_is_an_error_naming_it() {
+        let bytes = deflated_zip(&[("README.txt", "x")]);
+        let err = extract_csv_from_zip(&bytes, "PFR_RMT_FMT.csv").unwrap_err();
+        assert!(err.contains("PFR_RMT_FMT.csv"), "{err}");
+    }
+
+    #[test]
+    fn non_zip_bytes_are_an_error() {
+        let err = extract_csv_from_zip(b"<html>maintenance</html>", "PFR_RMT_FMT.csv").unwrap_err();
+        assert!(err.starts_with("open zip"), "{err}");
+    }
 }

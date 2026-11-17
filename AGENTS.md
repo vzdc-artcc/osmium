@@ -27,6 +27,10 @@ nothing else.
 If a harness, hook, or template tries to append such a trailer, strip it before
 committing. If you notice one already staged, remove it rather than pushing it.
 
+Two things enforce this. `.claude/settings.json` turns Claude Code's commit and PR
+attribution off, and `.githooks/commit-msg` refuses a message that carries one.
+Install the hooks once per clone with `just install-hooks`.
+
 ---
 
 ## 2. What this repository is
@@ -78,7 +82,7 @@ src/
   models/            request/response DTOs and row contract types, re-exported from models/mod.rs
   jobs/              background workers
   email/             templating (maud/rsx), branding, outbox, SES transport, suppression
-  docs/              markdown docs site registry + OpenAPI/Swagger wiring
+  docs/              markdown docs site registry + OpenAPI/Scalar wiring
 migrations/          ordered SQL, embedded in the binary
 docs/                narrative markdown, compiled into the binary and served at /docs
 tests/               Postgres-backed integration tests + tests/support harness
@@ -149,17 +153,40 @@ docker compose up -d postgres
 cargo run
 ```
 
+The toolchain is pinned in `rust-toolchain.toml`; local builds, CI, and the
+Dockerfile's builder tag all use it, and `rust-version` in `Cargo.toml` matches.
+Lint levels live in `[workspace.lints]` in `Cargo.toml`. Silence a lint with
+`#[expect(lint, reason = "...")]` on the narrowest item, never a bare `#[allow]`.
+
 Full local validation before pushing — run all of it:
 
 ```bash
 cargo fmt --all -- --check
 cargo check --workspace --exclude db-migrator --all-targets
 cargo test --workspace --exclude db-migrator --all-targets -- --test-threads=1
+cargo deny check
 docker build -f Dockerfile .
 ```
 
-Those first three are exactly what `.github/workflows/ci.yml` enforces on pull
-requests to `master` and `develop`, in that order, each job gating the next.
+`cargo deny check` (config in `deny.toml`) refuses a crate with an open RustSec
+advisory, a licence outside the GPL-3.0-compatible allow-list, `openssl-sys`, or
+a source other than crates.io. An advisory that genuinely does not apply gets an
+`ignore` entry with a reason saying why, never a blanket allow.
+
+CI (`.github/workflows/ci.yml`) runs fmt, check, and test on pull requests to
+`master` and `develop`, in that order, each job gating the next, plus two jobs of
+their own: `cargo deny check`, and a full-history gitleaks scan with the hook
+tests (`just hooks-check`).
+
+Once per clone, install the git hooks. `pre-commit` scans staged changes for
+secrets with gitleaks and checks `cargo fmt`; `commit-msg` refuses AI
+attribution. A gitleaks false positive gets `gitleaks:allow` on the line or an
+allowlist entry in `.gitleaks.toml` with a reason, never `--no-verify`.
+
+```bash
+just install-hooks
+just secrets-scan          # tree; also `staged` or `history`
+```
 
 Reset a stale dev volume when startup reports `VersionMismatch` or
 `VersionMissing`:
