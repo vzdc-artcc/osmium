@@ -333,10 +333,7 @@ pub async fn import_file_from_url(
         .build()
         .map_err(|_| ApiError::Internal)?;
 
-    let response = client.get(source_url).send().await.map_err(|error| {
-        tracing::warn!(?error, "file url import request failed");
-        ApiError::BadRequest
-    })?;
+    let response = send_import_request(&client, source_url).await?;
 
     if !response.status().is_success() {
         return Err(ApiError::BadRequest);
@@ -377,7 +374,7 @@ pub async fn import_file_from_url(
         return Err(ApiError::BadRequest);
     }
 
-    let body = response.bytes().await.map_err(|_| ApiError::BadRequest)?;
+    let body = read_import_body(response).await?;
     if body.is_empty() || body.len() as u64 > max_size {
         record_file_audit(
             pool,
@@ -1323,6 +1320,41 @@ pub(crate) fn max_upload_bytes() -> u64 {
         .unwrap_or(25 * 1024 * 1024)
 }
 
+/// Sends the import GET. A failure logs the source origin and the error with
+/// its URL stripped: the caller's URL can carry a credential in its query,
+/// path or userinfo, and `reqwest::Error` renders the full URL in both
+/// `Display` and `Debug`.
+async fn send_import_request(
+    client: &reqwest::Client,
+    source_url: reqwest::Url,
+) -> Result<reqwest::Response, ApiError> {
+    let source_origin = source_url.origin().ascii_serialization();
+    client.get(source_url).send().await.map_err(|error| {
+        log_import_fetch_error(&source_origin, error, "file url import request failed");
+        ApiError::BadRequest
+    })
+}
+
+/// Reads the import response body, logging a failure the same way as
+/// `send_import_request`.
+async fn read_import_body(response: reqwest::Response) -> Result<Bytes, ApiError> {
+    let source_origin = response.url().origin().ascii_serialization();
+    response.bytes().await.map_err(|error| {
+        log_import_fetch_error(&source_origin, error, "file url import body read failed");
+        ApiError::BadRequest
+    })
+}
+
+fn log_import_fetch_error(source_origin: &str, error: reqwest::Error, message: &'static str) {
+    tracing::warn!(
+        source_origin,
+        timeout = error.is_timeout(),
+        connect = error.is_connect(),
+        error = %error.without_url(),
+        "{message}"
+    );
+}
+
 fn source_url_path(raw_url: &str) -> &str {
     raw_url
         .split(['?', '#'])
@@ -1577,5 +1609,165 @@ fn hex_nibble(value: u8) -> Option<u8> {
         b'a'..=b'f' => Some(value - b'a' + 10),
         b'A'..=b'F' => Some(value - b'A' + 10),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
+    };
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    use super::*;
+
+    const SENTINEL: &str = "import-sentinel-181";
+
+    #[derive(Clone, Default)]
+    struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
+
+    impl CapturedLogs {
+        fn text(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock().expect("log buffer lock")).into_owned()
+        }
+    }
+
+    impl Write for CapturedLogs {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("log buffer lock")
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for CapturedLogs {
+        type Writer = CapturedLogs;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Routes this thread's `tracing` output into a buffer until the guard
+    /// drops. `#[tokio::test]` runs on a `current_thread` runtime, so the
+    /// helpers under test log on this thread. reqwest's own `log`-crate lines
+    /// are not captured: no `LogTracer` bridge is installed here.
+    fn capture_logs() -> (CapturedLogs, tracing::subscriber::DefaultGuard) {
+        let logs = CapturedLogs::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(logs.clone())
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .finish();
+        (logs, tracing::subscriber::set_default(subscriber))
+    }
+
+    /// The leak check runs first, so a regression fails on the leak rather
+    /// than on a changed message. The expected lines prove the failure path
+    /// logged at all.
+    fn assert_logged_without_secret(logs: &str, expected: &[&str]) {
+        assert!(
+            !logs.contains(SENTINEL),
+            "logs leak the URL secret:\n{logs}"
+        );
+        assert!(
+            !logs.contains("token="),
+            "logs carry the URL query:\n{logs}"
+        );
+        assert!(!logs.contains("/a.png"), "logs carry the URL path:\n{logs}");
+        assert!(
+            !logs.contains("user:"),
+            "logs carry the URL userinfo:\n{logs}"
+        );
+        for needle in expected {
+            assert!(
+                logs.contains(needle),
+                "expected {needle:?} in logs:\n{logs}"
+            );
+        }
+    }
+
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("build test client")
+    }
+
+    #[tokio::test]
+    async fn failed_send_logs_origin_without_url_secret() {
+        // Bind then drop a listener to get a loopback port that refuses.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind probe listener");
+        let port = listener.local_addr().expect("probe addr").port();
+        drop(listener);
+        let url = reqwest::Url::parse(&format!(
+            "http://user:{SENTINEL}@127.0.0.1:{port}/a.png?token={SENTINEL}"
+        ))
+        .expect("parse test url");
+
+        let (logs, _guard) = capture_logs();
+        let result = send_import_request(&client(), url).await;
+
+        assert!(matches!(result, Err(ApiError::BadRequest)));
+        assert_logged_without_secret(
+            &logs.text(),
+            &[
+                "file url import request failed",
+                &format!("source_origin=\"http://127.0.0.1:{port}\""),
+                "connect=true",
+                "error=error sending request",
+            ],
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_body_read_logs_origin_without_url_secret() {
+        // A server that promises 100 bytes, sends 5 and closes the connection.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stub listener");
+        let port = listener.local_addr().expect("stub addr").port();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut request = [0u8; 4096];
+            let _read = socket.read(&mut request).await.expect("read request");
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 100\r\n\r\nshort",
+                )
+                .await
+                .expect("write truncated response");
+        });
+        let url = reqwest::Url::parse(&format!("http://127.0.0.1:{port}/a.png?token={SENTINEL}"))
+            .expect("parse test url");
+
+        let (logs, _guard) = capture_logs();
+        let response = send_import_request(&client(), url)
+            .await
+            .expect("headers arrive before the body fails");
+        let result = read_import_body(response).await;
+        server.await.expect("stub server task");
+
+        assert!(matches!(result, Err(ApiError::BadRequest)));
+        assert_logged_without_secret(
+            &logs.text(),
+            &[
+                "file url import body read failed",
+                &format!("source_origin=\"http://127.0.0.1:{port}\""),
+                "error=error decoding response body",
+            ],
+        );
     }
 }
