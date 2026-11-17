@@ -1161,6 +1161,11 @@ pub async fn upsert_visitor_application(
     .map_err(|_| ApiError::Internal)
 }
 
+/// Decides a `PENDING` application and, on approval, activates the visitor membership.
+/// Returns `None` when no `PENDING` row has this id, and then changes nothing: an application
+/// that is already decided keeps its decision and the membership is left as it is now. The
+/// status check is in the update itself, so a concurrent decide waits on the row lock,
+/// re-evaluates the `where` against the committed row, and matches nothing.
 pub async fn decide_visitor_application(
     tx: &mut Transaction<'_, Postgres>,
     application_id: &str,
@@ -1177,7 +1182,7 @@ pub async fn decide_visitor_application(
             decided_at = now(),
             decided_by_actor_id = $4,
             updated_at = now()
-        where id = $1
+        where id = $1 and status = 'PENDING'
         returning
             id,
             user_id,

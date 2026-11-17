@@ -171,18 +171,22 @@ pub async fn fetch_assignment_request(
         .transpose()
 }
 
+/// Decides a `PENDING` request. Returns `false` when no `PENDING` row has this id, so a
+/// request that is already decided keeps its first decision and decider. The status check is
+/// in the update itself: a concurrent decide waits on the row lock, re-evaluates the `where`
+/// against the committed row, and matches nothing.
 pub async fn decide_assignment_request_row(
     pool: &PgPool,
     request_id: &str,
     status: &str,
     now: DateTime<Utc>,
     decided_by: &str,
-) -> Result<Option<TrainingAssignmentRequest>, ApiError> {
-    sqlx::query(
+) -> Result<bool, ApiError> {
+    let result = sqlx::query(
         r#"
         update training.training_assignment_requests
         set status = $1, decided_at = $2, decided_by = $3
-        where id = $4
+        where id = $4 and status = 'PENDING'
         "#,
     )
     .bind(status)
@@ -193,7 +197,7 @@ pub async fn decide_assignment_request_row(
     .await
     .map_err(|_| ApiError::Internal)?;
 
-    fetch_assignment_request(pool, request_id).await
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn delete_assignment_request_row(

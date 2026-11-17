@@ -1600,7 +1600,7 @@ pub async fn create_assignment_request(
     request_body = DecideTrainingAssignmentRequestRequest,
     responses(
         (status = 200, description = "Assignment request updated", body = TrainingAssignmentRequest),
-        (status = 400, description = "Invalid request"),
+        (status = 400, description = "Invalid status, or the request is not PENDING"),
         (status = 401, description = "Not authorized"),
         (status = 404, description = "Assignment request not found")
     )
@@ -1627,15 +1627,21 @@ pub async fn decide_assignment_request(
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    let row = training_assignment_requests_repo::decide_assignment_request_row(
+    // Only a PENDING request can be decided, so the stored decision keeps naming whoever made it.
+    let decided = training_assignment_requests_repo::decide_assignment_request_row(
         db,
         &request_id,
         &normalized_status,
         now,
         &user.id,
     )
-    .await?
-    .ok_or(ApiError::NotFound)?;
+    .await?;
+    if !decided {
+        return Err(ApiError::BadRequest);
+    }
+    let row = training_assignment_requests_repo::fetch_assignment_request(db, &request_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     let actor = audit_repo::resolve_audit_actor(db, Some(user), None).await?;
     audit_repo::record_audit(
