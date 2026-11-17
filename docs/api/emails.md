@@ -406,16 +406,26 @@ the `event_notifications` suppression category.
   "student_name": "Jane Smith"
 }
 
-// training.assignment_created, training.assignment_primary_trainer,
-// training.assignment_other_trainer (other_trainer_names is optional)
+// training.assignment_created
 {
   "student_name": "Jane Smith",
   "primary_trainer_name": "John Trainer",
   "other_trainer_names": "Amy Trainer, Bob Trainer"
 }
 
-// training.assignment_trainer_removed
+// training.assignment_primary_trainer, training.assignment_other_trainer
+// change: "created" or "updated" (picks the subject line); student_rating is optional
 {
+  "change": "created",
+  "student_name": "Jane Smith",
+  "student_rating": "S2",
+  "primary_trainer_name": "John Trainer"
+}
+
+// training.assignment_trainer_removed
+// change: "updated", "deleted" or "release_approved"
+{
+  "change": "deleted",
   "student_name": "Jane Smith",
   "student_cid": "1234567"
 }

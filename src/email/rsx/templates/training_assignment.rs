@@ -16,6 +16,7 @@ use super::RsxTemplate;
 
 struct Notice {
     subject: String,
+    heading: &'static str,
     greeting: String,
     paragraphs: Vec<String>,
 }
@@ -46,7 +47,7 @@ impl RsxTemplate for TrainingNoticeTemplate {
         };
         let html = EmailLayout::new(&notice.subject, theme)
             .preheader(&notice.subject)
-            .heading(&notice.subject)
+            .heading(notice.heading)
             .unsubscribe_link(unsubscribe_link)
             .render(body, None)
             .into_string();
@@ -69,18 +70,34 @@ const CONTACT_TA: &str = "Contact the Training Administrator if you have any que
 const CHECK_PROFILE: &str = "Please check your profile for more details.";
 const REACH_OUT: &str = "Feel free to communicate with this student via email or private message.";
 
-fn dear(name: &str) -> String {
-    format!("Dear {name},")
+/// Greets the recipient by name, or generically when the name is missing or blank
+/// (a roster-synced display name can be empty).
+fn dear(payload: &Value, key: &str) -> String {
+    match optional_string(payload, key) {
+        Some(name) => format!("Dear {name},"),
+        None => "Hello,".to_string(),
+    }
+}
+
+/// The action that caused a trainer notice, which picks the legacy subject line.
+/// An unrecognized value is refused.
+fn change<'a>(payload: &Value, subjects: &[(&str, &'a str)]) -> Result<&'a str, ApiError> {
+    let change = required_string(payload, "change")?;
+    subjects
+        .iter()
+        .find(|(key, _)| *key == change)
+        .map(|(_, subject)| *subject)
+        .ok_or(ApiError::BadRequest)
 }
 
 pub static OTS_ASSIGNED_STUDENT: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.ots_assigned_student",
     build: |payload| {
-        let student = required_string(payload, "student_name")?;
         let instructor = required_string(payload, "instructor_name")?;
         Ok(Notice {
             subject: "OTS Assignment".to_string(),
-            greeting: dear(&student),
+            heading: "OTS Assignment",
+            greeting: dear(payload, "student_name"),
             paragraphs: vec![
                 format!("{instructor} has been assigned to perform your OTS."),
                 "The instructor will reach out to you directly either via email or Discord."
@@ -94,10 +111,10 @@ pub static OTS_ASSIGNED_INSTRUCTOR: TrainingNoticeTemplate = TrainingNoticeTempl
     id: "training.ots_assigned_instructor",
     build: |payload| {
         let student = required_string(payload, "student_name")?;
-        let instructor = required_string(payload, "instructor_name")?;
         Ok(Notice {
             subject: "OTS Assignment".to_string(),
-            greeting: dear(&instructor),
+            heading: "OTS Assignment",
+            greeting: dear(payload, "instructor_name"),
             paragraphs: vec![
                 format!("You have been assigned to perform the OTS for {student}."),
                 "You may reach out to the trainee by email or using Discord.".to_string(),
@@ -109,10 +126,10 @@ pub static OTS_ASSIGNED_INSTRUCTOR: TrainingNoticeTemplate = TrainingNoticeTempl
 pub static OTS_UNASSIGNED_STUDENT: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.ots_unassigned_student",
     build: |payload| {
-        let student = required_string(payload, "student_name")?;
         Ok(Notice {
             subject: "OTS Assignment Removed".to_string(),
-            greeting: dear(&student),
+            heading: "OTS Assignment Removed",
+            greeting: dear(payload, "student_name"),
             paragraphs: vec![
                 "Your OTS instructor assignment has been removed. Another instructor should be \
                  assigned to you shortly."
@@ -127,10 +144,10 @@ pub static OTS_UNASSIGNED_INSTRUCTOR: TrainingNoticeTemplate = TrainingNoticeTem
     id: "training.ots_unassigned_instructor",
     build: |payload| {
         let student = required_string(payload, "student_name")?;
-        let instructor = required_string(payload, "instructor_name")?;
         Ok(Notice {
             subject: "OTS Assignment Removed".to_string(),
-            greeting: dear(&instructor),
+            heading: "OTS Assignment Removed",
+            greeting: dear(payload, "instructor_name"),
             paragraphs: vec![
                 format!("Your assignment to perform the OTS for {student} has been removed."),
                 CONTACT_TA.to_string(),
@@ -145,6 +162,7 @@ pub static OTS_DELETED: TrainingNoticeTemplate = TrainingNoticeTemplate {
         let student = required_string(payload, "student_name")?;
         Ok(Notice {
             subject: "OTS Recommendation Deleted".to_string(),
+            heading: "OTS Recommendation Deleted",
             greeting: "Hello,".to_string(),
             paragraphs: vec![
                 format!("The OTS recommendation for {student} has been deleted."),
@@ -157,7 +175,6 @@ pub static OTS_DELETED: TrainingNoticeTemplate = TrainingNoticeTemplate {
 pub static ASSIGNMENT_CREATED: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.assignment_created",
     build: |payload| {
-        let student = required_string(payload, "student_name")?;
         let primary = required_string(payload, "primary_trainer_name")?;
         let mut paragraphs = vec![
             "Your trainers have been assigned:".to_string(),
@@ -169,7 +186,8 @@ pub static ASSIGNMENT_CREATED: TrainingNoticeTemplate = TrainingNoticeTemplate {
         paragraphs.push(CHECK_PROFILE.to_string());
         Ok(Notice {
             subject: "Training Assignment Fulfilled".to_string(),
-            greeting: dear(&student),
+            heading: "Training Assignment Fulfilled",
+            greeting: dear(payload, "student_name"),
             paragraphs,
         })
     },
@@ -178,11 +196,22 @@ pub static ASSIGNMENT_CREATED: TrainingNoticeTemplate = TrainingNoticeTemplate {
 pub static ASSIGNMENT_PRIMARY_TRAINER: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.assignment_primary_trainer",
     build: |payload| {
+        let subject = change(
+            payload,
+            &[
+                ("created", "Training Assignment - Primary"),
+                ("updated", "Training Assignment Updated - Primary Trainer"),
+            ],
+        )?;
         let student = required_string(payload, "student_name")?;
-        let primary = required_string(payload, "primary_trainer_name")?;
+        let student = match optional_string(payload, "student_rating") {
+            Some(rating) => format!("{student} ({rating})"),
+            None => student,
+        };
         Ok(Notice {
-            subject: "Training Assignment - Primary".to_string(),
-            greeting: dear(&primary),
+            subject: subject.to_string(),
+            heading: "Training Assignment - Primary",
+            greeting: dear(payload, "primary_trainer_name"),
             paragraphs: vec![
                 format!("You have been assigned as the primary trainer for {student}."),
                 "Check the training assignment to view the other trainers for this student."
@@ -196,10 +225,18 @@ pub static ASSIGNMENT_PRIMARY_TRAINER: TrainingNoticeTemplate = TrainingNoticeTe
 pub static ASSIGNMENT_OTHER_TRAINER: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.assignment_other_trainer",
     build: |payload| {
+        let subject = change(
+            payload,
+            &[
+                ("created", "Training Request Fulfilled"),
+                ("updated", "Training Assignment Updated - Trainer Added"),
+            ],
+        )?;
         let student = required_string(payload, "student_name")?;
         let primary = required_string(payload, "primary_trainer_name")?;
         Ok(Notice {
-            subject: "Training Assignment".to_string(),
+            subject: subject.to_string(),
+            heading: "Training Assignment",
             greeting: "Dear Trainers,".to_string(),
             paragraphs: vec![
                 format!("You have been assigned to train {student} (not primary)."),
@@ -213,10 +250,10 @@ pub static ASSIGNMENT_OTHER_TRAINER: TrainingNoticeTemplate = TrainingNoticeTemp
 pub static ASSIGNMENT_UPDATED: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.assignment_updated",
     build: |payload| {
-        let student = required_string(payload, "student_name")?;
         Ok(Notice {
             subject: "Training Assignment Updated".to_string(),
-            greeting: dear(&student),
+            heading: "Training Assignment Updated",
+            greeting: dear(payload, "student_name"),
             paragraphs: vec![
                 "Your training assignment has been updated.".to_string(),
                 CHECK_PROFILE.to_string(),
@@ -228,10 +265,19 @@ pub static ASSIGNMENT_UPDATED: TrainingNoticeTemplate = TrainingNoticeTemplate {
 pub static ASSIGNMENT_TRAINER_REMOVED: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.assignment_trainer_removed",
     build: |payload| {
+        let subject = change(
+            payload,
+            &[
+                ("updated", "Training Assignment Updated - Trainer Removed"),
+                ("deleted", "Training Assignment Released"),
+                ("release_approved", "Release Request Approved"),
+            ],
+        )?;
         let student = required_string(payload, "student_name")?;
         let cid = required_string(payload, "student_cid")?;
         Ok(Notice {
-            subject: "Training Assignment Updated".to_string(),
+            subject: subject.to_string(),
+            heading: "Training Assignment Updated",
             greeting: "Dear Trainer(s),".to_string(),
             paragraphs: vec![
                 format!(
@@ -248,11 +294,10 @@ pub static ASSIGNMENT_TRAINER_REMOVED: TrainingNoticeTemplate = TrainingNoticeTe
 pub static ASSIGNMENT_RELEASED: TrainingNoticeTemplate = TrainingNoticeTemplate {
     id: "training.assignment_released",
     build: |payload| {
-        let student = required_string(payload, "student_name")?;
-        let approved = payload
-            .get("release_request_approved")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let approved = match payload.get("release_request_approved") {
+            None | Some(Value::Null) => false,
+            Some(value) => value.as_bool().ok_or(ApiError::BadRequest)?,
+        };
         let mut paragraphs = Vec::new();
         if approved {
             paragraphs.push("Your release request has been approved.".to_string());
@@ -263,14 +308,18 @@ pub static ASSIGNMENT_RELEASED: TrainingNoticeTemplate = TrainingNoticeTemplate 
                 .to_string(),
         );
         paragraphs.push(CHECK_PROFILE.to_string());
+        let (subject, heading) = if approved {
+            ("Release Request Approved", "Release Request Approved")
+        } else {
+            (
+                "Training Assignment Deleted",
+                "Training Assignment Released",
+            )
+        };
         Ok(Notice {
-            subject: if approved {
-                "Release Request Approved"
-            } else {
-                "Training Assignment Released"
-            }
-            .to_string(),
-            greeting: dear(&student),
+            subject: subject.to_string(),
+            heading,
+            greeting: dear(payload, "student_name"),
             paragraphs,
         })
     },

@@ -359,6 +359,107 @@ async fn training_write_that_emails_is_blocked_while_impersonating() {
 }
 
 #[tokio::test]
+async fn ots_and_release_decisions_are_blocked_while_impersonating() {
+    let Some(test) = TestApp::new().await else {
+        return;
+    };
+    let admin = make_server_admin(&test, 700_080, "Admin").await;
+    // The target holds both permissions, so a 403 comes from the impersonation
+    // block, not from the permission gate.
+    let _target = test
+        .create_user(
+            700_081,
+            "Training Staff",
+            &[
+                "training.ots_recommendations.update",
+                "training.release_requests.decide",
+            ],
+        )
+        .await;
+    let student = test.create_user(700_082, "Student", &[]).await;
+    let instructor = test.create_user(700_083, "Instructor", &[]).await;
+
+    // Fixtures, created by the admin before impersonating.
+    let ots = test
+        .json_request(
+            "POST",
+            "/api/v1/training/ots-recommendations",
+            Some(&admin.session_token),
+            Some(json!({ "student_id": student.id, "notes": "Ready" })),
+        )
+        .await;
+    assert_status(&ots, StatusCode::CREATED);
+    let ots_id = json_body::<Value>(ots).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let release = test
+        .json_request(
+            "POST",
+            "/api/v1/training/trainer-release-requests",
+            Some(&admin.session_token),
+            Some(json!({ "student_id": student.id })),
+        )
+        .await;
+    assert_status(&release, StatusCode::CREATED);
+    let release_id = json_body::<Value>(release).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    test.json_request(
+        "POST",
+        "/api/v1/admin/impersonate/700081",
+        Some(&admin.session_token),
+        Some(json!({})),
+    )
+    .await;
+
+    let response = test
+        .json_request(
+            "PATCH",
+            &format!("/api/v1/training/ots-recommendations/{ots_id}"),
+            Some(&admin.session_token),
+            Some(json!({ "assigned_instructor_id": instructor.id })),
+        )
+        .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
+    let assigned: Option<String> = sqlx::query_scalar(
+        "select assigned_instructor_id from training.ots_recommendations where id = $1",
+    )
+    .bind(&ots_id)
+    .fetch_one(&test.pool)
+    .await
+    .expect("read ots recommendation");
+    assert_eq!(
+        assigned, None,
+        "the refused PATCH left the instructor unset"
+    );
+
+    let response = test
+        .json_request(
+            "PATCH",
+            &format!("/api/v1/training/trainer-release-requests/{release_id}"),
+            Some(&admin.session_token),
+            Some(json!({ "status": "APPROVED" })),
+        )
+        .await;
+    assert_status(&response, StatusCode::FORBIDDEN);
+    let status: String =
+        sqlx::query_scalar("select status from training.trainer_release_requests where id = $1")
+            .bind(&release_id)
+            .fetch_one(&test.pool)
+            .await
+            .expect("read release request");
+    assert_eq!(
+        status, "PENDING",
+        "the refused PATCH left the request pending"
+    );
+
+    test.cleanup().await;
+}
+
+#[tokio::test]
 async fn requires_the_impersonate_permission() {
     let Some(test) = TestApp::new().await else {
         return;

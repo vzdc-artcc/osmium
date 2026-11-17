@@ -10,10 +10,10 @@ use sqlx::{Postgres, Transaction};
 
 use crate::{
     auth::context::CurrentUser,
-    email::service::{EmailActor, EmailService, actor_from_context},
+    email::service::{EmailActor, EmailService},
     errors::ApiError,
     models::{OtsRecommendationSummary, TrainingAssignment},
-    repos::audit as audit_repo,
+    repos::{audit as audit_repo, training::assignments as training_assignments_repo},
 };
 
 pub(crate) struct TrainingMailer<'a> {
@@ -22,8 +22,8 @@ pub(crate) struct TrainingMailer<'a> {
 }
 
 impl<'a> TrainingMailer<'a> {
-    /// The email actor is the audit actor, so an impersonating admin is recorded
-    /// as the requester, never the impersonated user.
+    /// The requester recorded on the outbox row and its QUEUE audit row is the
+    /// audit actor: the real admin when impersonating, never the impersonated user.
     pub(crate) async fn new(
         email: &'a EmailService,
         tx: &mut Transaction<'_, Postgres>,
@@ -32,7 +32,12 @@ impl<'a> TrainingMailer<'a> {
         let actor = audit_repo::resolve_audit_actor(&mut **tx, Some(user), None).await?;
         Ok(Self {
             email,
-            actor: actor_from_context(Some(user), None, actor.actor_id, "api"),
+            actor: EmailActor {
+                actor_id: actor.actor_id,
+                user_id: Some(user.audit_actor_user_id().to_string()),
+                service_account_id: None,
+                request_source: "api".to_string(),
+            },
         })
     }
 
@@ -131,8 +136,12 @@ impl<'a> TrainingMailer<'a> {
             .map(|trainer| trainer.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
+        let rating =
+            training_assignments_repo::fetch_member_rating(&mut **tx, &row.student_id).await?;
         let payload = json!({
+            "change": "created",
             "student_name": row.student_name,
+            "student_rating": rating,
             "primary_trainer_name": row.primary_trainer_name,
             "other_trainer_names": other_names,
         });
@@ -192,9 +201,16 @@ impl<'a> TrainingMailer<'a> {
             return Ok(());
         }
 
+        let rating = if primary_changed {
+            training_assignments_repo::fetch_member_rating(&mut **tx, &after.student_id).await?
+        } else {
+            None
+        };
         let payload = json!({
+            "change": "updated",
             "student_name": after.student_name,
             "student_cid": after.student_cid.to_string(),
+            "student_rating": rating,
             "primary_trainer_name": after.primary_trainer_name,
         });
         self.send(
@@ -258,7 +274,11 @@ impl<'a> TrainingMailer<'a> {
         self.send(
             tx,
             "training.assignment_trainer_removed",
-            json!({ "student_name": student_name, "student_cid": student_cid.to_string() }),
+            json!({
+                "change": if release_request_approved { "release_approved" } else { "deleted" },
+                "student_name": student_name,
+                "student_cid": student_cid.to_string(),
+            }),
             &trainers,
         )
         .await

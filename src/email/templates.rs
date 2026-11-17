@@ -567,7 +567,7 @@ fn session_created_schema() -> Value {
 fn ots_assigned_student_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name", "instructor_name"],
+        "required": ["instructor_name"],
         "properties": {
             "student_name": prop("Student Name", None),
             "instructor_name": prop("Instructor Name", None)
@@ -578,7 +578,7 @@ fn ots_assigned_student_schema() -> Value {
 fn ots_assigned_instructor_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name", "instructor_name"],
+        "required": ["student_name"],
         "properties": {
             "student_name": prop("Student Name", None),
             "instructor_name": prop("Instructor Name", None)
@@ -589,7 +589,7 @@ fn ots_assigned_instructor_schema() -> Value {
 fn ots_unassigned_student_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name"],
+        "required": [],
         "properties": {
             "student_name": prop("Student Name", None)
         }
@@ -599,7 +599,7 @@ fn ots_unassigned_student_schema() -> Value {
 fn ots_unassigned_instructor_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name", "instructor_name"],
+        "required": ["student_name"],
         "properties": {
             "student_name": prop("Student Name", None),
             "instructor_name": prop("Instructor Name", None)
@@ -620,7 +620,7 @@ fn ots_deleted_schema() -> Value {
 fn assignment_created_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name", "primary_trainer_name"],
+        "required": ["primary_trainer_name"],
         "properties": {
             "student_name": prop("Student Name", None),
             "primary_trainer_name": prop("Primary Trainer Name", None),
@@ -632,9 +632,11 @@ fn assignment_created_schema() -> Value {
 fn assignment_primary_trainer_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name", "primary_trainer_name"],
+        "required": ["change", "student_name"],
         "properties": {
+            "change": json!({ "type": "string", "title": "Change", "enum": ["created", "updated"] }),
             "student_name": prop("Student Name", None),
+            "student_rating": prop("Student Rating", None),
             "primary_trainer_name": prop("Primary Trainer Name", None)
         }
     })
@@ -643,8 +645,9 @@ fn assignment_primary_trainer_schema() -> Value {
 fn assignment_other_trainer_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name", "primary_trainer_name"],
+        "required": ["change", "student_name", "primary_trainer_name"],
         "properties": {
+            "change": json!({ "type": "string", "title": "Change", "enum": ["created", "updated"] }),
             "student_name": prop("Student Name", None),
             "primary_trainer_name": prop("Primary Trainer Name", None)
         }
@@ -654,7 +657,7 @@ fn assignment_other_trainer_schema() -> Value {
 fn assignment_updated_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name"],
+        "required": [],
         "properties": {
             "student_name": prop("Student Name", None)
         }
@@ -664,8 +667,9 @@ fn assignment_updated_schema() -> Value {
 fn assignment_trainer_removed_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name", "student_cid"],
+        "required": ["change", "student_name", "student_cid"],
         "properties": {
+            "change": json!({ "type": "string", "title": "Change", "enum": ["updated", "deleted", "release_approved"] }),
             "student_name": prop("Student Name", None),
             "student_cid": prop("Student CID", None)
         }
@@ -675,7 +679,7 @@ fn assignment_trainer_removed_schema() -> Value {
 fn assignment_released_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["student_name"],
+        "required": [],
         "properties": {
             "student_name": prop("Student Name", None),
             "release_request_approved": json!({ "type": "boolean", "title": "Release Request Approved" })

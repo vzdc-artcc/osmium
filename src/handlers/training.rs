@@ -333,14 +333,14 @@ pub async fn update_assignment(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let before = training_assignments_repo::fetch_assignment(db, &assignment_id)
+    let current = training_assignments_repo::fetch_assignment(db, &assignment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
     let primary_trainer_id = payload
         .primary_trainer_id
         .as_deref()
-        .unwrap_or(before.primary_trainer_id.as_str());
+        .unwrap_or(current.primary_trainer_id.as_str());
 
     if let Some(other_trainer_ids) = payload.other_trainer_ids.as_ref() {
         let mut seen = HashSet::new();
@@ -364,6 +364,14 @@ pub async fn update_assignment(
 
     let now = Utc::now();
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+
+    // Locked and re-read, since the stored trainer set decides who is emailed.
+    if !training_assignments_repo::lock_assignment(&mut *tx, &assignment_id).await? {
+        return Err(ApiError::NotFound);
+    }
+    let before = training_assignments_repo::fetch_assignment(&mut *tx, &assignment_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
 
     if let Some(primary_trainer_id) = payload.primary_trainer_id.as_deref() {
         training_assignments_repo::update_assignment_primary_trainer(
@@ -436,11 +444,14 @@ pub async fn delete_assignment(
     let user = current_user.as_ref().ok_or(ApiError::Unauthorized)?;
     let db = state.db.as_ref().ok_or(ApiError::ServiceUnavailable)?;
 
-    let before = training_assignments_repo::fetch_assignment(db, &assignment_id)
+    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
+
+    if !training_assignments_repo::lock_assignment(&mut *tx, &assignment_id).await? {
+        return Err(ApiError::NotFound);
+    }
+    let before = training_assignments_repo::fetch_assignment(&mut *tx, &assignment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
-
-    let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
 
     let deleted =
         training_assignments_repo::delete_assignment_row(&mut *tx, &assignment_id).await?;
@@ -621,6 +632,9 @@ pub async fn update_ots_recommendation(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
+    if !training_ots_repo::lock_ots_recommendation(&mut *tx, &recommendation_id).await? {
+        return Err(ApiError::NotFound);
+    }
     let before = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -694,6 +708,9 @@ pub async fn delete_ots_recommendation(
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
     let actor_id = lookup_actor_id(&mut tx, &user.id).await?;
 
+    if !training_ots_repo::lock_ots_recommendation(&mut *tx, &recommendation_id).await? {
+        return Err(ApiError::NotFound);
+    }
     let deleted = training_ots_repo::fetch_ots_recommendation(&mut *tx, &recommendation_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -1926,6 +1943,9 @@ pub async fn decide_release_request(
     let now = Utc::now();
     let mut tx = db.begin().await.map_err(|_| ApiError::Internal)?;
 
+    if !training_release_requests_repo::lock_release_request(&mut *tx, &request_id).await? {
+        return Err(ApiError::NotFound);
+    }
     let before = training_release_requests_repo::fetch_release_request(&mut *tx, &request_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -1973,9 +1993,12 @@ pub async fn decide_release_request(
     )
     .await?;
 
-    // Only the move into APPROVED notifies, so re-deciding an approved request
-    // does not email the student again.
-    if normalized_status == "APPROVED" && before.status != "APPROVED" {
+    // The move into APPROVED notifies, and so does any approval that ended an
+    // assignment. Re-deciding an approved request with nothing to release sends
+    // nothing.
+    if normalized_status == "APPROVED"
+        && (before.status != "APPROVED" || released_assignment.is_some())
+    {
         TrainingMailer::new(&state.email, &mut tx, user)
             .await?
             .assignment_released(

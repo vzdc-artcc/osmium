@@ -176,49 +176,139 @@ mod tests {
         let branding = test_branding();
         let theme = test_theme(&branding);
         let payload = json!({
+            "change": "created",
             "student_name": "Sam Student",
             "student_cid": "1260002",
+            "student_rating": "S2",
             "instructor_name": "Ivy Instructor",
             "primary_trainer_name": "Pat Primary",
             "other_trainer_names": "Olly Other",
         });
+        // (template, text it must contain, whether an empty payload is refused)
         let cases = [
-            ("training.ots_assigned_student", "Ivy Instructor"),
-            ("training.ots_assigned_instructor", "Sam Student"),
-            ("training.ots_unassigned_student", "Sam Student"),
-            ("training.ots_unassigned_instructor", "Sam Student"),
-            ("training.ots_deleted", "Sam Student"),
-            ("training.assignment_created", "Olly Other"),
-            ("training.assignment_primary_trainer", "Sam Student"),
-            ("training.assignment_other_trainer", "Pat Primary"),
-            ("training.assignment_updated", "Sam Student"),
-            ("training.assignment_trainer_removed", "1260002"),
-            ("training.assignment_released", "Sam Student"),
+            ("training.ots_assigned_student", "Ivy Instructor", true),
+            ("training.ots_assigned_instructor", "Sam Student", true),
+            (
+                "training.ots_unassigned_student",
+                "Dear Sam Student,",
+                false,
+            ),
+            ("training.ots_unassigned_instructor", "Sam Student", true),
+            ("training.ots_deleted", "Sam Student", true),
+            ("training.assignment_created", "Olly Other", true),
+            (
+                "training.assignment_primary_trainer",
+                "Sam Student (S2)",
+                true,
+            ),
+            ("training.assignment_other_trainer", "Pat Primary", true),
+            ("training.assignment_updated", "Dear Sam Student,", false),
+            ("training.assignment_released", "Dear Sam Student,", false),
         ];
-        for (id, expected) in cases {
+        for (id, expected, refuses_empty) in cases {
             let template = find_rsx_template(id).unwrap();
             let result = template.render(&payload, &theme, None).unwrap();
             assert!(!result.subject.is_empty(), "{id} subject");
-            assert!(result.html.contains(expected), "{id} html names {expected}");
-            assert!(result.text.contains(expected), "{id} text names {expected}");
-            assert!(
+            assert!(result.html.contains(expected), "{id} html has {expected}");
+            assert!(result.text.contains(expected), "{id} text has {expected}");
+            assert_eq!(
                 template.render(&json!({}), &theme, None).is_err(),
-                "{id} refuses an empty payload"
+                refuses_empty,
+                "{id} empty payload"
+            );
+        }
+
+        // A blank recipient name falls back to a generic greeting.
+        let updated = find_rsx_template("training.assignment_updated").unwrap();
+        let blank = updated
+            .render(&json!({ "student_name": " " }), &theme, None)
+            .unwrap();
+        assert!(blank.text.starts_with("Hello,"), "{}", blank.text);
+    }
+
+    #[test]
+    fn training_trainer_notices_use_the_legacy_subject_for_each_change() {
+        let branding = test_branding();
+        let theme = test_theme(&branding);
+        let cases = [
+            (
+                "training.assignment_primary_trainer",
+                "created",
+                "Training Assignment - Primary",
+            ),
+            (
+                "training.assignment_primary_trainer",
+                "updated",
+                "Training Assignment Updated - Primary Trainer",
+            ),
+            (
+                "training.assignment_other_trainer",
+                "created",
+                "Training Request Fulfilled",
+            ),
+            (
+                "training.assignment_other_trainer",
+                "updated",
+                "Training Assignment Updated - Trainer Added",
+            ),
+            (
+                "training.assignment_trainer_removed",
+                "updated",
+                "Training Assignment Updated - Trainer Removed",
+            ),
+            (
+                "training.assignment_trainer_removed",
+                "deleted",
+                "Training Assignment Released",
+            ),
+            (
+                "training.assignment_trainer_removed",
+                "release_approved",
+                "Release Request Approved",
+            ),
+        ];
+        for (id, change, subject) in cases {
+            let payload = json!({
+                "change": change,
+                "student_name": "Sam Student",
+                "student_cid": "1260002",
+                "primary_trainer_name": "Pat Primary",
+            });
+            let template = find_rsx_template(id).unwrap();
+            let result = template.render(&payload, &theme, None).unwrap();
+            assert_eq!(result.subject, subject, "{id} {change}");
+            let mut unknown = payload.clone();
+            unknown["change"] = json!("archived");
+            assert!(
+                template.render(&unknown, &theme, None).is_err(),
+                "{id} refuses an unknown change"
             );
         }
 
         let released = find_rsx_template("training.assignment_released").unwrap();
-        let forced = released.render(&payload, &theme, None).unwrap();
-        assert_eq!(forced.subject, "Training Assignment Released");
-        assert!(!forced.text.contains("release request has been approved"));
-        let mut approved_payload = payload.clone();
-        approved_payload["release_request_approved"] = json!(true);
-        let approved = released.render(&approved_payload, &theme, None).unwrap();
+        let deleted = released
+            .render(&json!({ "student_name": "Sam Student" }), &theme, None)
+            .unwrap();
+        assert_eq!(deleted.subject, "Training Assignment Deleted");
+        assert!(!deleted.text.contains("release request has been approved"));
+        let approved = released
+            .render(
+                &json!({ "student_name": "Sam Student", "release_request_approved": true }),
+                &theme,
+                None,
+            )
+            .unwrap();
         assert_eq!(approved.subject, "Release Request Approved");
         assert!(
             approved
                 .text
                 .contains("Your release request has been approved.")
+        );
+        assert!(
+            released
+                .render(&json!({ "release_request_approved": "yes" }), &theme, None)
+                .is_err(),
+            "a non-boolean flag is refused"
         );
     }
 

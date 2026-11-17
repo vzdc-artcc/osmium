@@ -57,6 +57,16 @@ async fn drain(app: &TestApp) -> Queued {
     queued
 }
 
+/// The `release_request_approved` flag on the queued `training.assignment_released`.
+async fn released_flag(app: &TestApp) -> Value {
+    sqlx::query_scalar(
+        "select payload->'release_request_approved' from email.outbox where template_id = 'training.assignment_released'",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .expect("read released payload")
+}
+
 fn expect(entries: &[(&str, &[&TestUser])]) -> Queued {
     entries
         .iter()
@@ -133,15 +143,21 @@ async fn assignment_create_update_delete_notify_student_and_trainers() {
             ),
         ])
     );
-    let queue_audits: i64 = sqlx::query_scalar(
-        "select count(*) from access.audit_logs where action = 'QUEUE' and resource_type = 'EMAIL'",
+    let staff_actor: String = sqlx::query_scalar("select id from access.actors where user_id = $1")
+        .bind(&staff.id)
+        .fetch_one(&app.pool)
+        .await
+        .expect("staff actor");
+    let queue_audit_actors: Vec<Option<String>> = sqlx::query_scalar(
+        "select actor_id from access.audit_logs where action = 'QUEUE' and resource_type = 'EMAIL'",
     )
-    .fetch_one(&app.pool)
+    .fetch_all(&app.pool)
     .await
-    .expect("count queue audits");
+    .expect("read queue audits");
     assert_eq!(
-        queue_audits, 3,
-        "each queued email writes its QUEUE audit row"
+        queue_audit_actors,
+        vec![Some(staff_actor); 3],
+        "each queued email writes a QUEUE audit row attributed to the staff actor"
     );
 
     // Trainer A becomes primary, the old primary drops out, C joins.
@@ -169,6 +185,7 @@ async fn assignment_create_update_delete_notify_student_and_trainers() {
     );
 
     send(&app, "DELETE", &uri, &staff, Value::Null).await;
+    assert_eq!(released_flag(&app).await, json!(false));
     assert_eq!(
         drain(&app).await,
         expect(&[
@@ -356,11 +373,40 @@ async fn release_approval_notifies_once_and_denial_sends_nothing() {
         json!({ "status": "APPROVED" }),
     )
     .await;
+    assert_eq!(released_flag(&app).await, json!(true));
     assert_eq!(
         drain(&app).await,
         expect(&[
             ("training.assignment_released", &[&student]),
             ("training.assignment_trainer_removed", &[&trainer]),
+        ])
+    );
+
+    // Re-approving after a new assignment exists ends that assignment too, so its
+    // trainer and the student are told.
+    let new_trainer = app.create_user(1_260_025, "New Trainer", &[]).await;
+    send(
+        &app,
+        "POST",
+        "/api/v1/training/assignments",
+        &staff,
+        json!({ "student_id": student.id, "primary_trainer_id": new_trainer.id }),
+    )
+    .await;
+    drain(&app).await;
+    send(
+        &app,
+        "PATCH",
+        &approve_uri,
+        &staff,
+        json!({ "status": "APPROVED" }),
+    )
+    .await;
+    assert_eq!(
+        drain(&app).await,
+        expect(&[
+            ("training.assignment_released", &[&student]),
+            ("training.assignment_trainer_removed", &[&new_trainer]),
         ])
     );
 

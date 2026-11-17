@@ -42,8 +42,10 @@ active. Guards: refuses nested impersonation, self-target, and SERVER_ADMIN targ
 Durable audit is attributed to the impersonator, and start/stop are server-level
 `AUTH_IMPERSONATION` rows hidden from facility admins. While impersonating, both
 self-service writes (the victim's own account) and admin/integration mutations (every
-outbound side effect — VATUSA/roster, email, Discord, job runs) are refused with `403`;
-impersonation is for read-only support/debugging, and real changes are made after `stop`.
+outbound side effect — VATUSA/roster, email, Discord, job runs) are refused with `403`.
+So are `POST`/`PATCH`/`DELETE` under `/training/assignments`, `/training/ots-recommendations`
+and `/training/trainer-release-requests`, which email students and trainers. Impersonation
+is for read-only support/debugging, and real changes are made after `stop`.
 
 ## Self-Service Profile Surface
 

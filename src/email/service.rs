@@ -274,17 +274,38 @@ impl EmailService {
         let branding = email_branding::fetch_branding(&mut **tx)
             .await?
             .ok_or(ApiError::Internal)?;
-        let users = fetch_explicit_users(&mut **tx, user_ids).await?;
-        if users.is_empty() {
+        let fetched = fetch_explicit_users(&mut **tx, user_ids).await?;
+        let requested: BTreeSet<&str> = user_ids.iter().map(String::as_str).collect();
+        let reached: BTreeSet<&str> = fetched
+            .iter()
+            .filter_map(|user| user.user_id.as_deref())
+            .collect();
+        let missing = requested.difference(&reached).count();
+        if missing > 0 {
             tracing::warn!(
                 template_id,
-                recipient_count = user_ids.len(),
-                "no recipient has an email address; notification not queued"
+                missing,
+                requested = requested.len(),
+                "recipients without a usable email address were skipped"
             );
+        }
+        // Two accounts sharing an address get one copy.
+        let mut users = BTreeMap::<String, ResolvedRecipient>::new();
+        for user in fetched {
+            users.entry(user.email.clone()).or_insert(user);
+        }
+        if users.is_empty() {
             return Ok(None);
         }
-        let resolved = partition_suppressed(&mut **tx, template, users).await?;
-        self.render_check(template, &payload, &branding, &resolved)?;
+        let resolved = partition_suppressed(&mut **tx, template, users.into_values()).await?;
+        // A payload the template cannot render here is a server-side defect (for
+        // example a blank name synced from the roster), not something the caller
+        // of the training route can correct, so it is an internal error.
+        self.render_check(template, &payload, &branding, &resolved)
+            .map_err(|error| {
+                tracing::error!(template_id, error = %error, "notification failed to render");
+                ApiError::Internal
+            })?;
 
         let (id, _) = queue_with_audit(
             tx,
