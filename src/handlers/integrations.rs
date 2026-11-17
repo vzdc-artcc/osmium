@@ -128,21 +128,29 @@ pub async fn unlink_discord(
     path = "/api/v1/me/discord/link/callback",
     tag = "integrations",
     params(DiscordLinkCallbackQuery),
-    responses((status = 303, description = "Redirects back to the website with the link outcome"))
+    responses((status = 303, description = "Redirects back to the website with the link outcome. `discord_error=session_mismatch` when the browser has no osmium session, or a session for a different user than the one who started the flow"))
 )]
 pub async fn discord_link_callback(
     State(state): State<AppState>,
+    Extension(current_user): Extension<Option<CurrentUser>>,
     Query(query): Query<DiscordLinkCallbackQuery>,
 ) -> Redirect {
-    // Public endpoint: Discord redirects the browser here after authorization. The
-    // acting user is identified from the single-use `state` token (bound to a user
-    // at `start`), not the session cookie, so the flow survives the cross-site hop
-    // regardless of cookie SameSite behavior. Every path resolves to a website URL
-    // so the browser always lands somewhere with a readable outcome.
-    Redirect::to(&run_discord_link_callback(&state, query).await)
+    // No permission extractor: Discord redirects the browser here after
+    // authorization, and every path resolves to a website URL so the browser always
+    // lands somewhere with a readable outcome. The link is bound twice: the
+    // single-use `state` token names the user who started the flow, and the
+    // browser's own session must belong to that same user. Without the second
+    // check, a `state` handed to someone else would link their Discord account to
+    // the starter. The session cookie is `SameSite=Lax`, so it rides along on
+    // Discord's top-level redirect.
+    Redirect::to(&run_discord_link_callback(&state, current_user.as_ref(), query).await)
 }
 
-async fn run_discord_link_callback(state: &AppState, query: DiscordLinkCallbackQuery) -> String {
+async fn run_discord_link_callback(
+    state: &AppState,
+    current_user: Option<&CurrentUser>,
+    query: DiscordLinkCallbackQuery,
+) -> String {
     let fail = |return_url: Option<String>, reason: &str| {
         append_query(
             &resolve_return_url(return_url),
@@ -172,6 +180,12 @@ async fn run_discord_link_callback(state: &AppState, query: DiscordLinkCallbackQ
         .get("return_url")
         .and_then(Value::as_str)
         .map(str::to_string);
+
+    // Checked before anything else touches Discord or the database: a browser that
+    // is not the starter's gets nothing linked and the state stays with its owner.
+    if current_user.is_none_or(|user| user.id != state_row.external_id) {
+        return fail(return_url, "session_mismatch");
+    }
 
     // Discord bounced back with an explicit error (e.g. the user pressed Cancel).
     if let Some(err) = query
